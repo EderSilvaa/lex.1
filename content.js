@@ -18,13 +18,12 @@
   let chatMessages = [];
   let isTyping = false;
   
-  // Verificar se é sistema PJe
+  // Verificar se é sistema PJe (simplificado - manifest já filtra)
   function isPjeSystem() {
     const url = window.location.href;
-    const isPje = url.includes('pje.jus.br') || 
-                  url.includes('tjsp.jus.br') ||
-                  url.includes('localhost') ||
-                  url.includes('file://');
+    const isPje = url.includes('.jus.br') || 
+                  url.includes('teste-pje.html') ||
+                  url.includes('localhost');
     
     console.log('🔍 Verificando PJe:', url, '→', isPje);
     return isPje;
