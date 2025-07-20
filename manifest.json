@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Chat PJe Assistant",
+  "version": "1.0",
+  "description": "Chat integrado para o sistema PJe",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "*://*.pje.jus.br/*",
+    "*://*.tjsp.jus.br/*",
+    "*://*.tjpa.jus.br/*",
+    "*://localhost/*",
+    "file://*/*",
+    "https://pje.tjpa.jus.br/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Chat PJe"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.pje.jus.br/*", "*://*.tjsp.jus.br/*", "*://localhost/*", "file://*/*", "*://*/*"],
+      "js": ["content.js"],
+      "css": ["chat-styles.css"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["chat-styles.css", "content.js"],
+      "matches": ["*://*.pje.jus.br/*", "*://*.tjsp.jus.br/*", "*://localhost/*", "file://*/*"]
+    }
+  ]
+}
