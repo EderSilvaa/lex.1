@@ -15,6 +15,16 @@
   let isTyping = false;
   let botaoChat = null;
   
+  // Configurações da API
+  let apiConfig = {
+    enabled: false,
+    apiKey: null,
+    model: 'gpt-3.5-turbo',
+    baseURL: 'https://api.openai.com/v1/chat/completions',
+    maxTokens: 500,
+    temperature: 0.7
+  };
+  
   // Cache de elementos DOM
   const domCache = {
     body: null,
@@ -939,12 +949,120 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
   
-  // Gerar resposta do assistente
+  // Configurar API da OpenAI
+  function configurarAPI(apiKey, options = {}) {
+    apiConfig.enabled = true;
+    apiConfig.apiKey = apiKey;
+    apiConfig.model = options.model || 'gpt-3.5-turbo';
+    apiConfig.maxTokens = options.maxTokens || 500;
+    apiConfig.temperature = options.temperature || 0.7;
+    
+    console.log('🔑 API da OpenAI configurada');
+    
+    // Salvar configuração no localStorage
+    localStorage.setItem('pje-assistant-api-config', JSON.stringify({
+      enabled: true,
+      model: apiConfig.model,
+      maxTokens: apiConfig.maxTokens,
+      temperature: apiConfig.temperature
+    }));
+  }
+  
+  // Carregar configuração da API
+  function carregarConfiguracaoAPI() {
+    try {
+      const savedConfig = localStorage.getItem('pje-assistant-api-config');
+      if (savedConfig) {
+        const config = JSON.parse(savedConfig);
+        apiConfig.enabled = config.enabled || false;
+        apiConfig.model = config.model || 'gpt-3.5-turbo';
+        apiConfig.maxTokens = config.maxTokens || 500;
+        apiConfig.temperature = config.temperature || 0.7;
+        
+        // Verificar se tem API key salva (não recomendado, mas possível)
+        const savedApiKey = localStorage.getItem('pje-assistant-api-key');
+        if (savedApiKey) {
+          apiConfig.apiKey = savedApiKey;
+        }
+        
+        console.log('📋 Configuração da API carregada:', config);
+      }
+    } catch (error) {
+      console.log('⚠️ Erro ao carregar configuração da API:', error);
+    }
+  }
+  
+  // Chamar API da OpenAI
+  async function chamarOpenAI(pergunta, contexto = {}) {
+    if (!apiConfig.enabled || !apiConfig.apiKey) {
+      throw new Error('API não configurada');
+    }
+    
+    try {
+      const mensagens = [
+        {
+          role: 'system',
+          content: `Você é o PJe Assistant, um assistente especializado no sistema PJe (Processo Judicial Eletrônico) do Brasil. 
+          
+          Contexto do processo atual:
+          - Número: ${contexto.numeroProcesso || 'Não identificado'}
+          - Documento ID: ${contexto.documentoId || 'Não identificado'}
+          - Nome do documento: ${contexto.nomeDocumento || 'Não identificado'}
+          - Tribunal: ${contexto.tribunal || 'Não identificado'}
+          
+          Responda de forma útil, precisa e profissional sobre questões relacionadas ao PJe, processos judiciais e documentos. Use emojis quando apropriado e mantenha as respostas concisas mas informativas.`
+        },
+        {
+          role: 'user',
+          content: pergunta
+        }
+      ];
+      
+      const response = await fetch(apiConfig.baseURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiConfig.apiKey}`
+        },
+        body: JSON.stringify({
+          model: apiConfig.model,
+          messages: mensagens,
+          max_tokens: apiConfig.maxTokens,
+          temperature: apiConfig.temperature
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.choices[0].message.content;
+      
+    } catch (error) {
+      console.error('❌ Erro na API da OpenAI:', error);
+      throw error;
+    }
+  }
+  
+  // Gerar resposta do assistente (híbrido: API + simulado)
   async function gerarResposta(pergunta) {
     const perguntaLower = pergunta.toLowerCase();
     
     // Extrair dados atualizados do processo
     const dadosProcesso = await extrairInformacoesOtimizado();
+    
+    // Tentar usar API da OpenAI primeiro
+    if (apiConfig.enabled && apiConfig.apiKey) {
+      try {
+        console.log('🤖 Usando API da OpenAI...');
+        const respostaAPI = await chamarOpenAI(pergunta, dadosProcesso);
+        return respostaAPI;
+      } catch (error) {
+        console.log('⚠️ Erro na API, usando respostas simuladas:', error);
+        // Continuar para respostas simuladas em caso de erro
+      }
+    }
     
     // Perguntas sobre dados específicos do processo
     if (perguntaLower.includes('valor') && perguntaLower.includes('causa')) {
@@ -1579,6 +1697,150 @@
     console.log('👁️ Observador ultra-otimizado ativado');
   }
   
+  // Função para configurar API via interface
+  function mostrarPainelConfiguracao() {
+    const painel = document.createElement('div');
+    painel.id = 'pje-api-config-panel';
+    painel.innerHTML = `
+      <div style="
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        z-index: 2147483648;
+        width: 400px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      ">
+        <h3 style="margin: 0 0 20px 0; color: #2c5aa0;">🔑 Configurar API OpenAI</h3>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">API Key:</label>
+          <input type="password" id="api-key-input" placeholder="sk-..." style="
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+          ">
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Modelo:</label>
+          <select id="model-select" style="
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+          ">
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Recomendado)</option>
+            <option value="gpt-4">GPT-4</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+          </select>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Max Tokens:</label>
+          <input type="number" id="max-tokens-input" value="500" min="100" max="2000" style="
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+          ">
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button id="cancel-config" style="
+            padding: 10px 20px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+          ">Cancelar</button>
+          
+          <button id="save-config" style="
+            padding: 10px 20px;
+            border: none;
+            background: #2c5aa0;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+          ">Salvar</button>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #666;">
+          💡 <strong>Dica:</strong> Sua API key será salva localmente no navegador. Para maior segurança, você pode configurar a cada sessão.
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(painel);
+    
+    // Eventos do painel
+    document.getElementById('cancel-config').addEventListener('click', () => {
+      painel.remove();
+    });
+    
+    document.getElementById('save-config').addEventListener('click', () => {
+      const apiKey = document.getElementById('api-key-input').value.trim();
+      const model = document.getElementById('model-select').value;
+      const maxTokens = parseInt(document.getElementById('max-tokens-input').value);
+      
+      if (!apiKey) {
+        alert('Por favor, insira sua API key da OpenAI');
+        return;
+      }
+      
+      configurarAPI(apiKey, { model, maxTokens });
+      painel.remove();
+      
+      // Mostrar confirmação
+      const confirmacao = document.createElement('div');
+      confirmacao.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #4CAF50;
+          color: white;
+          padding: 15px 20px;
+          border-radius: 6px;
+          z-index: 2147483649;
+          font-family: Arial, sans-serif;
+        ">
+          ✅ API configurada com sucesso!
+        </div>
+      `;
+      document.body.appendChild(confirmacao);
+      
+      setTimeout(() => confirmacao.remove(), 3000);
+    });
+  }
+  
+  // Adicionar comando para configurar API
+  function adicionarComandoConfiguracao() {
+    // Adicionar ao chat uma mensagem sobre configuração da API
+    window.pjeAssistantConfigurarAPI = mostrarPainelConfiguracao;
+    
+    // Adicionar atalho de teclado (Ctrl+Shift+A)
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        mostrarPainelConfiguracao();
+      }
+    });
+  }
+  
+  // Carregar configuração ao inicializar
+  carregarConfiguracaoAPI();
+  
   // Executar inicialização otimizada
   inicializarAssistente();
   
@@ -1586,5 +1848,8 @@
   setTimeout(() => {
     observarMudancasDocumento();
   }, 5000);
+  
+  // Adicionar comando de configuração
+  adicionarComandoConfiguracao();
   
 })();
