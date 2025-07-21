@@ -1,42 +1,166 @@
-// Chat PJe Assistant - Versão Completa
+// Chat PJe Assistant - Versão Otimizada
 (function() {
   'use strict';
   
-  console.log('🚀 PJE ASSISTANT v3.0 - INICIANDO');
-  
-  // Verificar se já foi carregado
+  // Verificar se já foi carregado (otimizado)
   if (window.pjeAssistantActive) {
-    console.log('⚠️ PJe Assistant já ativo, cancelando duplicação');
     return;
   }
   
   window.pjeAssistantActive = true;
-  console.log('✅ PJe Assistant ativado');
   
   // Variáveis globais
   let chatContainer = null;
   let chatMessages = [];
   let isTyping = false;
+  let botaoChat = null;
   
-  // Verificar se é sistema PJe (simplificado - manifest já filtra)
-  function isPjeSystem() {
-    const url = window.location.href;
-    const isPje = url.includes('.jus.br') || 
-                  url.includes('teste-pje.html') ||
-                  url.includes('localhost');
+  // Cache de elementos DOM
+  const domCache = {
+    body: null,
+    embeds: null,
+    lastUpdate: 0
+  };
+  
+  // Inicialização ultra-otimizada
+  function inicializarAssistente() {
+    // Aguardar DOM estar pronto
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', inicializarAssistente);
+      return;
+    }
     
-    console.log('🔍 Verificando PJe:', url, '→', isPje);
-    return isPje;
+    // Usar requestIdleCallback para não bloquear o thread principal
+    if (window.requestIdleCallback) {
+      requestIdleCallback(() => {
+        setTimeout(() => {
+          if (document.body) {
+            botaoChat = criarBotaoChat();
+          }
+        }, 3000); // 3 segundos para garantir que a página carregou
+      });
+    } else {
+      // Fallback para navegadores sem requestIdleCallback
+      setTimeout(() => {
+        if (document.body) {
+          botaoChat = criarBotaoChat();
+        }
+      }, 3000);
+    }
+  }
+
+  // Otimização: Extrair informações apenas quando necessário
+  async function extrairInformacoesOtimizado() {
+    // Cache simples para evitar re-processamento
+    if (domCache.lastUpdate && (Date.now() - domCache.lastUpdate) < 5000) {
+      return domCache.info || {};
+    }
+    
+    const info = {};
+    
+    // Buscar informações de forma otimizada
+    try {
+      const texto = document.body?.innerText || '';
+      
+      // 1. Buscar número do processo
+      const numeroMatch = texto.match(/(\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4})/);
+      if (numeroMatch) {
+        info.numeroProcesso = numeroMatch[0];
+      }
+      
+      // 2. Detectar documento via embed/iframe (otimizado)
+      const embeds = document.querySelectorAll('embed, iframe');
+      for (let embed of embeds) {
+        const src = embed.src || embed.getAttribute('src');
+        if (src && (src.includes('documento') || src.includes('pdf'))) {
+          // Extrair ID do documento
+          let docId = null;
+          const downloadMatch = src.match(/\/documento\/download\/(\d+)/);
+          if (downloadMatch) {
+            docId = downloadMatch[1];
+          } else {
+            const urlParams = new URLSearchParams(src.split('?')[1] || '');
+            docId = urlParams.get('idDocumento') || urlParams.get('id') || urlParams.get('docId');
+          }
+          
+          if (docId) {
+            info.documentoId = docId;
+            
+            // Tentar extrair nome do documento
+            let docName = embed.title || embed.getAttribute('title');
+            if (!docName) {
+              // Buscar na barra lateral por elementos selecionados
+              const elementosAtivos = document.querySelectorAll('.rich-tree-node-selected, .selected, .active, .highlight');
+              for (let el of elementosAtivos) {
+                const textoEl = el.innerText || el.textContent || '';
+                if (textoEl.includes(docId) || textoEl.length > 10) {
+                  docName = textoEl.trim().split('\n')[0];
+                  break;
+                }
+              }
+            }
+            
+            if (docName) {
+              info.nomeDocumento = docName;
+            }
+          }
+          break;
+        }
+      }
+      
+      // 3. Identificar tipo de documento (otimizado)
+      if (!info.nomeDocumento) {
+        const tiposDocumento = [
+          'Petição Inicial', 'Contestação', 'Sentença', 'Decisão', 'Despacho', 
+          'Acórdão', 'Certidão', 'Mandado', 'Intimação', 'Recurso', 'Embargos'
+        ];
+        
+        for (let tipo of tiposDocumento) {
+          if (texto.includes(tipo)) {
+            info.tipoDocumento = tipo;
+            info.nomeDocumento = tipo;
+            break;
+          }
+        }
+      }
+      
+      // 4. Identificar tribunal
+      if (window.location.href.includes('tjsp')) {
+        info.tribunal = 'TJSP';
+      } else if (window.location.href.includes('tjpa')) {
+        info.tribunal = 'TJPA';
+      } else if (window.location.href.includes('pje.jus.br')) {
+        info.tribunal = 'PJe Nacional';
+      }
+      
+      // Cache do resultado
+      domCache.info = info;
+      domCache.lastUpdate = Date.now();
+      
+      console.log('📊 Informações extraídas:', info);
+      
+    } catch (error) {
+      console.log('⚠️ Erro na extração otimizada:', error);
+    }
+    
+    return info;
   }
   
   // Criar botão do chat
   function criarBotaoChat() {
     console.log('🔧 Criando botão do chat...');
     
+    // Verificar se já existe um botão
+    const botaoExistente = document.querySelector('[id^="pje-assistant-btn-"]');
+    if (botaoExistente) {
+      console.log('⚠️ Botão já existe, removendo duplicata');
+      botaoExistente.remove();
+    }
+    
     const botao = document.createElement('button');
     botao.id = 'pje-assistant-btn-' + Date.now();
     botao.innerHTML = '💬';
-    botao.title = 'PJe Assistant';
+    botao.title = 'PJe Assistant - Arraste para mover';
     
     botao.setAttribute('style', `
       position: fixed !important;
@@ -48,59 +172,160 @@
       color: white !important;
       border: none !important;
       border-radius: 50% !important;
-      cursor: pointer !important;
+      cursor: move !important;
       font-size: 20px !important;
       z-index: 2147483647 !important;
       box-shadow: 0 4px 15px rgba(44, 90, 160, 0.4) !important;
       transition: all 0.3s ease !important;
       font-family: Arial, sans-serif !important;
+      user-select: none !important;
     `);
+    
+    // Variáveis para controle do drag
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let buttonStartX = 0;
+    let buttonStartY = 0;
+    let clickStartTime = 0;
+    let hasMoved = false;
     
     // Hover effects
     botao.addEventListener('mouseenter', function() {
-      this.style.transform = 'scale(1.1) translateY(-2px)';
-      this.style.boxShadow = '0 6px 20px rgba(44, 90, 160, 0.6)';
+      if (!isDragging) {
+        this.style.transform = 'scale(1.1) translateY(-2px)';
+        this.style.boxShadow = '0 6px 20px rgba(44, 90, 160, 0.6)';
+      }
     });
     
     botao.addEventListener('mouseleave', function() {
-      this.style.transform = 'scale(1) translateY(0)';
-      this.style.boxShadow = '0 4px 15px rgba(44, 90, 160, 0.4)';
+      if (!isDragging) {
+        this.style.transform = 'scale(1) translateY(0)';
+        this.style.boxShadow = '0 4px 15px rgba(44, 90, 160, 0.4)';
+      }
     });
     
-    // Evento de clique
-    botao.addEventListener('click', function(e) {
+    // Início do drag
+    botao.addEventListener('mousedown', function(e) {
       e.preventDefault();
-      e.stopPropagation();
-      console.log('🖱️ Botão clicado!');
-      abrirChat();
+      isDragging = true;
+      hasMoved = false;
+      clickStartTime = Date.now();
+      
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      
+      const rect = botao.getBoundingClientRect();
+      buttonStartX = rect.left;
+      buttonStartY = rect.top;
+      
+      // Mudar cursor e estilo durante drag
+      botao.style.cursor = 'grabbing';
+      botao.style.transform = 'scale(1.05)';
+      botao.style.boxShadow = '0 8px 25px rgba(44, 90, 160, 0.8)';
+      botao.style.transition = 'none';
+      
+      console.log('🖱️ Iniciando drag do botão');
     });
+    
+    // Durante o drag
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      
+      e.preventDefault();
+      
+      const deltaX = e.clientX - dragStartX;
+      const deltaY = e.clientY - dragStartY;
+      
+      // Marcar que houve movimento se passou de um threshold
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+        hasMoved = true;
+      }
+      
+      const newX = buttonStartX + deltaX;
+      const newY = buttonStartY + deltaY;
+      
+      // Limitar às bordas da tela
+      const maxX = window.innerWidth - 55;
+      const maxY = window.innerHeight - 55;
+      
+      const finalX = Math.max(0, Math.min(newX, maxX));
+      const finalY = Math.max(0, Math.min(newY, maxY));
+      
+      botao.style.left = finalX + 'px';
+      botao.style.top = finalY + 'px';
+      botao.style.right = 'auto';
+      botao.style.bottom = 'auto';
+    });
+    
+    // Fim do drag
+    document.addEventListener('mouseup', function(e) {
+      if (!isDragging) return;
+      
+      isDragging = false;
+      const clickDuration = Date.now() - clickStartTime;
+      
+      // Restaurar estilo
+      botao.style.cursor = 'move';
+      botao.style.transform = 'scale(1)';
+      botao.style.boxShadow = '0 4px 15px rgba(44, 90, 160, 0.4)';
+      botao.style.transition = 'all 0.3s ease';
+      
+      // Se foi um clique rápido sem movimento, abrir chat
+      if (!hasMoved && clickDuration < 300) {
+        console.log('🖱️ Clique detectado - abrindo chat');
+        setTimeout(() => abrirChat(), 100);
+      } else if (hasMoved) {
+        console.log('🖱️ Botão movido para nova posição');
+        
+        // Salvar posição no localStorage
+        const rect = botao.getBoundingClientRect();
+        localStorage.setItem('pje-assistant-position', JSON.stringify({
+          x: rect.left,
+          y: rect.top
+        }));
+      }
+    });
+    
+    // Restaurar posição salva
+    const savedPosition = localStorage.getItem('pje-assistant-position');
+    if (savedPosition) {
+      try {
+        const pos = JSON.parse(savedPosition);
+        botao.style.left = pos.x + 'px';
+        botao.style.top = pos.y + 'px';
+        botao.style.right = 'auto';
+        botao.style.bottom = 'auto';
+        console.log('📍 Posição restaurada:', pos);
+      } catch (e) {
+        console.log('⚠️ Erro ao restaurar posição:', e);
+      }
+    }
     
     document.body.appendChild(botao);
-    console.log('✅ Botão criado e adicionado');
+    console.log('✅ Botão arrastável criado e adicionado');
     
     return botao;
   }
   
-  // Função para abrir chat
+  // Função para abrir chat (otimizada)
   async function abrirChat() {
-    console.log('💬 Abrindo chat...');
-    
     try {
-      console.log('🔍 Extraindo informações...');
-      const info = await extrairInformacoes();
-      console.log('📊 Informações extraídas para chat:', info);
-      
       if (!chatContainer) {
-        console.log('🎨 Criando nova interface do chat...');
+        // Usar informações básicas otimizadas
+        const info = await extrairInformacoesOtimizado();
         criarInterfaceChat(info);
       } else {
-        console.log('👁️ Mostrando chat existente...');
         mostrarChat();
       }
-      
     } catch (error) {
       console.error('❌ Erro ao abrir chat:', error);
-      alert('🎯 PJe Assistant Ativo!\n\n✅ Extensão funcionando corretamente!\n\n🤖 Como posso ajudá-lo?');
+      // Fallback simples
+      if (!chatContainer) {
+        criarInterfaceChat({});
+      } else {
+        mostrarChat();
+      }
     }
   }  
   
@@ -624,7 +849,7 @@
     const perguntaLower = pergunta.toLowerCase();
     
     // Extrair dados atualizados do processo
-    const dadosProcesso = await extrairDadosDetalhados();
+    const dadosProcesso = await extrairInformacoesOtimizado();
     
     // Perguntas sobre dados específicos do processo
     if (perguntaLower.includes('valor') && perguntaLower.includes('causa')) {
@@ -1099,32 +1324,172 @@
     console.log('🚀 Inicializando PJe Assistant...');
     
     // Iniciar observadores
-    observarMudancas();
-    observarCliquesBarraLateral();
+  }
+  
+  // Função para atualizar informações do chat quando mudar documento
+  function atualizarInfoChat() {
+    if (!chatContainer) return;
     
-    if (isPjeSystem()) {
-      console.log('✅ Sistema PJe detectado');
-      setTimeout(() => {
-        criarBotaoChat();
-      }, 2000);
-    } else {
-      console.log('ℹ️ Não é sistema PJe, mas criando botão para teste');
-      setTimeout(() => {
-        criarBotaoChat();
-      }, 1000);
+    // Extrair novas informações
+    extrairInformacoesOtimizado().then(info => {
+      const infoContent = document.querySelector('.info-content');
+      if (infoContent && info) {
+        infoContent.innerHTML = `
+          ${info.numeroProcesso ? `<div class="info-item"><span class="info-label">Processo:</span> <span class="info-value">${info.numeroProcesso}</span></div>` : ''}
+          ${info.documentoId ? `<div class="info-item"><span class="info-label">ID Documento:</span> <span class="info-value">${info.documentoId}</span></div>` : ''}
+          ${info.nomeDocumento || info.tipoDocumento ? `<div class="info-item"><span class="info-label">Nome:</span> <span class="info-value">${info.nomeDocumento || info.tipoDocumento}</span></div>` : ''}
+          ${info.tribunal ? `<div class="info-item"><span class="info-label">Tribunal:</span> <span class="info-value">${info.tribunal}</span></div>` : ''}
+        `;
+        console.log('🔄 Informações do chat atualizadas:', info);
+        
+        // Adicionar mensagem no chat sobre a mudança
+        if (info.documentoId || info.nomeDocumento) {
+          const messagesContainer = document.getElementById('pje-chat-messages');
+          if (messagesContainer) {
+            const updateMessage = document.createElement('div');
+            updateMessage.className = 'chat-message assistant';
+            updateMessage.innerHTML = `
+              <div class="message-bubble assistant">
+                📄 <strong>Documento atualizado!</strong><br><br>
+                ${info.documentoId ? `ID: ${info.documentoId}<br>` : ''}
+                ${info.nomeDocumento ? `Nome: ${info.nomeDocumento}` : ''}
+              </div>
+              <div class="message-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+            `;
+            messagesContainer.appendChild(updateMessage);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          }
+        }
+      }
+    });
+  }
+  
+  // Observar mudanças na página para atualizar informações (ultra-otimizado)
+  function observarMudancasDocumento() {
+    let ultimoDocumentoId = null;
+    let ultimaURL = null;
+    let verificandoMudanca = false;
+    
+    // Função otimizada para verificar mudanças
+    function verificarMudancaDocumento() {
+      if (verificandoMudanca) return;
+      verificandoMudanca = true;
+      
+      try {
+        // Buscar documento atual de forma mais eficiente
+        const embeds = document.querySelectorAll('embed[src*="documento"], iframe[src*="documento"], embed[src*="pdf"], iframe[src*="pdf"]');
+        let documentoAtual = null;
+        let urlAtual = null;
+        
+        for (let embed of embeds) {
+          const src = embed.src;
+          if (src) {
+            urlAtual = src;
+            
+            // Extrair ID do documento
+            const downloadMatch = src.match(/\/documento\/download\/(\d+)/);
+            if (downloadMatch) {
+              documentoAtual = downloadMatch[1];
+              break;
+            }
+            
+            const urlParams = new URLSearchParams(src.split('?')[1] || '');
+            documentoAtual = urlParams.get('idDocumento') || urlParams.get('id') || urlParams.get('docId');
+            if (documentoAtual) break;
+          }
+        }
+        
+        // Verificar se houve mudança real
+        const mudouDocumento = documentoAtual && documentoAtual !== ultimoDocumentoId;
+        const mudouURL = urlAtual && urlAtual !== ultimaURL;
+        
+        if (mudouDocumento || mudouURL) {
+          console.log('📄 Documento mudou:', ultimoDocumentoId, '→', documentoAtual);
+          ultimoDocumentoId = documentoAtual;
+          ultimaURL = urlAtual;
+          
+          // Limpar cache para forçar nova extração
+          domCache.lastUpdate = 0;
+          
+          // Aguardar documento carregar e atualizar
+          setTimeout(atualizarInfoChat, 800);
+        }
+        
+      } catch (error) {
+        console.log('⚠️ Erro na verificação:', error);
+      } finally {
+        verificandoMudanca = false;
+      }
     }
+    
+    // 1. Observador de cliques global (mais eficiente)
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      const texto = target.textContent || '';
+      
+      // Detectar cliques em elementos que podem mudar documento
+      if (target.closest('.rich-tree-node') || 
+          target.closest('[class*="tree"]') || 
+          target.closest('[class*="node"]') ||
+          target.closest('[class*="document"]') ||
+          texto.match(/\d+\s*-\s*.+/) ||
+          texto.includes('pdf') ||
+          texto.includes('doc')) {
+        
+        console.log('🖱️ Clique relevante detectado');
+        
+        // Aguardar carregamento e verificar
+        setTimeout(verificarMudancaDocumento, 1200);
+      }
+    });
+    
+    // 2. Observador de mudanças em src (específico)
+    const observer = new MutationObserver((mutations) => {
+      let shouldCheck = false;
+      
+      for (let mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
+          const target = mutation.target;
+          if (target.tagName === 'EMBED' || target.tagName === 'IFRAME') {
+            shouldCheck = true;
+            break;
+          }
+        }
+      }
+      
+      if (shouldCheck) {
+        setTimeout(verificarMudancaDocumento, 300);
+      }
+    });
+    
+    // Observar apenas embeds e iframes
+    const embeds = document.querySelectorAll('embed, iframe');
+    embeds.forEach(embed => {
+      observer.observe(embed, {
+        attributes: true,
+        attributeFilter: ['src']
+      });
+    });
+    
+    // 3. Verificação periódica leve (fallback)
+    setInterval(() => {
+      if (!verificandoMudanca) {
+        verificarMudancaDocumento();
+      }
+    }, 5000); // A cada 5 segundos
+    
+    // 4. Verificação inicial
+    setTimeout(verificarMudancaDocumento, 1000);
+    
+    console.log('👁️ Observador ultra-otimizado ativado');
   }
   
-  // Executar quando DOM estiver pronto
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', inicializar);
-  } else {
-    inicializar();
-  }
+  // Executar inicialização otimizada
+  inicializarAssistente();
   
-  // Também executar após timeout para garantir
-  setTimeout(inicializar, 3000);
-  
-  console.log('🏁 PJe Assistant carregado');
+  // Ativar observador após inicialização
+  setTimeout(() => {
+    observarMudancasDocumento();
+  }, 5000);
   
 })();
