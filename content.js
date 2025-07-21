@@ -146,9 +146,9 @@
     return info;
   }
   
-  // Criar botão do chat
+  // Criar botão do chat integrado na navbar
   function criarBotaoChat() {
-    console.log('🔧 Criando botão do chat...');
+    console.log('🔧 Criando botão integrado na navbar...');
     
     // Verificar se já existe um botão
     const botaoExistente = document.querySelector('[id^="pje-assistant-btn-"]');
@@ -157,23 +157,110 @@
       botaoExistente.remove();
     }
     
+    // Tentar encontrar a navbar do PJe (seletores específicos baseados na estrutura real)
+    const navbar = document.querySelector('ul.nav.navbar-nav:last-child') ||
+                   document.querySelector('.navbar-nav:last-child') ||
+                   document.querySelector('.navbar-right ul') ||
+                   document.querySelector('.pull-right ul') ||
+                   document.querySelector('ul.nav:last-of-type') ||
+                   document.querySelector('.navbar ul:last-child') ||
+                   document.querySelector('.navbar-fixed-top ul:last-child');
+    
+    if (navbar) {
+      console.log('📍 Navbar encontrada, integrando botão');
+      return criarBotaoIntegrado(navbar);
+    } else {
+      console.log('📍 Navbar não encontrada, criando botão flutuante');
+      return criarBotaoFlutuante();
+    }
+  }
+  
+  // Criar botão integrado na navbar
+  function criarBotaoIntegrado(navbar) {
+    // Criar elemento <li> para integrar na lista
+    const li = document.createElement('li');
+    li.className = 'dropdown';
+    
+    // Criar o link/botão
+    const botao = document.createElement('a');
+    botao.id = 'pje-assistant-btn-' + Date.now();
+    botao.href = '#';
+    botao.innerHTML = '💬';
+    botao.title = 'PJe Assistant - Chat Inteligente';
+    
+    // Estilo para ficar igual aos outros ícones da navbar
+    botao.setAttribute('style', `
+      color: white !important;
+      text-decoration: none !important;
+      padding: 15px !important;
+      display: block !important;
+      font-size: 16px !important;
+      line-height: 20px !important;
+      transition: background-color 0.2s ease !important;
+      cursor: pointer !important;
+      user-select: none !important;
+    `);
+    
+    // Hover effects iguais aos outros itens
+    botao.addEventListener('mouseenter', function() {
+      this.style.backgroundColor = 'rgba(255,255,255,0.1)';
+    });
+    
+    botao.addEventListener('mouseleave', function() {
+      this.style.backgroundColor = 'transparent';
+    });
+    
+    // Evento de clique
+    botao.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('🖱️ Botão integrado clicado!');
+      abrirChat();
+    });
+    
+    // Montar estrutura
+    li.appendChild(botao);
+    
+    // Inserir na navbar
+    if (navbar.tagName === 'UL') {
+      navbar.appendChild(li);
+    } else {
+      // Se não for UL, procurar UL dentro
+      const ul = navbar.querySelector('ul');
+      if (ul) {
+        ul.appendChild(li);
+      } else {
+        // Fallback: criar wrapper
+        const wrapper = document.createElement('div');
+        wrapper.style.display = 'inline-block';
+        wrapper.appendChild(botao);
+        navbar.appendChild(wrapper);
+      }
+    }
+    
+    console.log('✅ Botão integrado criado na navbar');
+    return botao;
+  }
+  
+  // Criar botão flutuante (fallback)
+  function criarBotaoFlutuante() {
     const botao = document.createElement('button');
     botao.id = 'pje-assistant-btn-' + Date.now();
     botao.innerHTML = '💬';
-    botao.title = 'PJe Assistant - Arraste para mover';
+    botao.title = 'PJe Assistant';
     
     botao.setAttribute('style', `
       position: fixed !important;
       top: 20px !important;
       right: 20px !important;
-      width: 55px !important;
-      height: 55px !important;
+      width: 50px !important;
+      height: 50px !important;
       background: linear-gradient(135deg, #2c5aa0, #1e3d6f) !important;
       color: white !important;
       border: none !important;
       border-radius: 50% !important;
-      cursor: move !important;
-      font-size: 20px !important;
+      cursor: pointer !important;
+      font-size: 18px !important;
       z-index: 2147483647 !important;
       box-shadow: 0 4px 15px rgba(44, 90, 160, 0.4) !important;
       transition: all 0.3s ease !important;
@@ -302,8 +389,16 @@
       }
     }
     
+    // Evento de clique simples para fallback
+    botao.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('🖱️ Botão flutuante clicado!');
+      abrirChat();
+    });
+    
     document.body.appendChild(botao);
-    console.log('✅ Botão arrastável criado e adicionado');
+    console.log('✅ Botão flutuante criado e adicionado');
     
     return botao;
   }
