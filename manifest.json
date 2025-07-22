@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Chat PJe Assistant",
+  "name": "Lex.",
   "version": "1.0",
-  "description": "Chat integrado para o sistema PJe",
+  "description": "Assistente jurídico inteligente para o sistema PJe",
   "permissions": [
     "activeTab",
     "storage",
@@ -19,7 +19,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Chat PJe"
+    "default_title": "Lex."
   },
   "content_scripts": [
     {
@@ -84,8 +84,7 @@
         "*://*.trt24.jus.br/*",
         "file://*/teste-pje.html"
       ],
-      "js": ["content.js"],
-      "css": ["chat-styles.css"],
+      "js": ["content-simple.js"],
       "run_at": "document_end",
       "all_frames": false
     }
@@ -95,7 +94,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["chat-styles.css", "content.js"],
+      "resources": ["chat-styles.css", "content-simple.js"],
       "matches": ["<all_urls>"]
     }
   ]

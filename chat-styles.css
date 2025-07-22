@@ -1,216 +1,257 @@
-/* Estilos para o chat integrado no PJe */
-#pje-chat-container {
-    position: fixed !important;
-    top: 60px !important;
-    right: 20px !important;
-    width: 380px !important;
-    height: 520px !important;
-    background: white !important;
-    border: 1px solid #ddd !important;
-    border-radius: 12px !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2) !important;
-    z-index: 999999 !important;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif !important;
-    display: none !important;
-    flex-direction: column !important;
-    backdrop-filter: blur(10px) !important;
+/* Lex Chat - Design Moderno e Minimalista */
+
+/* Reset básico para evitar conflitos */
+.lex-chat, .lex-chat * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
 }
 
-#pje-chat-container.open {
-    display: flex !important;
+/* Container principal */
+.lex-chat {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  height: 450px;
+  background-color: #1a1a1a;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 999999;
+  border: 1px solid #333;
 }
 
-#pje-chat-header {
-    background: linear-gradient(135deg, #2c5aa0 0%, #1e3d6f 100%) !important;
-    color: white !important;
-    padding: 18px 20px !important;
-    border-radius: 12px 12px 0 0 !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+.lex-chat.visible {
+  display: flex;
 }
 
-#pje-chat-title {
-    font-weight: 600 !important;
-    font-size: 16px !important;
-    letter-spacing: 0.5px !important;
+/* Header */
+.lex-header {
+  background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+  padding: 12px 16px;
+  color: white;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-#pje-chat-close {
-    background: none !important;
-    border: none !important;
-    color: white !important;
-    font-size: 18px !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-    width: 20px !important;
-    height: 20px !important;
+.lex-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
 }
 
-#pje-chat-messages {
-    flex: 1 !important;
-    padding: 20px !important;
-    overflow-y: auto !important;
-    max-height: 380px !important;
-    background: #fafafa !important;
+.lex-title-area {
+  display: flex;
+  flex-direction: column;
 }
 
-#pje-chat-messages::-webkit-scrollbar {
-    width: 6px !important;
+.lex-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-#pje-chat-messages::-webkit-scrollbar-track {
-    background: #f1f1f1 !important;
-    border-radius: 3px !important;
+.lex-logo {
+  font-size: 14px;
 }
 
-#pje-chat-messages::-webkit-scrollbar-thumb {
-    background: #c1c1c1 !important;
-    border-radius: 3px !important;
+.lex-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 2px;
 }
 
-#pje-chat-messages::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8 !important;
+.lex-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
 }
 
-.pje-chat-message {
-    margin-bottom: 16px !important;
-    padding: 12px 16px !important;
-    border-radius: 18px !important;
-    max-width: 85% !important;
-    word-wrap: break-word !important;
-    line-height: 1.4 !important;
-    font-size: 14px !important;
+.lex-status-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #4ade80;
+  border-radius: 50%;
 }
 
-.pje-chat-message.user {
-    background: linear-gradient(135deg, #2c5aa0 0%, #1e3d6f 100%) !important;
-    color: white !important;
-    margin-left: auto !important;
-    text-align: right !important;
-    border-bottom-right-radius: 6px !important;
+.lex-status-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
 }
 
-.pje-chat-message.assistant {
-    background: white !important;
-    margin-right: auto !important;
-    border: 1px solid #e0e0e0 !important;
-    border-bottom-left-radius: 6px !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+.lex-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.pje-chat-message-time {
-    font-size: 11px !important;
-    color: #666 !important;
-    margin-top: 5px !important;
+/* Área de informações */
+.lex-info {
+  background-color: #2a2a2a;
+  padding: 12px;
+  border-bottom: 1px solid #333;
 }
 
-#pje-chat-input-container {
-    padding: 15px !important;
-    border-top: 1px solid #eee !important;
-    display: flex !important;
-    gap: 10px !important;
+.lex-card {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-#pje-chat-input {
-    flex: 1 !important;
-    padding: 10px !important;
-    border: 1px solid #ddd !important;
-    border-radius: 5px !important;
-    font-size: 14px !important;
-    outline: none !important;
+.lex-card-header {
+  background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-#pje-chat-send {
-    background: #2c5aa0 !important;
-    color: white !important;
-    border: none !important;
-    padding: 10px 15px !important;
-    border-radius: 5px !important;
-    cursor: pointer !important;
-    font-size: 14px !important;
+.lex-card-content {
+  padding: 12px;
 }
 
-#pje-chat-send:hover {
-    background: #1e3d6f !important;
+.lex-item {
+  display: flex;
+  margin-bottom: 8px;
+  font-size: 12px;
 }
 
-#pje-chat-toggle {
-    background: rgba(255, 255, 255, 0.15) !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    color: white !important;
-    padding: 8px 12px !important;
-    margin: 0 4px !important;
-    border-radius: 4px !important;
-    cursor: pointer !important;
-    font-size: 16px !important;
-    height: 36px !important;
-    min-width: 44px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: all 0.2s ease !important;
-    vertical-align: middle !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
-    z-index: 999998 !important;
+.lex-item:last-child {
+  margin-bottom: 0;
 }
 
-#pje-chat-toggle:hover {
-    background: rgba(255, 255, 255, 0.25) !important;
-    transform: translateY(-1px) !important;
+.lex-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+  min-width: 80px;
 }
 
-/* Fallback para quando não conseguir integrar na barra */
-#pje-chat-toggle.fallback {
-    position: fixed !important;
-    top: 10px !important;
-    right: 10px !important;
-    background: #2c5aa0 !important;
-    border: none !important;
-    border-radius: 6px !important;
-    z-index: 999999 !important;
+.lex-value {
+  color: white;
+  word-break: break-word;
 }
 
-.pje-chat-typing {
-    display: flex !important;
-    align-items: center !important;
-    padding: 10px !important;
-    color: #666 !important;
-    font-style: italic !important;
+/* Área de mensagens */
+.lex-messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.pje-chat-typing-dots {
-    display: inline-flex !important;
-    margin-left: 5px !important;
+.lex-message {
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
 }
 
-.pje-chat-typing-dots span {
-    width: 4px !important;
-    height: 4px !important;
-    background: #666 !important;
-    border-radius: 50% !important;
-    margin: 0 1px !important;
-    animation: pje-chat-bounce 1.4s infinite ease-in-out !important;
+.lex-message.user {
+  align-self: flex-end;
 }
 
-.pje-chat-typing-dots span:nth-child(1) {
-    animation-delay: -0.32s !important;
+.lex-message.assistant {
+  align-self: flex-start;
 }
 
-.pje-chat-typing-dots span:nth-child(2) {
-    animation-delay: -0.16s !important;
+.lex-bubble {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  position: relative;
 }
 
-@keyframes pje-chat-bounce {
+.lex-message.user .lex-bubble {
+  background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
 
-    0%,
-    80%,
-    100% {
-        transform: scale(0) !important;
-    }
+.lex-message.assistant .lex-bubble {
+  background-color: #2a2a2a;
+  color: white;
+  border-bottom-left-radius: 4px;
+  border-left: 3px solid #4a1a5c;
+}
 
-    40% {
-        transform: scale(1) !important;
-    }
+.lex-time {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
+  align-self: flex-end;
+}
+
+/* Área de input */
+.lex-input-area {
+  padding: 12px 16px;
+  background-color: #2a2a2a;
+  border-top: 1px solid #333;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.lex-input {
+  flex: 1;
+  background-color: rgba(0, 0, 0, 0.2);
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: white;
+  font-size: 13px;
+  min-height: 40px;
+  outline: none;
+}
+
+.lex-send {
+  background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+  color: white;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Botão flutuante */
+.lex-toggle {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  z-index: 999998;
 }

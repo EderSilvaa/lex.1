@@ -195,29 +195,40 @@
     const botao = document.createElement('a');
     botao.id = 'pje-assistant-btn-' + Date.now();
     botao.href = '#';
-    botao.innerHTML = '💬';
-    botao.title = 'PJe Assistant - Chat Inteligente';
+    botao.innerHTML = '▲ Lex.';
+    botao.title = 'Lex. - Assistente Jurídico Inteligente';
     
-    // Estilo para ficar igual aos outros ícones da navbar
+    // Estilo com identidade visual da Lex.
     botao.setAttribute('style', `
       color: white !important;
       text-decoration: none !important;
-      padding: 15px !important;
+      padding: 12px 16px !important;
       display: block !important;
-      font-size: 16px !important;
+      font-size: 14px !important;
+      font-family: 'Michroma', monospace !important;
+      font-weight: 400 !important;
       line-height: 20px !important;
-      transition: background-color 0.2s ease !important;
+      background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%) !important;
+      border-radius: 6px !important;
+      margin: 8px 4px !important;
+      transition: all 0.3s ease !important;
       cursor: pointer !important;
       user-select: none !important;
+      box-shadow: 0 2px 8px rgba(45, 27, 105, 0.3) !important;
+      letter-spacing: 0.5px !important;
     `);
     
-    // Hover effects iguais aos outros itens
+    // Hover effects com identidade visual da Lex.
     botao.addEventListener('mouseenter', function() {
-      this.style.backgroundColor = 'rgba(255,255,255,0.1)';
+      this.style.background = 'linear-gradient(135deg, #11998E 0%, #2D1B69 100%)';
+      this.style.transform = 'translateY(-2px)';
+      this.style.boxShadow = '0 4px 12px rgba(45, 27, 105, 0.4)';
     });
     
     botao.addEventListener('mouseleave', function() {
-      this.style.backgroundColor = 'transparent';
+      this.style.background = 'linear-gradient(135deg, #2D1B69 0%, #11998E 100%)';
+      this.style.transform = 'translateY(0)';
+      this.style.boxShadow = '0 2px 8px rgba(45, 27, 105, 0.3)';
     });
     
     // Evento de clique
@@ -256,8 +267,8 @@
   function criarBotaoFlutuante() {
     const botao = document.createElement('button');
     botao.id = 'pje-assistant-btn-' + Date.now();
-    botao.innerHTML = '💬';
-    botao.title = 'PJe Assistant';
+    botao.innerHTML = '▲';
+    botao.title = 'Lex. - Assistente Jurídico Inteligente';
     
     botao.setAttribute('style', `
       position: fixed !important;
@@ -265,16 +276,16 @@
       right: 20px !important;
       width: 50px !important;
       height: 50px !important;
-      background: linear-gradient(135deg, #2c5aa0, #1e3d6f) !important;
+      background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%) !important;
       color: white !important;
       border: none !important;
       border-radius: 50% !important;
       cursor: pointer !important;
       font-size: 18px !important;
       z-index: 2147483647 !important;
-      box-shadow: 0 4px 15px rgba(44, 90, 160, 0.4) !important;
+      box-shadow: 0 4px 15px rgba(45, 27, 105, 0.4) !important;
       transition: all 0.3s ease !important;
-      font-family: Arial, sans-serif !important;
+      font-family: 'Michroma', monospace !important;
       user-select: none !important;
     `);
     
@@ -441,35 +452,46 @@
     
     // Container principal do chat
     chatContainer = document.createElement('div');
-    chatContainer.id = 'pje-chat-container';
+    chatContainer.className = 'lex-chat';
     chatContainer.innerHTML = `
-      <div id="pje-chat-header">
-        <div id="pje-chat-title">
-          <span class="chat-icon">💬</span>
-          <span>PJe Assistant</span>
+      <div class="lex-header">
+        <div class="lex-header-top">
+          <div class="lex-title-area">
+            <div class="lex-title">
+              <span class="lex-logo">▲</span>
+              <span>Lex.</span>
+            </div>
+            <div class="lex-subtitle">${info.numeroProcesso || 'Assistente Jurídico'}</div>
+          </div>
+          <button class="lex-close" aria-label="Fechar chat">×</button>
         </div>
-        <button id="pje-chat-minimize">−</button>
-        <button id="pje-chat-close">×</button>
+        <div class="lex-status">
+          <div class="lex-status-dot"></div>
+          <div class="lex-status-text">Processo ativo</div>
+        </div>
       </div>
       
-      <div id="pje-chat-info">
-        <div class="info-card">
-          <div class="info-header">📋 Informações do Processo</div>
-          <div class="info-content">
-            ${info.numeroProcesso ? `<div class="info-item"><span class="info-label">Processo:</span> <span class="info-value">${info.numeroProcesso}</span></div>` : ''}
-            ${info.documentoId ? `<div class="info-item"><span class="info-label">ID Documento:</span> <span class="info-value">${info.documentoId}</span></div>` : ''}
-            ${info.nomeDocumento || info.tipoDocumento ? `<div class="info-item"><span class="info-label">Nome:</span> <span class="info-value">${info.nomeDocumento || info.tipoDocumento}</span></div>` : ''}
-            ${info.tribunal ? `<div class="info-item"><span class="info-label">Tribunal:</span> <span class="info-value">${info.tribunal}</span></div>` : ''}
+      <div class="lex-info">
+        <div class="lex-card">
+          <div class="lex-card-header">
+            <span>📋</span>
+            <span>Informações do Processo</span>
+          </div>
+          <div class="lex-card-content">
+            ${info.numeroProcesso ? `<div class="lex-item"><span class="lex-label">Processo:</span> <span class="lex-value">${info.numeroProcesso}</span></div>` : ''}
+            ${info.documentoId ? `<div class="lex-item"><span class="lex-label">ID Documento:</span> <span class="lex-value">${info.documentoId}</span></div>` : ''}
+            ${info.nomeDocumento || info.tipoDocumento ? `<div class="lex-item"><span class="lex-label">Nome:</span> <span class="lex-value">${info.nomeDocumento || info.tipoDocumento}</span></div>` : ''}
+            ${info.tribunal ? `<div class="lex-item"><span class="lex-label">Tribunal:</span> <span class="lex-value">${info.tribunal}</span></div>` : ''}
           </div>
         </div>
       </div>
       
-      <div id="pje-chat-messages"></div>
+      <div class="lex-messages"></div>
       
-      <div id="pje-chat-input-container">
-        <input type="text" id="pje-chat-input" placeholder="Digite sua pergunta sobre o processo...">
-        <button id="pje-chat-send">
-          <span>📤</span>
+      <div class="lex-input-area">
+        <input type="text" class="lex-input" placeholder="Digite sua pergunta sobre o processo...">
+        <button class="lex-send" aria-label="Enviar mensagem">
+          <span>➤</span>
         </button>
       </div>
     `;
@@ -484,8 +506,12 @@
     // Configurar eventos
     configurarEventosChat();
     
-    // Adicionar mensagem inicial
-    adicionarMensagemInicial(info);
+    // Adicionar mensagem inicial após garantir que o DOM foi criado
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        adicionarMensagemInicial(info);
+      }, 100);
+    });
     
     // Mostrar chat
     mostrarChat();
@@ -495,91 +521,339 @@
   
   // Aplicar estilos do chat
   function aplicarEstilosChat() {
+    // Aplicar estilos diretamente para garantir que funcionem
     const styles = `
-      #pje-chat-container {
-        position: fixed !important;
-        top: 80px !important;
-        right: 20px !important;
-        width: 400px !important;
-        height: 600px !important;
-        background: white !important;
-        border-radius: 12px !important;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.2) !important;
-        z-index: 2147483646 !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif !important;
-        display: none !important;
-        flex-direction: column !important;
-        border: 1px solid #e0e0e0 !important;
-        overflow: hidden !important;
+      /* Lex Chat - Design Moderno e Minimalista */
+      .lex-chat, .lex-chat * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
       }
-      
-      #pje-chat-container.show {
-        display: flex !important;
-        animation: slideIn 0.3s ease-out !important;
+
+      .lex-chat {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: 320px;
+        height: 450px;
+        background-color: #1a1a1a;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        z-index: 999999;
+        border: 1px solid #333;
       }
-      
-      @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+
+      .lex-chat.visible {
+        display: flex;
+      }
+
+      /* Header */
+      .lex-header {
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+        padding: 12px 16px;
+        color: white;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .lex-header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
+      .lex-title-area {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .lex-title {
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .lex-logo {
+        font-size: 14px;
+      }
+
+      .lex-subtitle {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.7);
+        margin-top: 2px;
+      }
+
+      .lex-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }
+
+      .lex-status-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #4ade80;
+        border-radius: 50%;
+      }
+
+      .lex-status-text {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .lex-close {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: white;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Área de informações */
+      .lex-info {
+        background-color: #2a2a2a;
+        padding: 12px;
+        border-bottom: 1px solid #333;
+      }
+
+      .lex-card {
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .lex-card-header {
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .lex-card-content {
+        padding: 12px;
+      }
+
+      .lex-item {
+        display: flex;
+        margin-bottom: 8px;
+        font-size: 12px;
+      }
+
+      .lex-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .lex-label {
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 600;
+        min-width: 80px;
+      }
+
+      .lex-value {
+        color: white;
+        word-break: break-word;
+      }
+
+      /* Área de mensagens */
+      .lex-messages {
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+        background-color: #1a1a1a;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .lex-message {
+        max-width: 85%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .lex-message.user {
+        align-self: flex-end;
+      }
+
+      .lex-message.assistant {
+        align-self: flex-start;
+      }
+
+      .lex-bubble {
+        padding: 12px 14px;
+        border-radius: 10px;
+        font-size: 13px;
+        line-height: 1.5;
+        position: relative;
+      }
+
+      .lex-message.user .lex-bubble {
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+        color: white;
+        border-bottom-right-radius: 4px;
+      }
+
+      .lex-message.assistant .lex-bubble {
+        background-color: #2a2a2a;
+        color: white;
+        border-bottom-left-radius: 4px;
+        border-left: 3px solid #4a1a5c;
+      }
+
+      .lex-time {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.5);
+        margin-top: 4px;
+        align-self: flex-end;
+      }
+
+      /* Área de input */
+      .lex-input-area {
+        padding: 12px 16px;
+        background-color: #2a2a2a;
+        border-top: 1px solid #333;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .lex-input {
+        flex: 1;
+        background-color: rgba(0, 0, 0, 0.2);
+        border: 1px solid #444;
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: white;
+        font-size: 13px;
+        min-height: 40px;
+        outline: none;
+      }
+
+      .lex-send {
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+        color: white;
+        border: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       
       #pje-chat-header {
-        background: linear-gradient(135deg, #2c5aa0 0%, #1e3d6f 100%) !important;
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 50%, #1a3d3d 100%) !important;
         color: white !important;
-        padding: 16px 20px !important;
+        padding: 20px 24px !important;
+        border-radius: 16px 16px 0 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+      }
+      
+      #pje-chat-header-top {
         display: flex !important;
         justify-content: space-between !important;
         align-items: center !important;
-        border-radius: 12px 12px 0 0 !important;
+        width: 100% !important;
+        margin-bottom: 12px !important;
       }
       
-      #pje-chat-title {
+      #pje-chat-status {
         display: flex !important;
         align-items: center !important;
         gap: 8px !important;
-        font-weight: 600 !important;
-        font-size: 16px !important;
+        margin-top: 4px !important;
       }
       
-      .chat-icon {
+      #pje-chat-status-dot {
+        width: 8px !important;
+        height: 8px !important;
+        background: #4ade80 !important;
+        border-radius: 50% !important;
+        animation: pje-pulse 2s infinite !important;
+      }
+      
+      #pje-chat-status-text {
+        font-size: 12px !important;
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-weight: 400 !important;
+      }
+      
+      @keyframes pje-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      
+      #pje-chat-title {
+        font-weight: 700 !important;
         font-size: 18px !important;
+        letter-spacing: 0.5px !important;
+        margin: 0 !important;
       }
       
-      #pje-chat-minimize, #pje-chat-close {
-        background: rgba(255,255,255,0.2) !important;
+      #pje-chat-subtitle {
+        font-size: 13px !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+        font-weight: 400 !important;
+        margin: 0 !important;
+      }
+      
+      #pje-chat-close {
+        background: rgba(255, 255, 255, 0.1) !important;
         border: none !important;
         color: white !important;
-        width: 28px !important;
-        height: 28px !important;
-        border-radius: 50% !important;
-        cursor: pointer !important;
         font-size: 16px !important;
+        cursor: pointer !important;
+        padding: 8px !important;
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-left: 8px !important;
-        transition: background 0.2s !important;
       }
       
-      #pje-chat-minimize:hover, #pje-chat-close:hover {
-        background: rgba(255,255,255,0.3) !important;
+      #pje-chat-close:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+        transform: scale(1.05) !important;
       }
       
       #pje-chat-info {
         padding: 16px !important;
-        background: #f8f9fa !important;
-        border-bottom: 1px solid #e0e0e0 !important;
+        background: #2a2a2a !important;
+        border-bottom: 1px solid #333 !important;
       }
       
       .info-card {
-        background: white !important;
+        background: #333 !important;
         border-radius: 8px !important;
         overflow: hidden !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
       }
       
       .info-header {
-        background: #2c5aa0 !important;
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%) !important;
         color: white !important;
         padding: 12px 16px !important;
         font-weight: 600 !important;
@@ -602,13 +876,13 @@
       
       .info-label {
         font-weight: 600 !important;
-        color: #555 !important;
+        color: rgba(255, 255, 255, 0.7) !important;
         min-width: 100px !important;
         font-size: 13px !important;
       }
       
       .info-value {
-        color: #333 !important;
+        color: #e5e5e5 !important;
         font-size: 13px !important;
         word-break: break-word !important;
         flex: 1 !important;
@@ -616,26 +890,31 @@
       
       #pje-chat-messages {
         flex: 1 !important;
-        padding: 16px !important;
+        padding: 24px !important;
         overflow-y: auto !important;
-        background: #fafafa !important;
+        background: #1e1e1e !important;
+        min-height: 400px !important;
       }
       
       #pje-chat-messages::-webkit-scrollbar {
-        width: 6px !important;
+        width: 4px !important;
       }
       
       #pje-chat-messages::-webkit-scrollbar-track {
-        background: #f1f1f1 !important;
+        background: transparent !important;
       }
       
       #pje-chat-messages::-webkit-scrollbar-thumb {
-        background: #c1c1c1 !important;
-        border-radius: 3px !important;
+        background: rgba(255, 255, 255, 0.2) !important;
+        border-radius: 2px !important;
+      }
+      
+      #pje-chat-messages::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3) !important;
       }
       
       .chat-message {
-        margin-bottom: 16px !important;
+        margin-bottom: 20px !important;
         display: flex !important;
         flex-direction: column !important;
       }
@@ -649,73 +928,253 @@
       }
       
       .message-bubble {
-        max-width: 85% !important;
-        padding: 12px 16px !important;
-        border-radius: 18px !important;
+        max-width: 80% !important;
+        padding: 16px 20px !important;
+        border-radius: 16px !important;
         font-size: 14px !important;
-        line-height: 1.4 !important;
+        line-height: 1.5 !important;
         word-wrap: break-word !important;
+        position: relative !important;
       }
       
       .message-bubble.assistant {
-        background: white !important;
-        border: 1px solid #e0e0e0 !important;
-        border-bottom-left-radius: 6px !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        background: #2a2a2a !important;
+        color: #e5e5e5 !important;
+        border: 1px solid #404040 !important;
+        border-bottom-left-radius: 4px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+        border-left: 3px solid transparent !important;
+        border-image: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%) 1 !important;
       }
       
       .message-bubble.user {
-        background: linear-gradient(135deg, #2c5aa0 0%, #1e3d6f 100%) !important;
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 50%, #1a3d3d 100%) !important;
         color: white !important;
-        border-bottom-right-radius: 6px !important;
+        border-bottom-right-radius: 4px !important;
+        box-shadow: 0 4px 16px rgba(74, 26, 92, 0.4) !important;
       }
       
       .message-time {
         font-size: 11px !important;
-        color: #999 !important;
-        margin-top: 4px !important;
-        margin-left: 8px !important;
-        margin-right: 8px !important;
+        color: rgba(255, 255, 255, 0.5) !important;
+        margin-top: 8px !important;
+        text-align: right !important;
       }
       
       #pje-chat-input-container {
-        padding: 16px !important;
-        background: white !important;
-        border-top: 1px solid #e0e0e0 !important;
+        padding: 20px 24px !important;
+        border-top: 1px solid #333 !important;
         display: flex !important;
         gap: 12px !important;
-        align-items: center !important;
+        background: #1e1e1e !important;
+        align-items: flex-end !important;
       }
       
       #pje-chat-input {
         flex: 1 !important;
-        padding: 12px 16px !important;
-        border: 1px solid #ddd !important;
-        border-radius: 24px !important;
+        padding: 14px 16px !important;
+        border: 1px solid #404040 !important;
+        border-radius: 12px !important;
         font-size: 14px !important;
         outline: none !important;
-        transition: border-color 0.2s !important;
+        transition: all 0.3s ease !important;
+        background: #2a2a2a !important;
+        color: #e5e5e5 !important;
+        resize: none !important;
+        min-height: 20px !important;
+        max-height: 100px !important;
+        font-family: inherit !important;
+      }
+
+      .lex-input:focus {
+        border-color: #4a1a5c !important;
+        box-shadow: 0 0 0 2px rgba(74, 26, 92, 0.2) !important;
+        background: rgba(0, 0, 0, 0.4) !important;
+      }
+
+      .lex-input::placeholder {
+        color: rgba(255, 255, 255, 0.5) !important;
+      }
+
+      .lex-send:hover {
+        background: linear-gradient(135deg, #5a2a6c 0%, #3d5a5a 100%) !important;
+        transform: translateY(-1px) !important;
+      }
+
+      .lex-close:hover {
+        background: rgba(255, 255, 255, 0.2) !important;
+        transform: scale(1.05) !important;
+      }
+
+      /* Estilos para indicador de digitação */
+      .typing-dots {
+        display: inline-flex !important;
+        gap: 4px !important;
+        margin-left: 8px !important;
+      }
+
+      .typing-dots span {
+        width: 6px !important;
+        height: 6px !important;
+        border-radius: 50% !important;
+        background-color: rgba(255, 255, 255, 0.5) !important;
+        animation: typingBounce 1.4s infinite ease-in-out !important;
+      }
+
+      .typing-dots span:nth-child(1) {
+        animation-delay: -0.32s !important;
+      }
+
+      .typing-dots span:nth-child(2) {
+        animation-delay: -0.16s !important;
+      }
+
+      @keyframes typingBounce {
+        0%, 80%, 100% {
+          transform: scale(0.6) !important;
+        }
+        40% {
+          transform: scale(1) !important;
+        }
+      }
+
+      /* Scrollbar personalizada para mensagens */
+      .lex-messages::-webkit-scrollbar {
+        width: 4px !important;
+      }
+
+      .lex-messages::-webkit-scrollbar-track {
+        background: transparent !important;
+      }
+
+      .lex-messages::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2) !important;
+        border-radius: 2px !important;
+      }
+
+      .lex-messages::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3) !important;
+      }
+
+      /* Responsividade */
+      @media (max-width: 480px) {
+        .lex-chat {
+          right: 8px !important;
+          bottom: 8px !important;
+          width: calc(100% - 16px) !important;
+          max-width: 350px !important;
+          height: 400px !important;
+        }
+      }
+
+      /* Animação de entrada suave */
+      @keyframes slideInUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px) scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .lex-chat.visible {
+        animation: slideInUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+      }
+
+      /* Efeitos de hover aprimorados */
+      .lex-status-dot {
+        animation: pulse 2s infinite !important;
+      }
+
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.7;
+          transform: scale(1.1);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      /* Melhorias de acessibilidade */
+      .lex-close:focus,
+      .lex-send:focus,
+      .lex-input:focus {
+        outline: 2px solid #4a1a5c !important;
+        outline-offset: 2px !important;
+      }
+
+      /* Transições suaves */
+      .lex-close,
+      .lex-send,
+      .lex-input {
+        transition: all 0.2s ease !important;
+      }
+
+      /* Finalização dos estilos */
+      .lex-send:active {
+        transform: translateY(0) !important;
+      }
+
+      .lex-input:disabled {
+        opacity: 0.5 !important;
+        cursor: not-allowed !important;
+      }
+
+      /* Melhorias visuais finais */
+      .lex-card-header span:first-child {
+        margin-right: 4px !important;
+      }
+
+      .lex-message:last-child {
+        margin-bottom: 0 !important;
+      }
+    `;   
+      #pje-chat-input:focus {
+        border-color: #4a1a5c !important;
+        box-shadow: 0 0 0 2px rgba(74, 26, 92, 0.2) !important;
+        background: #333 !important;
       }
       
-      #pje-chat-input:focus {
-        border-color: #2c5aa0 !important;
+      #pje-chat-input::placeholder {
+        color: rgba(255, 255, 255, 0.5) !important;
       }
       
       #pje-chat-send {
-        background: #2c5aa0 !important;
+        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%) !important;
+        color: white !important;
         border: none !important;
-        width: 44px !important;
-        height: 44px !important;
-        border-radius: 50% !important;
+        padding: 12px 16px !important;
+        border-radius: 12px !important;
         cursor: pointer !important;
+        font-size: 16px !important;
+        font-weight: 500 !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 16px rgba(74, 26, 92, 0.4) !important;
+        min-width: 48px !important;
+        height: 48px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        transition: background 0.2s !important;
       }
       
       #pje-chat-send:hover {
-        background: #1e3d6f !important;
+        background: linear-gradient(135deg, #5a2a6c 0%, #3d5a5a 100%) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(74, 26, 92, 0.5) !important;
+      }
+      
+      #pje-chat-send:disabled {
+        opacity: 0.5 !important;
+        cursor: not-allowed !important;
+        transform: none !important;
       }
       
       #pje-chat-send span {
@@ -756,6 +1215,8 @@
       }
     `;
     
+    // Não vamos carregar fontes externas para evitar erros 404
+    
     // Adicionar estilos ao documento
     const styleSheet = document.createElement('style');
     styleSheet.textContent = styles;
@@ -767,8 +1228,8 @@
   function mostrarChat() {
     console.log('👁️ Mostrando chat...');
     if (chatContainer) {
-      chatContainer.classList.add('show');
-      const input = document.getElementById('pje-chat-input');
+      chatContainer.classList.add('visible');
+      const input = chatContainer.querySelector('.lex-input');
       if (input) {
         setTimeout(() => input.focus(), 300);
       }
@@ -780,7 +1241,7 @@
   function esconderChat() {
     console.log('👁️ Escondendo chat...');
     if (chatContainer) {
-      chatContainer.classList.remove('show');
+      chatContainer.classList.remove('visible');
     }
   }
   
@@ -788,10 +1249,9 @@
   function configurarEventosChat() {
     console.log('⚙️ Configurando eventos do chat...');
     
-    const closeBtn = document.getElementById('pje-chat-close');
-    const minimizeBtn = document.getElementById('pje-chat-minimize');
-    const sendBtn = document.getElementById('pje-chat-send');
-    const input = document.getElementById('pje-chat-input');
+    const closeBtn = chatContainer.querySelector('.lex-close');
+    const sendBtn = chatContainer.querySelector('.lex-send');
+    const input = chatContainer.querySelector('.lex-input');
     
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
@@ -800,12 +1260,7 @@
       });
     }
     
-    if (minimizeBtn) {
-      minimizeBtn.addEventListener('click', () => {
-        console.log('➖ Minimizando chat');
-        esconderChat();
-      });
-    }
+
     
     if (sendBtn) {
       sendBtn.addEventListener('click', () => {
@@ -830,21 +1285,60 @@
   function adicionarMensagemInicial(info) {
     console.log('💬 Adicionando mensagem inicial...');
     
-    const messagesContainer = document.getElementById('pje-chat-messages');
-    if (!messagesContainer) {
-      console.error('❌ Container de mensagens não encontrado');
-      return;
+    try {
+      const messagesContainer = chatContainer.querySelector('.lex-messages');
+      if (!messagesContainer) {
+        console.error('❌ Container de mensagens não encontrado');
+        return;
+      }
+      
+      // Mensagem de boas-vindas
+      const welcomeMessage = document.createElement('div');
+      welcomeMessage.className = 'lex-message assistant';
+      welcomeMessage.innerHTML = `
+        <div class="lex-bubble">
+          Olá! Sou a Lex. ▲<br><br>
+          Seu assistente jurídico inteligente. Identifiquei automaticamente as informações do processo atual. Como posso ajudá-lo?
+        </div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      `;
+      
+      messagesContainer.appendChild(welcomeMessage);
+      
+      // Sugestões de comandos
+      setTimeout(() => {
+        const suggestionsMessage = document.createElement('div');
+        suggestionsMessage.className = 'lex-message assistant';
+        suggestionsMessage.innerHTML = `
+          <div class="lex-bubble">
+            💡 <strong>Comandos úteis:</strong><br><br>
+            • "analisar processo" - Análise detalhada<br>
+            • "prazos" - Informações sobre prazos<br>
+            • "como peticionar" - Guia de peticionamento<br>
+            • "ajuda" - Lista completa de comandos
+          </div>
+          <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        `;
+        
+        messagesContainer.appendChild(suggestionsMessage);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }, 1000);
+      
+      console.log('✅ Mensagem inicial adicionada');
+    } catch (error) {
+      console.error('❌ Erro ao adicionar mensagem inicial:', error);
     }
+  }
     
     // Mensagem de boas-vindas
     const welcomeMessage = document.createElement('div');
-    welcomeMessage.className = 'chat-message assistant';
+    welcomeMessage.className = 'lex-message assistant';
     welcomeMessage.innerHTML = `
-      <div class="message-bubble assistant">
-        Olá! Sou o PJe Assistant. 👋<br><br>
-        Identifiquei automaticamente as informações do processo atual. Como posso ajudá-lo?
+      <div class="lex-bubble">
+        Olá! Sou a Lex. ▲<br><br>
+        Seu assistente jurídico inteligente. Identifiquei automaticamente as informações do processo atual. Como posso ajudá-lo?
       </div>
-      <div class="message-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
     `;
     
     messagesContainer.appendChild(welcomeMessage);
@@ -852,16 +1346,16 @@
     // Sugestões de comandos
     setTimeout(() => {
       const suggestionsMessage = document.createElement('div');
-      suggestionsMessage.className = 'chat-message assistant';
+      suggestionsMessage.className = 'lex-message assistant';
       suggestionsMessage.innerHTML = `
-        <div class="message-bubble assistant">
+        <div class="lex-bubble">
           💡 <strong>Comandos úteis:</strong><br><br>
           • "analisar processo" - Análise detalhada<br>
           • "prazos" - Informações sobre prazos<br>
           • "como peticionar" - Guia de peticionamento<br>
           • "ajuda" - Lista completa de comandos
         </div>
-        <div class="message-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
       `;
       
       messagesContainer.appendChild(suggestionsMessage);
@@ -873,8 +1367,8 @@
   
   // Enviar mensagem
   function enviarMensagem() {
-    const input = document.getElementById('pje-chat-input');
-    const messagesContainer = document.getElementById('pje-chat-messages');
+    const input = chatContainer.querySelector('.lex-input');
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
     const texto = input.value.trim();
     
     if (!texto) return;
@@ -883,10 +1377,10 @@
     
     // Adicionar mensagem do usuário
     const userMessage = document.createElement('div');
-    userMessage.className = 'chat-message user';
+    userMessage.className = 'lex-message user';
     userMessage.innerHTML = `
-      <div class="message-bubble user">${texto}</div>
-      <div class="message-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="lex-bubble">${texto}</div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
     `;
     
     messagesContainer.appendChild(userMessage);
@@ -908,17 +1402,19 @@
   
   // Mostrar indicador de digitação
   function mostrarIndicadorDigitacao() {
-    const messagesContainer = document.getElementById('pje-chat-messages');
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
     
     const typingIndicator = document.createElement('div');
     typingIndicator.id = 'typing-indicator';
-    typingIndicator.className = 'typing-indicator';
+    typingIndicator.className = 'lex-message assistant';
     typingIndicator.innerHTML = `
-      Digitando
-      <div class="typing-dots">
-        <span></span>
-        <span></span>
-        <span></span>
+      <div class="lex-bubble">
+        Digitando
+        <div class="typing-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
       </div>
     `;
     
@@ -936,13 +1432,13 @@
   
   // Adicionar resposta do assistente
   function adicionarRespostaAssistente(resposta) {
-    const messagesContainer = document.getElementById('pje-chat-messages');
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
     
     const assistantMessage = document.createElement('div');
-    assistantMessage.className = 'chat-message assistant';
+    assistantMessage.className = 'lex-message assistant';
     assistantMessage.innerHTML = `
-      <div class="message-bubble assistant">${resposta}</div>
-      <div class="message-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="lex-bubble">${resposta}</div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
     `;
     
     messagesContainer.appendChild(assistantMessage);
