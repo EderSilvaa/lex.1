@@ -29,6 +29,23 @@
   
   // Adicionar estilos
   function adicionarEstilos() {
+    // Adicionar fonte Michroma
+    const fontLink1 = document.createElement('link');
+    fontLink1.rel = 'preconnect';
+    fontLink1.href = 'https://fonts.googleapis.com';
+    document.head.appendChild(fontLink1);
+    
+    const fontLink2 = document.createElement('link');
+    fontLink2.rel = 'preconnect';
+    fontLink2.href = 'https://fonts.gstatic.com';
+    fontLink2.crossOrigin = 'anonymous';
+    document.head.appendChild(fontLink2);
+    
+    const fontLink3 = document.createElement('link');
+    fontLink3.href = 'https://fonts.googleapis.com/css2?family=Michroma&display=swap';
+    fontLink3.rel = 'stylesheet';
+    document.head.appendChild(fontLink3);
+    
     const styleSheet = document.createElement('style');
     styleSheet.textContent = `
       /* Estilos simplificados para o chat Lex */
@@ -78,6 +95,13 @@
         display: flex;
         align-items: center;
         gap: 6px;
+      }
+      
+      .lex-title .lex-name {
+        font-family: "Michroma", sans-serif;
+        font-weight: 400;
+        font-style: normal;
+        letter-spacing: 1px;
       }
       
       .lex-subtitle {
@@ -316,7 +340,7 @@
           <div class="lex-title-area">
             <div class="lex-title">
               <span class="lex-logo">▲</span>
-              <span>Lex.</span>
+              <span class="lex-name">Lex.</span>
             </div>
             <div class="lex-subtitle">${info.numeroProcesso || 'Assistente Jurídico'}</div>
           </div>
