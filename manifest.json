@@ -15,7 +15,8 @@
     "*://*.tjpa.jus.br/*",
     "*://localhost/*",
     "file://*/*",
-    "https://pje.tjpa.jus.br/*"
+    "https://pje.tjpa.jus.br/*",
+    "https://api.openai.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -84,7 +85,7 @@
         "*://*.trt24.jus.br/*",
         "file://*/teste-pje.html"
       ],
-      "js": ["content-simple.js"],
+      "js": ["openai-client.js", "content-simple.js"],
       "run_at": "document_end",
       "all_frames": false
     }
