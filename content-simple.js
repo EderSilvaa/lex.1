@@ -1,4 +1,4 @@
-// Chat Lex - Versão simplificada
+// Chat Lex - Versão Completa com Design Moderno
 (function() {
   'use strict';
   
@@ -11,6 +11,12 @@
   
   // Variáveis globais
   let chatContainer = null;
+  
+  // Cache de elementos DOM para otimização
+  const domCache = {
+    info: null,
+    lastUpdate: 0
+  };
   
   // Inicialização
   function inicializar() {
@@ -48,13 +54,13 @@
     
     const styleSheet = document.createElement('style');
     styleSheet.textContent = `
-      /* Estilos simplificados para o chat Lex */
+      /* Estilos completos para o chat Lex */
       .lex-chat {
         position: fixed;
         right: 20px;
         bottom: 20px;
-        width: 320px;
-        height: 450px;
+        width: 380px;
+        height: 550px;
         background-color: #1a1a1a;
         border-radius: 12px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -296,8 +302,8 @@
       }
     `;
     document.head.appendChild(styleSheet);
-  }
-  
+  }  
+ 
   // Criar botão do chat
   function criarBotaoChat() {
     const botao = document.createElement('button');
@@ -323,11 +329,8 @@
   
   // Criar interface do chat
   function criarInterfaceChat() {
-    // Extrair informações básicas
-    const info = {
-      numeroProcesso: extrairNumeroProcesso(),
-      tribunal: extrairTribunal()
-    };
+    // Extrair informações completas
+    const info = extrairInformacoesCompletas();
     
     // Criar container
     chatContainer = document.createElement('div');
@@ -359,8 +362,7 @@
             <span>Informações do Processo</span>
           </div>
           <div class="lex-card-content">
-            ${info.numeroProcesso ? `<div class="lex-item"><span class="lex-label">Processo:</span> <span class="lex-value">${info.numeroProcesso}</span></div>` : ''}
-            ${info.tribunal ? `<div class="lex-item"><span class="lex-label">Tribunal:</span> <span class="lex-value">${info.tribunal}</span></div>` : ''}
+            ${gerarInfoProcesso(info)}
           </div>
         </div>
       </div>
@@ -384,8 +386,8 @@
     
     // Mostrar chat
     chatContainer.classList.add('visible');
-  }
-  
+  }  
+
   // Configurar eventos
   function configurarEventos() {
     // Botão fechar
@@ -426,7 +428,7 @@
     welcomeMessage.innerHTML = `
       <div class="lex-bubble">
         Olá! Sou a Lex. ▲<br><br>
-        Seu assistente jurídico inteligente. Como posso ajudá-lo?
+        Seu assistente jurídico inteligente. Identifiquei automaticamente as informações do processo atual. Como posso ajudá-lo?
       </div>
       <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
     `;
@@ -441,6 +443,7 @@
         <div class="lex-bubble">
           💡 <strong>Comandos úteis:</strong><br><br>
           • "analisar processo" - Análise detalhada<br>
+          • "documento atual" - Informações do documento<br>
           • "prazos" - Informações sobre prazos<br>
           • "como peticionar" - Guia de peticionamento<br>
           • "ajuda" - Lista completa de comandos
@@ -451,8 +454,8 @@
       messagesContainer.appendChild(suggestionsMessage);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }, 1000);
-  }
-  
+  } 
+ 
   // Extrair conteúdo do documento via iframe
   async function extrairConteudoDocumento() {
     console.log('📄 LEX: Iniciando extração de conteúdo do documento');
@@ -641,6 +644,22 @@
         ⚠️ <em>Consulte sempre o CPC e verifique prazos específicos no processo.</em>`;
     }
     
+    if (perguntaLower.includes('peticionar') || perguntaLower.includes('petição')) {
+      return `📝 <strong>Guia de Peticionamento:</strong><br><br>
+        <strong>Elementos essenciais de uma petição:</strong><br>
+        • Endereçamento ao juízo competente<br>
+        • Qualificação das partes<br>
+        • Exposição dos fatos<br>
+        • Fundamentação jurídica<br>
+        • Pedidos claros e específicos<br>
+        • Data e assinatura<br><br>
+        <strong>Dicas importantes:</strong><br>
+        • Use linguagem clara e objetiva<br>
+        • Cite a legislação aplicável<br>
+        • Junte documentos comprobatórios<br>
+        • Observe os prazos processuais`;
+    }
+    
     if (perguntaLower.includes('ajuda') || perguntaLower.includes('comandos')) {
       return `💡 <strong>Comandos Disponíveis:</strong><br><br>
         • <strong>"analisar processo"</strong> - Análise completa do processo<br>
@@ -712,35 +731,201 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     });
   }
-      
-      const assistantMessage = document.createElement('div');
-      assistantMessage.className = 'lex-message assistant';
-      assistantMessage.innerHTML = `
-        <div class="lex-bubble">${resposta}</div>
-        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-      `;
-      
-      messagesContainer.appendChild(assistantMessage);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }, 1000);
-  }
-  
-  // Extrair número do processo
-  function extrairNumeroProcesso() {
+ 
+  // Extrair informações completas do processo (versão avançada)
+  function extrairInformacoesCompletas() {
+    // Usar cache se disponível e recente
+    if (domCache.info && (Date.now() - domCache.lastUpdate) < 5000) {
+      return domCache.info;
+    }
+    
+    const info = {};
     const texto = document.body.innerText || '';
-    const match = texto.match(/\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}/);
-    return match ? match[0] : '';
+    
+    try {
+      // 1. Extrair número do processo
+      const numeroMatch = texto.match(/\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}/);
+      if (numeroMatch) {
+        info.numeroProcesso = numeroMatch[0];
+      }
+      
+      // 2. Extrair informações do documento atual (versão avançada)
+      const embeds = document.querySelectorAll('embed, iframe, object');
+      for (let embed of embeds) {
+        const src = embed.src || embed.getAttribute('src') || embed.data;
+        if (src && (src.includes('documento') || src.includes('pdf'))) {
+          // Extrair ID do documento
+          let docId = null;
+          const downloadMatch = src.match(/\/documento\/download\/(\d+)/);
+          if (downloadMatch) {
+            docId = downloadMatch[1];
+          } else {
+            const urlParams = new URLSearchParams(src.split('?')[1] || '');
+            docId = urlParams.get('idDocumento') || urlParams.get('id') || urlParams.get('docId');
+          }
+          
+          if (docId) {
+            info.documentoId = docId;
+            
+            // Tentar extrair nome do documento
+            let docName = embed.title || embed.getAttribute('title');
+            if (!docName) {
+              // Buscar na barra lateral por elementos selecionados
+              const elementosAtivos = document.querySelectorAll('.rich-tree-node-selected, .selected, .active, .highlight');
+              for (let el of elementosAtivos) {
+                const textoEl = el.innerText || el.textContent || '';
+                if (textoEl.includes(docId) || textoEl.length > 10) {
+                  docName = textoEl.trim().split('\n')[0];
+                  break;
+                }
+              }
+            }
+            
+            if (docName) {
+              info.nomeDocumento = docName;
+            }
+          }
+          break;
+        }
+      }
+      
+      // 3. Extrair classe processual
+      const classesComuns = [
+        'Ação Civil Pública', 'Procedimento Comum', 'Mandado de Segurança',
+        'Execução Fiscal', 'Cumprimento de Sentença', 'Embargos à Execução',
+        'Habeas Corpus', 'Recurso', 'Agravo', 'Apelação', 'Embargos de Declaração',
+        'Ação de Improbidade', 'Ação Popular', 'Ação Penal', 'Inquérito',
+        'Recuperação Judicial', 'Falência', 'Inventário', 'Divórcio',
+        'Alimentos', 'Tutela', 'Curatela', 'Usucapião', 'Reintegração de Posse'
+      ];
+      
+      for (const classe of classesComuns) {
+        if (texto.includes(classe)) {
+          info.classeProcessual = classe;
+          break;
+        }
+      }
+      
+      // 4. Extrair partes do processo
+      const autorMatch = texto.match(/Autor:\s*([^\n]+)/i) ||
+                        texto.match(/Requerente:\s*([^\n]+)/i) ||
+                        texto.match(/Exequente:\s*([^\n]+)/i);
+      if (autorMatch) {
+        info.autor = autorMatch[1].trim();
+      }
+      
+      const reuMatch = texto.match(/Réu:\s*([^\n]+)/i) ||
+                      texto.match(/Requerido:\s*([^\n]+)/i) ||
+                      texto.match(/Executado:\s*([^\n]+)/i);
+      if (reuMatch) {
+        info.reu = reuMatch[1].trim();
+      }
+      
+      // 5. Extrair assunto
+      const assuntoMatch = texto.match(/Assunto:\s*([^\n]+)/i);
+      if (assuntoMatch) {
+        info.assunto = assuntoMatch[1].trim();
+      }
+      
+      // 6. Extrair fase processual
+      const fasesComuns = [
+        'Petição Inicial', 'Despacho Inicial', 'Citação', 'Contestação',
+        'Réplica', 'Especificação de Provas', 'Audiência', 'Perícia',
+        'Alegações Finais', 'Sentença', 'Recurso', 'Acórdão',
+        'Cumprimento de Sentença', 'Arquivamento', 'Execução'
+      ];
+      
+      for (const fase of fasesComuns) {
+        if (texto.includes(`Fase: ${fase}`) || texto.includes(`Situação: ${fase}`)) {
+          info.faseProcessual = fase;
+          break;
+        }
+      }
+      
+      // 7. Extrair informações específicas do documento
+      const dataMatch = texto.match(/Data de juntada:\s*(\d{2}\/\d{2}\/\d{4})/i) ||
+                       texto.match(/Data do protocolo:\s*(\d{2}\/\d{2}\/\d{4})/i);
+      if (dataMatch) {
+        info.dataJuntada = dataMatch[1];
+      }
+      
+      const tipoMatch = texto.match(/Tipo de documento:\s*([^\n]+)/i) ||
+                       texto.match(/Tipo:\s*([^\n]+)/i);
+      if (tipoMatch) {
+        info.tipoDocumento = tipoMatch[1].trim();
+      }
+      
+      const autorDocMatch = texto.match(/Assinado por:\s*([^\n]+)/i) ||
+                           texto.match(/Autor do documento:\s*([^\n]+)/i);
+      if (autorDocMatch) {
+        info.autorDocumento = autorDocMatch[1].trim();
+      }
+      
+      // 8. Identificar tribunal
+      const url = window.location.href;
+      if (url.includes('tjsp')) {
+        info.tribunal = 'TJSP';
+      } else if (url.includes('tjpa')) {
+        info.tribunal = 'TJPA';
+      } else if (url.includes('pje.jus.br')) {
+        info.tribunal = 'PJe Nacional';
+      }
+      
+      // Atualizar cache
+      domCache.info = info;
+      domCache.lastUpdate = Date.now();
+      
+    } catch (error) {
+      console.log('Erro na extração de informações:', error);
+    }
+    
+    return info;
   }
   
-  // Extrair tribunal
-  function extrairTribunal() {
-    const url = window.location.href;
-    if (url.includes('tjsp')) return 'TJSP';
-    if (url.includes('tjpa')) return 'TJPA';
-    if (url.includes('pje.jus.br')) return 'PJe Nacional';
-    return '';
+  // Gerar informações do processo para exibição
+  function gerarInfoProcesso(info) {
+    let html = '';
+    
+    if (info.numeroProcesso) {
+      html += `<div class="lex-item"><span class="lex-label">Processo:</span> <span class="lex-value">${info.numeroProcesso}</span></div>`;
+    }
+    
+    if (info.classeProcessual) {
+      html += `<div class="lex-item"><span class="lex-label">Classe:</span> <span class="lex-value">${info.classeProcessual}</span></div>`;
+    }
+    
+    if (info.assunto) {
+      html += `<div class="lex-item"><span class="lex-label">Assunto:</span> <span class="lex-value">${info.assunto}</span></div>`;
+    }
+    
+    if (info.autor) {
+      html += `<div class="lex-item"><span class="lex-label">Autor:</span> <span class="lex-value">${info.autor}</span></div>`;
+    }
+    
+    if (info.reu) {
+      html += `<div class="lex-item"><span class="lex-label">Réu:</span> <span class="lex-value">${info.reu}</span></div>`;
+    }
+    
+    if (info.faseProcessual) {
+      html += `<div class="lex-item"><span class="lex-label">Fase:</span> <span class="lex-value">${info.faseProcessual}</span></div>`;
+    }
+    
+    if (info.documentoId) {
+      html += `<div class="lex-item"><span class="lex-label">Doc. ID:</span> <span class="lex-value">${info.documentoId}</span></div>`;
+    }
+    
+    if (info.nomeDocumento) {
+      html += `<div class="lex-item"><span class="lex-label">Documento:</span> <span class="lex-value">${info.nomeDocumento}</span></div>`;
+    }
+    
+    if (info.tribunal) {
+      html += `<div class="lex-item"><span class="lex-label">Tribunal:</span> <span class="lex-value">${info.tribunal}</span></div>`;
+    }
+    
+    return html || '<div class="lex-item"><span class="lex-value">Carregando informações...</span></div>';
   }
   
   // Iniciar
   inicializar();
+  
 })();
