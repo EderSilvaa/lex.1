@@ -11,7 +11,7 @@
 
 ### Passo 1: Configurar API Key
 1. Abra o arquivo `openai-client.js`
-2. Localize a linha:
+2. Localize a linha (aproximadamente linha 12):
    ```javascript
    this.apiKey = 'SUBSTITUA_PELA_SUA_CHAVE_OPENAI_AQUI';
    ```
@@ -19,6 +19,7 @@
    ```javascript
    this.apiKey = 'sk-proj-SUA_CHAVE_AQUI';
    ```
+4. **Salve o arquivo** - isso é crucial!
 
 ### Passo 2: Instalar no Chrome
 1. Abra Chrome → Extensões (chrome://extensions/)
@@ -52,3 +53,28 @@ Para ver os logs de debug:
 1. Abra o console do navegador (F12)
 2. Use o chat normalmente
 3. Observe os logs que começam com "LEX:"
+
+### Comandos de Debug Avançado
+
+Se a extensão não estiver funcionando:
+
+```javascript
+// Diagnóstico completo
+debugLexChat();
+
+// Verificar se OpenAI Client carregou
+console.log('OpenAI Client:', window.openaiClient);
+
+// Verificar configuração
+window.openaiClient?.isConfigured();
+
+// Tentar correções automáticas
+corrigirProblemas();
+```
+
+### Indicadores Visuais
+
+No cabeçalho do chat, observe o status da IA:
+- 🟢 **Verde "IA ativa"**: Tudo funcionando
+- 🟡 **Amarelo "IA não configurada"**: API key não configurada
+- 🔴 **Vermelho "IA não carregada"**: Problema no carregamento

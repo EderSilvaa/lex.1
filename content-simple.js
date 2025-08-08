@@ -8,7 +8,8 @@
   }
   
   window.lexAssistantActive = true;
-  
+  console.log('🚀 LEX: Extensão iniciada');
+
   // Variáveis globais
   let chatContainer = null;
   
@@ -18,40 +19,191 @@
     lastUpdate: 0
   };
   
+  // Criar OpenAI Client diretamente (solução robusta)
+  function criarOpenAIClient() {
+    if (window.openaiClient) {
+      console.log('✅ LEX: OpenAI Client já existe');
+      return;
+    }
+    
+    console.log('🔧 LEX: Criando OpenAI Client integrado...');
+    
+    // 🚀 USANDO SUPABASE EDGE FUNCTION - SEM API KEY EXPOSTA!
+    class OpenAIClient {
+      constructor() {
+        this.baseUrl = 'https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA';
+        this.supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcGF1eHp6dGZsZ214amdldm1vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MTI4ODUsImV4cCI6MjA3MDE4ODg4NX0.XXJf6alnb6me4PeMCA80UmfJVUZo8VxA0BFDdFCtN1A'; // Chave pública do Supabase
+        console.log('✅ LEX: OpenAI Client via Supabase criado');
+      }
+
+      async analisarDocumento(contextoProcesso, perguntaUsuario) {
+        console.log('🤖 LEX: Iniciando análise com IA integrada');
+        
+        try {
+          const prompt = this.criarPromptJuridico(contextoProcesso, perguntaUsuario);
+          const response = await this.fazerRequisicao(prompt);
+          console.log('✅ LEX: Resposta da OpenAI recebida');
+          return response;
+        } catch (error) {
+          console.error('❌ LEX: Erro na análise OpenAI:', error);
+          return this.respostaFallback(perguntaUsuario);
+        }
+      }
+
+      criarPromptJuridico(contexto, pergunta) {
+        const systemPrompt = `Você é Lex, um assistente jurídico especializado em direito brasileiro e sistema PJe.
+
+INSTRUÇÕES:
+- Responda sempre em português brasileiro
+- Use linguagem jurídica precisa mas acessível
+- Cite artigos de lei quando relevante (CPC, CF, CLT, etc.)
+- Seja objetivo e prático
+- Formate a resposta em HTML simples (br, strong, em)
+- Máximo 500 palavras
+
+CONTEXTO DO PROCESSO:
+${this.formatarContexto(contexto)}
+
+PERGUNTA DO USUÁRIO: ${pergunta}
+
+Responda de forma especializada e útil:`;
+
+        return systemPrompt;
+      }
+
+      formatarContexto(info) {
+        let contexto = '';
+        
+        if (info.numeroProcesso) contexto += `Processo: ${info.numeroProcesso}\n`;
+        if (info.classeProcessual) contexto += `Classe: ${info.classeProcessual}\n`;
+        if (info.assunto) contexto += `Assunto: ${info.assunto}\n`;
+        if (info.autor) contexto += `Autor: ${info.autor}\n`;
+        if (info.reu) contexto += `Réu: ${info.reu}\n`;
+        if (info.faseProcessual) contexto += `Fase: ${info.faseProcessual}\n`;
+        if (info.tribunal) contexto += `Tribunal: ${info.tribunal}\n`;
+        if (info.nomeDocumento) contexto += `Documento: ${info.nomeDocumento}\n`;
+        if (info.tipoDocumento) contexto += `Tipo: ${info.tipoDocumento}\n`;
+        if (info.dataJuntada) contexto += `Data: ${info.dataJuntada}\n`;
+
+        if (info.conteudoDocumento) {
+          contexto += `\n--- CONTEÚDO DO DOCUMENTO ---\n`;
+          contexto += `Tipo de arquivo: ${info.tipoDocumento || 'Não identificado'}\n`;
+          contexto += `URL: ${info.urlDocumento || 'N/A'}\n`;
+          contexto += `Conteúdo:\n${info.conteudoDocumento}\n`;
+          contexto += `--- FIM DO CONTEÚDO ---\n`;
+        }
+
+        return contexto || 'Informações do processo não disponíveis';
+      }
+
+      async fazerRequisicao(prompt) {
+        console.log('📤 LEX: Enviando requisição para Supabase Edge Function...');
+
+        const response = await fetch(this.baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.supabaseKey}`,
+            'apikey': this.supabaseKey
+          },
+          body: JSON.stringify({
+            pergunta: prompt,
+            contexto: 'Processo judicial via extensão Lex'
+          })
+        });
+
+        console.log('📥 LEX: Status da resposta:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ LEX: Erro da Edge Function:', errorText);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.resposta) {
+          return data.resposta;
+        } else if (data.fallback) {
+          return data.fallback;
+        } else {
+          throw new Error('Resposta inválida da Edge Function');
+        }
+      }
+
+      respostaFallback(pergunta) {
+        const perguntaLower = pergunta.toLowerCase();
+        
+        if (perguntaLower.includes('prazo')) {
+          return `⚠️ <strong>Serviço de IA temporariamente indisponível</strong><br><br>
+            📅 <strong>Prazos Processuais Comuns:</strong><br>
+            • Contestação: 15 dias<br>
+            • Recurso de Apelação: 15 dias<br>
+            • Embargos de Declaração: 5 dias<br><br>
+            <em>Consulte sempre o CPC para prazos específicos.</em>`;
+        }
+        
+        return `⚠️ <strong>Serviço de IA temporariamente indisponível</strong><br><br>
+          🤖 Estou com dificuldades para processar sua pergunta no momento.<br><br>
+          <em>Tente novamente em alguns instantes.</em>`;
+      }
+
+      isConfigured() {
+        console.log('🔑 LEX: Verificando configuração do Supabase...');
+        const configured = this.baseUrl && this.supabaseKey;
+        console.log('- LEX: Resultado final:', configured);
+        return configured;
+      }
+    }
+    
+    // Criar instância global
+    window.openaiClient = new OpenAIClient();
+    console.log('✅ LEX: OpenAI Client disponível em window.openaiClient');
+  }
+
   // Inicialização
   function inicializar() {
+    console.log('🚀 LEX: Iniciando inicialização...');
+    console.log('📄 LEX: DOM readyState:', document.readyState);
+    console.log('🌐 LEX: URL atual:', window.location.href);
+    
     // Aguardar DOM estar pronto
     if (document.readyState === 'loading') {
+      console.log('⏳ LEX: DOM ainda carregando, aguardando...');
       document.addEventListener('DOMContentLoaded', inicializar);
       return;
     }
     
+    console.log('✅ LEX: DOM pronto, continuando inicialização...');
+    
     // Adicionar estilos
+    console.log('🎨 LEX: Adicionando estilos...');
     adicionarEstilos();
     
-    // Criar botão flutuante
-    criarBotaoChat();
+    // Criar OpenAI Client integrado
+    console.log('🤖 LEX: Criando OpenAI Client...');
+    criarOpenAIClient();
+    
+    // Aguardar um pouco para garantir que o body existe
+    setTimeout(() => {
+      if (document.body) {
+        console.log('🔘 LEX: Criando botão do chat...');
+        criarBotaoChat();
+        console.log('✅ LEX: Inicialização completa!');
+      } else {
+        console.error('❌ LEX: document.body não existe!');
+        // Tentar novamente após mais tempo
+        setTimeout(() => {
+          if (document.body) {
+            criarBotaoChat();
+          }
+        }, 2000);
+      }
+    }, 500);
   }
   
   // Adicionar estilos
   function adicionarEstilos() {
-    // Adicionar fonte Michroma
-    const fontLink1 = document.createElement('link');
-    fontLink1.rel = 'preconnect';
-    fontLink1.href = 'https://fonts.googleapis.com';
-    document.head.appendChild(fontLink1);
-    
-    const fontLink2 = document.createElement('link');
-    fontLink2.rel = 'preconnect';
-    fontLink2.href = 'https://fonts.gstatic.com';
-    fontLink2.crossOrigin = 'anonymous';
-    document.head.appendChild(fontLink2);
-    
-    const fontLink3 = document.createElement('link');
-    fontLink3.href = 'https://fonts.googleapis.com/css2?family=Michroma&display=swap';
-    fontLink3.rel = 'stylesheet';
-    document.head.appendChild(fontLink3);
-    
     const styleSheet = document.createElement('style');
     styleSheet.textContent = `
       /* Estilos completos para o chat Lex */
@@ -101,13 +253,6 @@
         display: flex;
         align-items: center;
         gap: 6px;
-      }
-      
-      .lex-title .lex-name {
-        font-family: "Michroma", sans-serif;
-        font-weight: 400;
-        font-style: normal;
-        letter-spacing: 1px;
       }
       
       .lex-subtitle {
@@ -306,20 +451,79 @@
  
   // Criar botão do chat
   function criarBotaoChat() {
+    console.log('🔘 LEX: Iniciando criação do botão...');
+    
+    // Verificar se já existe um botão
+    const botaoExistente = document.querySelector('.lex-button');
+    if (botaoExistente) {
+      console.log('⚠️ LEX: Botão já existe, removendo...');
+      botaoExistente.remove();
+    }
+    
+    // Verificar se document.body existe
+    if (!document.body) {
+      console.error('❌ LEX: document.body não existe! Tentando novamente...');
+      setTimeout(criarBotaoChat, 1000);
+      return;
+    }
+    
+    console.log('✅ LEX: document.body existe, criando botão...');
+    
     const botao = document.createElement('button');
     botao.className = 'lex-button';
     botao.innerHTML = '▲';
     botao.title = 'Lex. - Assistente Jurídico Inteligente';
+    botao.id = 'lex-chat-button';
+    
+    // Aplicar estilos inline para garantir visibilidade
+    botao.style.cssText = `
+      position: fixed !important;
+      right: 20px !important;
+      bottom: 20px !important;
+      width: 50px !important;
+      height: 50px !important;
+      border-radius: 50% !important;
+      background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%) !important;
+      color: white !important;
+      border: none !important;
+      cursor: pointer !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 20px !important;
+      z-index: 999999 !important;
+      font-family: Arial, sans-serif !important;
+    `;
     
     botao.addEventListener('click', function() {
+      console.log('🖱️ LEX: Botão clicado!');
       abrirChat();
     });
     
-    document.body.appendChild(botao);
+    try {
+      document.body.appendChild(botao);
+      console.log('✅ LEX: Botão adicionado ao DOM com sucesso!');
+      console.log('📍 LEX: Posição do botão:', botao.getBoundingClientRect());
+      
+      // Verificar se o botão está visível
+      const computedStyle = window.getComputedStyle(botao);
+      console.log('👁️ LEX: Visibilidade do botão:', {
+        display: computedStyle.display,
+        visibility: computedStyle.visibility,
+        opacity: computedStyle.opacity,
+        zIndex: computedStyle.zIndex
+      });
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro ao adicionar botão ao DOM:', error);
+    }
+    
   }
   
   // Abrir chat
   function abrirChat() {
+    console.log('💬 LEX: Abrindo chat...');
     if (!chatContainer) {
       criarInterfaceChat();
     } else {
@@ -329,6 +533,8 @@
   
   // Criar interface do chat
   function criarInterfaceChat() {
+    console.log('🎨 LEX: Criando interface do chat...');
+    
     // Extrair informações completas
     const info = extrairInformacoesCompletas();
     
@@ -350,8 +556,8 @@
           <button class="lex-close">×</button>
         </div>
         <div class="lex-status">
-          <div class="lex-status-dot"></div>
-          <div class="lex-status-text">Processo ativo</div>
+          <div class="lex-status-dot" id="lex-ia-status-dot"></div>
+          <div class="lex-status-text" id="lex-ia-status-text">Verificando IA...</div>
         </div>
       </div>
       
@@ -386,7 +592,33 @@
     
     // Mostrar chat
     chatContainer.classList.add('visible');
-  }  
+    
+    // Atualizar status da IA
+    atualizarStatusIA();
+    
+    console.log('✅ LEX: Interface do chat criada com sucesso!');
+  }
+  
+  // Atualizar status da IA no cabeçalho
+  function atualizarStatusIA() {
+    const statusDot = document.getElementById('lex-ia-status-dot');
+    const statusText = document.getElementById('lex-ia-status-text');
+    
+    if (!statusDot || !statusText) return;
+    
+    if (window.openaiClient) {
+      if (window.openaiClient.isConfigured && window.openaiClient.isConfigured()) {
+        statusDot.style.backgroundColor = '#4ade80'; // Verde
+        statusText.textContent = 'IA ativa';
+      } else {
+        statusDot.style.backgroundColor = '#fbbf24'; // Amarelo
+        statusText.textContent = 'IA não configurada';
+      }
+    } else {
+      statusDot.style.backgroundColor = '#ef4444'; // Vermelho
+      statusText.textContent = 'IA não carregada';
+    }
+  }
 
   // Configurar eventos
   function configurarEventos() {
@@ -454,8 +686,73 @@
       messagesContainer.appendChild(suggestionsMessage);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }, 1000);
-  } 
- 
+  }
+
+  // Enviar mensagem
+  function enviarMensagem(texto) {
+    texto = texto.trim();
+    if (!texto) return;
+    
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
+    const input = chatContainer.querySelector('.lex-input');
+    
+    if (!messagesContainer || !input) return;
+    
+    // Adicionar mensagem do usuário
+    const userMessage = document.createElement('div');
+    userMessage.className = 'lex-message user';
+    userMessage.innerHTML = `
+      <div class="lex-bubble">${texto}</div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+    `;
+    
+    messagesContainer.appendChild(userMessage);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
+    // Limpar input
+    input.value = '';
+    
+    // Mostrar indicador de "pensando"
+    const thinkingMessage = document.createElement('div');
+    thinkingMessage.className = 'lex-message assistant';
+    thinkingMessage.innerHTML = `
+      <div class="lex-bubble">🤔 Analisando...</div>
+    `;
+    messagesContainer.appendChild(thinkingMessage);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
+    // Gerar resposta com IA
+    gerarRespostaIA(texto).then(resposta => {
+      // Remover indicador de "pensando"
+      messagesContainer.removeChild(thinkingMessage);
+      
+      // Adicionar resposta da IA
+      const assistantMessage = document.createElement('div');
+      assistantMessage.className = 'lex-message assistant';
+      assistantMessage.innerHTML = `
+        <div class="lex-bubble">${resposta}</div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      `;
+      
+      messagesContainer.appendChild(assistantMessage);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }).catch(error => {
+      // Remover indicador de "pensando"
+      messagesContainer.removeChild(thinkingMessage);
+      
+      // Mostrar erro
+      const errorMessage = document.createElement('div');
+      errorMessage.className = 'lex-message assistant';
+      errorMessage.innerHTML = `
+        <div class="lex-bubble">❌ Erro ao processar sua pergunta. Tente novamente.</div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      `;
+      
+      messagesContainer.appendChild(errorMessage);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
+  }
+
   // Extrair conteúdo do documento via iframe
   async function extrairConteudoDocumento() {
     console.log('📄 LEX: Iniciando extração de conteúdo do documento');
@@ -610,9 +907,19 @@
   function gerarRespostaFallback(pergunta) {
     const perguntaLower = pergunta.toLowerCase();
     
+    // Verificar status do OpenAI Client para dar feedback específico
+    let statusMessage = '';
+    if (!window.openaiClient) {
+      statusMessage = '⚠️ <strong>IA não carregada:</strong> O sistema de inteligência artificial não foi carregado.<br>';
+    } else if (!window.openaiClient.isConfigured()) {
+      statusMessage = '⚠️ <strong>IA não configurada:</strong> A chave da API OpenAI não foi configurada.<br>';
+    } else {
+      statusMessage = '⚠️ <strong>IA temporariamente indisponível:</strong> Usando respostas de fallback.<br>';
+    }
+    
     if (perguntaLower.includes('analisar') || perguntaLower.includes('análise')) {
       const info = extrairInformacoesCompletas();
-      return `🔍 <strong>Análise do Processo:</strong><br><br>
+      return `${statusMessage}<br>🔍 <strong>Análise do Processo:</strong><br><br>
         ${info.numeroProcesso ? `<strong>Processo:</strong> ${info.numeroProcesso}<br>` : ''}
         ${info.classeProcessual ? `<strong>Classe:</strong> ${info.classeProcessual}<br>` : ''}
         ${info.assunto ? `<strong>Assunto:</strong> ${info.assunto}<br>` : ''}
@@ -680,145 +987,56 @@
       • "ajuda" - Lista completa de comandos<br><br>
       <em>Digite um dos comandos acima para começar!</em>`;
   }
-
-  // Enviar mensagem
-  function enviarMensagem(texto) {
-    texto = texto.trim();
-    if (!texto) return;
-    
-    const messagesContainer = chatContainer.querySelector('.lex-messages');
-    const input = chatContainer.querySelector('.lex-input');
-    
-    if (!messagesContainer || !input) return;
-    
-    // Adicionar mensagem do usuário
-    const userMessage = document.createElement('div');
-    userMessage.className = 'lex-message user';
-    userMessage.innerHTML = `
-      <div class="lex-bubble">${texto}</div>
-      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-    `;
-    
-    messagesContainer.appendChild(userMessage);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    
-    // Limpar input
-    input.value = '';
-    
-    // Mostrar indicador de "pensando"
-    const thinkingMessage = document.createElement('div');
-    thinkingMessage.className = 'lex-message assistant';
-    thinkingMessage.innerHTML = `
-      <div class="lex-bubble">🤔 Analisando...</div>
-    `;
-    messagesContainer.appendChild(thinkingMessage);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    
-    // Gerar resposta com IA
-    gerarRespostaIA(texto).then(resposta => {
-      // Remover indicador de "pensando"
-      messagesContainer.removeChild(thinkingMessage);
-      
-      // Adicionar resposta da IA
-      const assistantMessage = document.createElement('div');
-      assistantMessage.className = 'lex-message assistant';
-      assistantMessage.innerHTML = `
-        <div class="lex-bubble">${resposta}</div>
-        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-      `;
-      
-      messagesContainer.appendChild(assistantMessage);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    });
-  }
- 
-  // Extrair informações completas do processo (versão avançada)
+  
+  // Extrair informações completas do processo
   function extrairInformacoesCompletas() {
     // Usar cache se disponível e recente
-    if (domCache.info && (Date.now() - domCache.lastUpdate) < 5000) {
+    if (domCache.info && domCache.lastUpdate && (Date.now() - domCache.lastUpdate) < 30000) {
       return domCache.info;
     }
     
     const info = {};
-    const texto = document.body.innerText || '';
     
     try {
+      const texto = document.body.innerText;
+      
       // 1. Extrair número do processo
-      const numeroMatch = texto.match(/\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4}/);
+      const numeroMatch = texto.match(/(\d{7}-\d{2}\.\d{4}\.\d{1}\.\d{2}\.\d{4})/);
       if (numeroMatch) {
         info.numeroProcesso = numeroMatch[0];
       }
       
-      // 2. Extrair informações do documento atual (versão avançada)
-      const embeds = document.querySelectorAll('embed, iframe, object');
-      for (let embed of embeds) {
-        const src = embed.src || embed.getAttribute('src') || embed.data;
-        if (src && (src.includes('documento') || src.includes('pdf'))) {
-          // Extrair ID do documento
-          let docId = null;
-          const downloadMatch = src.match(/\/documento\/download\/(\d+)/);
-          if (downloadMatch) {
-            docId = downloadMatch[1];
-          } else {
-            const urlParams = new URLSearchParams(src.split('?')[1] || '');
-            docId = urlParams.get('idDocumento') || urlParams.get('id') || urlParams.get('docId');
-          }
-          
-          if (docId) {
-            info.documentoId = docId;
-            
-            // Tentar extrair nome do documento
-            let docName = embed.title || embed.getAttribute('title');
-            if (!docName) {
-              // Buscar na barra lateral por elementos selecionados
-              const elementosAtivos = document.querySelectorAll('.rich-tree-node-selected, .selected, .active, .highlight');
-              for (let el of elementosAtivos) {
-                const textoEl = el.innerText || el.textContent || '';
-                if (textoEl.includes(docId) || textoEl.length > 10) {
-                  docName = textoEl.trim().split('\n')[0];
-                  break;
-                }
-              }
-            }
-            
-            if (docName) {
-              info.nomeDocumento = docName;
-            }
-          }
-          break;
-        }
+      // 2. Extrair classe processual
+      const classeMatch = texto.match(/Classe:\s*([^\n]+)/i) ||
+                         texto.match(/Classe Judicial:\s*([^\n]+)/i);
+      if (classeMatch) {
+        info.classeProcessual = classeMatch[1].trim();
       }
       
-      // 3. Extrair classe processual
-      const classesComuns = [
-        'Ação Civil Pública', 'Procedimento Comum', 'Mandado de Segurança',
-        'Execução Fiscal', 'Cumprimento de Sentença', 'Embargos à Execução',
-        'Habeas Corpus', 'Recurso', 'Agravo', 'Apelação', 'Embargos de Declaração',
-        'Ação de Improbidade', 'Ação Popular', 'Ação Penal', 'Inquérito',
-        'Recuperação Judicial', 'Falência', 'Inventário', 'Divórcio',
-        'Alimentos', 'Tutela', 'Curatela', 'Usucapião', 'Reintegração de Posse'
-      ];
-      
-      for (const classe of classesComuns) {
-        if (texto.includes(classe)) {
-          info.classeProcessual = classe;
-          break;
-        }
-      }
-      
-      // 4. Extrair partes do processo
+      // 3. Extrair partes
       const autorMatch = texto.match(/Autor:\s*([^\n]+)/i) ||
-                        texto.match(/Requerente:\s*([^\n]+)/i) ||
-                        texto.match(/Exequente:\s*([^\n]+)/i);
+                        texto.match(/Requerente:\s*([^\n]+)/i);
       if (autorMatch) {
         info.autor = autorMatch[1].trim();
       }
       
       const reuMatch = texto.match(/Réu:\s*([^\n]+)/i) ||
-                      texto.match(/Requerido:\s*([^\n]+)/i) ||
-                      texto.match(/Executado:\s*([^\n]+)/i);
+                      texto.match(/Requerido:\s*([^\n]+)/i);
       if (reuMatch) {
         info.reu = reuMatch[1].trim();
+      }
+      
+      // 4. Extrair ID do documento
+      const embeds = document.querySelectorAll('embed, iframe');
+      for (let embed of embeds) {
+        const src = embed.src || embed.getAttribute('src');
+        if (src && src.includes('documento')) {
+          const docIdMatch = src.match(/\/documento\/download\/(\d+)/);
+          if (docIdMatch) {
+            info.documentoId = docIdMatch[1];
+            break;
+          }
+        }
       }
       
       // 5. Extrair assunto
@@ -827,41 +1045,7 @@
         info.assunto = assuntoMatch[1].trim();
       }
       
-      // 6. Extrair fase processual
-      const fasesComuns = [
-        'Petição Inicial', 'Despacho Inicial', 'Citação', 'Contestação',
-        'Réplica', 'Especificação de Provas', 'Audiência', 'Perícia',
-        'Alegações Finais', 'Sentença', 'Recurso', 'Acórdão',
-        'Cumprimento de Sentença', 'Arquivamento', 'Execução'
-      ];
-      
-      for (const fase of fasesComuns) {
-        if (texto.includes(`Fase: ${fase}`) || texto.includes(`Situação: ${fase}`)) {
-          info.faseProcessual = fase;
-          break;
-        }
-      }
-      
-      // 7. Extrair informações específicas do documento
-      const dataMatch = texto.match(/Data de juntada:\s*(\d{2}\/\d{2}\/\d{4})/i) ||
-                       texto.match(/Data do protocolo:\s*(\d{2}\/\d{2}\/\d{4})/i);
-      if (dataMatch) {
-        info.dataJuntada = dataMatch[1];
-      }
-      
-      const tipoMatch = texto.match(/Tipo de documento:\s*([^\n]+)/i) ||
-                       texto.match(/Tipo:\s*([^\n]+)/i);
-      if (tipoMatch) {
-        info.tipoDocumento = tipoMatch[1].trim();
-      }
-      
-      const autorDocMatch = texto.match(/Assinado por:\s*([^\n]+)/i) ||
-                           texto.match(/Autor do documento:\s*([^\n]+)/i);
-      if (autorDocMatch) {
-        info.autorDocumento = autorDocMatch[1].trim();
-      }
-      
-      // 8. Identificar tribunal
+      // 6. Identificar tribunal
       const url = window.location.href;
       if (url.includes('tjsp')) {
         info.tribunal = 'TJSP';
@@ -906,16 +1090,8 @@
       html += `<div class="lex-item"><span class="lex-label">Réu:</span> <span class="lex-value">${info.reu}</span></div>`;
     }
     
-    if (info.faseProcessual) {
-      html += `<div class="lex-item"><span class="lex-label">Fase:</span> <span class="lex-value">${info.faseProcessual}</span></div>`;
-    }
-    
     if (info.documentoId) {
       html += `<div class="lex-item"><span class="lex-label">Doc. ID:</span> <span class="lex-value">${info.documentoId}</span></div>`;
-    }
-    
-    if (info.nomeDocumento) {
-      html += `<div class="lex-item"><span class="lex-label">Documento:</span> <span class="lex-value">${info.nomeDocumento}</span></div>`;
     }
     
     if (info.tribunal) {

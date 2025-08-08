@@ -95,7 +95,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["chat-styles.css", "content-simple.js"],
+      "resources": ["chat-styles.css", "content-simple.js", "openai-client.js"],
       "matches": ["<all_urls>"]
     }
   ]
