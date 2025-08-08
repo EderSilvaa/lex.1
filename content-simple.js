@@ -548,16 +548,10 @@ Responda de forma especializada e útil:`;
         <div class="lex-header-top">
           <div class="lex-title-area">
             <div class="lex-title">
-              <span class="lex-logo">▲</span>
               <span class="lex-name">Lex.</span>
             </div>
-            <div class="lex-subtitle">${info.numeroProcesso || 'Assistente Jurídico'}</div>
           </div>
           <button class="lex-close">×</button>
-        </div>
-        <div class="lex-status">
-          <div class="lex-status-dot" id="lex-ia-status-dot"></div>
-          <div class="lex-status-text" id="lex-ia-status-text">Verificando IA...</div>
         </div>
       </div>
       
@@ -666,26 +660,6 @@ Responda de forma especializada e útil:`;
     `;
     
     messagesContainer.appendChild(welcomeMessage);
-    
-    // Sugestões de comandos
-    setTimeout(() => {
-      const suggestionsMessage = document.createElement('div');
-      suggestionsMessage.className = 'lex-message assistant';
-      suggestionsMessage.innerHTML = `
-        <div class="lex-bubble">
-          💡 <strong>Comandos úteis:</strong><br><br>
-          • "analisar processo" - Análise detalhada<br>
-          • "documento atual" - Informações do documento<br>
-          • "prazos" - Informações sobre prazos<br>
-          • "como peticionar" - Guia de peticionamento<br>
-          • "ajuda" - Lista completa de comandos
-        </div>
-        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-      `;
-      
-      messagesContainer.appendChild(suggestionsMessage);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }, 1000);
   }
 
   // Enviar mensagem
