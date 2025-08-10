@@ -16,7 +16,9 @@
     "*://localhost/*",
     "file://*/*",
     "https://pje.tjpa.jus.br/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://cdnjs.cloudflare.com/*",
+    "https://unpkg.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -85,7 +87,7 @@
         "*://*.trt24.jus.br/*",
         "file://*/teste-pje.html"
       ],
-      "js": ["openai-client.js", "content-simple.js"],
+      "js": ["pdf.min.js", "document-detector.js", "pdf-processor.js", "openai-client.js", "content-simple.js"],
       "run_at": "document_end",
       "all_frames": false
     }
@@ -95,7 +97,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["chat-styles.css", "content-simple.js", "openai-client.js"],
+      "resources": ["chat-styles.css", "content-simple.js", "openai-client.js", "document-detector.js", "pdf-processor.js", "pdf.min.js", "pdf.worker.min.js"],
       "matches": ["<all_urls>"]
     }
   ]

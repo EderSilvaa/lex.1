@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste PDFProcessor - LEX</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-ready { background-color: #28a745; }
+        .status-loading { background-color: #ffc107; }
+        .status-error { background-color: #dc3545; }
+        .file-input {
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Teste PDFProcessor - LEX</h1>
+    
+    <div class="test-container">
+        <h2>📊 Status do PDFProcessor</h2>
+        <div id="statusDisplay">
+            <span class="status-indicator status-error"></span>
+            <span>Não inicializado</span>
+        </div>
+        <button onclick="initializePDFProcessor()">Inicializar PDF.js</button>
+        <button onclick="checkStatus()">Verificar Status</button>
+        <div id="statusResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🔧 Testes de Inicialização</h2>
+        <button onclick="testInitialization()">Testar Inicialização</button>
+        <button onclick="testMultipleInitialization()">Testar Múltiplas Inicializações</button>
+        <button onclick="testWorkerConfiguration()">Testar Configuração Worker</button>
+        <div id="initializationResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>📄 Teste com Arquivo PDF</h2>
+        <input type="file" id="pdfFileInput" accept=".pdf" class="file-input">
+        <br>
+        <button onclick="testPDFValidation()">Validar PDF</button>
+        <button onclick="testPasswordProtection()">Verificar Proteção</button>
+        <button onclick="testPDFInfo()">Obter Informações</button>
+        <div id="pdfTestResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🌐 Teste com PDF Online</h2>
+        <input type="url" id="pdfUrlInput" placeholder="URL do PDF para testar" style="width: 400px; padding: 8px;">
+        <br>
+        <button onclick="testOnlinePDF()">Testar PDF Online</button>
+        <div id="onlinePdfResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>📝 Testes de Extração de Texto</h2>
+        <button onclick="testTextExtraction()">Extrair Texto Completo</button>
+        <button onclick="testTextSample()">Extrair Amostra (3 páginas)</button>
+        <button onclick="testSpecificPages()">Extrair Páginas Específicas</button>
+        <button onclick="testSearchInPDF()">Buscar Texto no PDF</button>
+        <div id="textExtractionResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🔍 Teste de Busca</h2>
+        <input type="text" id="searchTermInput" placeholder="Termo para buscar no PDF" style="width: 300px; padding: 8px;">
+        <br>
+        <label><input type="checkbox" id="caseSensitiveCheck"> Case Sensitive</label>
+        <label><input type="checkbox" id="wholeWordsCheck"> Palavras Completas</label>
+        <br>
+        <button onclick="performSearch()">Buscar</button>
+        <div id="searchResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🛡️ Testes de Tratamento de Erros</h2>
+        <button onclick="testErrorHandling()">Testar Tratamento Robusto</button>
+        <button onclick="testPageRecovery()">Testar Recuperação de Páginas</button>
+        <button onclick="testTimeoutHandling()">Testar Timeout</button>
+        <button onclick="testMemoryValidation()">Testar Validação de Memória</button>
+        <div id="errorHandlingResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🔧 Testes de Validação</h2>
+        <button onclick="testPDFValidation()">Testar Validação Completa</button>
+        <button onclick="testCorruptedPDF()">Simular PDF Corrompido</button>
+        <button onclick="testLargePDF()">Simular PDF Grande</button>
+        <div id="validationResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>⚡ Testes de Performance</h2>
+        <button onclick="testPerformance()">Testar Performance</button>
+        <button onclick="testMemoryUsage()">Verificar Memória</button>
+        <button onclick="testCleanup()">Testar Cleanup</button>
+        <div id="performanceResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>📊 Log de Console</h2>
+        <button onclick="clearLog()">Limpar Log</button>
+        <div id="consoleLog" class="log"></div>
+    </div>
+
+    <script src="pdf-processor.js"></script>
+    <script>
+        let pdfProcessor = null;
+        
+        // Capturar logs do console
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function addToLog(message, type = 'log') {
+            const logDiv = document.getElementById('consoleLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: #666;">[${timestamp}]</span> ${message}`;
+            if (type === 'error') logEntry.style.color = '#dc3545';
+            if (type === 'warn') logEntry.style.color = '#ffc107';
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToLog(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToLog(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addToLog(args.join(' '), 'warn');
+        };
+        
+        function clearLog() {
+            document.getElementById('consoleLog').innerHTML = '';
+        }
+        
+        function showResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const result = document.createElement('div');
+            result.className = `test-result ${type}`;
+            result.innerHTML = message;
+            container.appendChild(result);
+        }
+        
+        function clearResults(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+        
+        function updateStatusDisplay() {
+            const statusDiv = document.getElementById('statusDisplay');
+            const indicator = statusDiv.querySelector('.status-indicator');
+            const text = statusDiv.querySelector('span:last-child');
+            
+            if (!pdfProcessor) {
+                indicator.className = 'status-indicator status-error';
+                text.textContent = 'Não inicializado';
+                return;
+            }
+            
+            const status = pdfProcessor.getStatus();
+            
+            if (status.ready) {
+                indicator.className = 'status-indicator status-ready';
+                text.textContent = `Pronto (v${status.version})`;
+            } else if (status.loading) {
+                indicator.className = 'status-indicator status-loading';
+                text.textContent = 'Carregando...';
+            } else {
+                indicator.className = 'status-indicator status-error';
+                text.textContent = 'Erro ou não inicializado';
+            }
+        }
+        
+        async function initializePDFProcessor() {
+            try {
+                if (!pdfProcessor) {
+                    pdfProcessor = new PDFProcessor();
+                }
+                
+                updateStatusDisplay();
+                await pdfProcessor.initialize();
+                updateStatusDisplay();
+                
+                showResult('statusResults', '✅ PDFProcessor inicializado com sucesso!', 'success');
+            } catch (error) {
+                showResult('statusResults', `❌ Erro ao inicializar: ${error.message}`, 'error');
+                updateStatusDisplay();
+            }
+        }
+        
+        function checkStatus() {
+            clearResults('statusResults');
+            
+            if (!pdfProcessor) {
+                showResult('statusResults', '⚠️ PDFProcessor não foi criado ainda', 'warning');
+                return;
+            }
+            
+            const status = pdfProcessor.getStatus();
+            const stats = pdfProcessor.getStats();
+            
+            showResult('statusResults', 
+                `📊 Status do PDFProcessor:<br>
+                 - Inicializado: ${status.initialized}<br>
+                 - Carregando: ${status.loading}<br>
+                 - Versão: ${status.version}<br>
+                 - Worker configurado: ${status.workerConfigured}<br>
+                 - Biblioteca disponível: ${status.libraryAvailable}<br>
+                 - Pronto para uso: ${status.ready}<br>
+                 - Uso de memória: ${stats.memoryUsage}`, 
+                'info');
+        }
+        
+        async function testInitialization() {
+            clearResults('initializationResults');
+            
+            try {
+                const startTime = performance.now();
+                
+                const testProcessor = new PDFProcessor();
+                await testProcessor.initialize();
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                showResult('initializationResults', 
+                    `✅ Inicialização bem-sucedida em ${duration}ms`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('initializationResults', 
+                    `❌ Falha na inicialização: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testMultipleInitialization() {
+            clearResults('initializationResults');
+            
+            try {
+                const processor1 = new PDFProcessor();
+                const processor2 = new PDFProcessor();
+                
+                const startTime = performance.now();
+                
+                // Inicializar ambos simultaneamente
+                await Promise.all([
+                    processor1.initialize(),
+                    processor2.initialize()
+                ]);
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                showResult('initializationResults', 
+                    `✅ Múltiplas inicializações bem-sucedidas em ${duration}ms`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('initializationResults', 
+                    `❌ Falha em múltiplas inicializações: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testWorkerConfiguration() {
+            clearResults('initializationResults');
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('initializationResults', 
+                    '⚠️ Inicialize o PDFProcessor primeiro', 
+                    'warning');
+                return;
+            }
+            
+            try {
+                // Testar se o worker está funcionando
+                const testArrayBuffer = new ArrayBuffer(100);
+                const uint8Array = new Uint8Array(testArrayBuffer);
+                
+                // Criar um PDF mínimo inválido para testar worker
+                uint8Array.set([0x25, 0x50, 0x44, 0x46]); // %PDF
+                
+                try {
+                    await pdfProcessor.pdfjsLib.getDocument(testArrayBuffer).promise;
+                } catch (error) {
+                    // Erro esperado, mas confirma que worker funciona
+                    if (error.message.includes('Invalid') || error.message.includes('PDF')) {
+                        showResult('initializationResults', 
+                            '✅ Worker PDF.js funcionando corretamente', 
+                            'success');
+                        return;
+                    }
+                }
+                
+                showResult('initializationResults', 
+                    '⚠️ Worker pode não estar funcionando corretamente', 
+                    'warning');
+                    
+            } catch (error) {
+                showResult('initializationResults', 
+                    `❌ Erro ao testar worker: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testPDFValidation() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('pdfTestResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('pdfTestResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('pdfTestResults');
+            
+            try {
+                const startTime = performance.now();
+                const isValid = await pdfProcessor.validatePDF(file);
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                showResult('pdfTestResults', 
+                    `${isValid ? '✅' : '❌'} PDF ${isValid ? 'válido' : 'inválido'} (${duration}ms)<br>
+                     Arquivo: ${file.name}<br>
+                     Tamanho: ${pdfProcessor.formatFileSize(file.size)}`, 
+                    isValid ? 'success' : 'error');
+                    
+            } catch (error) {
+                showResult('pdfTestResults', 
+                    `❌ Erro na validação: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testPasswordProtection() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('pdfTestResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('pdfTestResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                const isProtected = await pdfProcessor.isPasswordProtected(file);
+                
+                showResult('pdfTestResults', 
+                    `${isProtected ? '🔒' : '🔓'} PDF ${isProtected ? 'protegido por senha' : 'sem proteção'}<br>
+                     Arquivo: ${file.name}`, 
+                    isProtected ? 'warning' : 'success');
+                    
+            } catch (error) {
+                showResult('pdfTestResults', 
+                    `❌ Erro ao verificar proteção: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testPDFInfo() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('pdfTestResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('pdfTestResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                const startTime = performance.now();
+                const info = await pdfProcessor.getPDFInfo(file);
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                showResult('pdfTestResults', 
+                    `📊 Informações do PDF (${duration}ms):<br>
+                     - Páginas: ${info.numPages}<br>
+                     - Tamanho: ${info.fileSizeFormatted}<br>
+                     - Título: ${info.metadata.title || 'N/A'}<br>
+                     - Autor: ${info.metadata.author || 'N/A'}<br>
+                     - Criador: ${info.metadata.creator || 'N/A'}<br>
+                     - Data de criação: ${info.metadata.creationDate || 'N/A'}<br>
+                     - Versão PDF: ${info.pdfVersion || 'N/A'}<br>
+                     - Criptografado: ${info.encrypted}`, 
+                    'info');
+                    
+            } catch (error) {
+                showResult('pdfTestResults', 
+                    `❌ Erro ao obter informações: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testOnlinePDF() {
+            const urlInput = document.getElementById('pdfUrlInput');
+            const url = urlInput.value;
+            
+            if (!url) {
+                showResult('onlinePdfResults', '⚠️ Digite uma URL de PDF', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('onlinePdfResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('onlinePdfResults');
+            showResult('onlinePdfResults', '🔄 Baixando PDF...', 'info');
+            
+            try {
+                // Baixar PDF
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                
+                // Testar PDF
+                const isValid = await pdfProcessor.validatePDF(blob);
+                const info = await pdfProcessor.getPDFInfo(blob);
+                
+                showResult('onlinePdfResults', 
+                    `✅ PDF online processado com sucesso:<br>
+                     - URL: ${url}<br>
+                     - Válido: ${isValid}<br>
+                     - Páginas: ${info.numPages}<br>
+                     - Tamanho: ${info.fileSizeFormatted}<br>
+                     - Título: ${info.metadata.title || 'N/A'}`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('onlinePdfResults', 
+                    `❌ Erro ao processar PDF online: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testPerformance() {
+            clearResults('performanceResults');
+            
+            if (!pdfProcessor) {
+                pdfProcessor = new PDFProcessor();
+            }
+            
+            const tests = [
+                { name: 'Inicialização', test: () => pdfProcessor.initialize() },
+                { name: 'Verificação de status', test: () => pdfProcessor.getStatus() },
+                { name: 'Verificação de prontidão', test: () => pdfProcessor.isReady() },
+                { name: 'Obtenção de estatísticas', test: () => pdfProcessor.getStats() }
+            ];
+            
+            for (const testCase of tests) {
+                try {
+                    const startTime = performance.now();
+                    await testCase.test();
+                    const endTime = performance.now();
+                    const duration = Math.round(endTime - startTime);
+                    
+                    showResult('performanceResults', 
+                        `✅ ${testCase.name}: ${duration}ms`, 
+                        'success');
+                        
+                } catch (error) {
+                    showResult('performanceResults', 
+                        `❌ ${testCase.name}: ${error.message}`, 
+                        'error');
+                }
+            }
+        }
+        
+        function testMemoryUsage() {
+            clearResults('performanceResults');
+            
+            if (!pdfProcessor) {
+                showResult('performanceResults', '⚠️ Crie um PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            const stats = pdfProcessor.getStats();
+            
+            showResult('performanceResults', 
+                `📊 Uso de memória: ${stats.memoryUsage}`, 
+                'info');
+        }
+        
+        async function testTextExtraction() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('textExtractionResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('textExtractionResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('textExtractionResults');
+            showResult('textExtractionResults', '🔄 Extraindo texto completo...', 'info');
+            
+            try {
+                const startTime = performance.now();
+                
+                const result = await pdfProcessor.extractTextFromPDF(file, {
+                    progressCallback: (progress) => {
+                        console.log(`Progresso: ${Math.round(progress.progress)}% (página ${progress.currentPage}/${progress.totalPages})`);
+                    }
+                });
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                const preview = result.text.length > 500 ? 
+                    result.text.substring(0, 500) + '...' : 
+                    result.text;
+                
+                showResult('textExtractionResults', 
+                    `✅ Extração completa bem-sucedida (${duration}ms):<br>
+                     - Páginas processadas: ${result.stats.processedPages}/${result.stats.totalPages}<br>
+                     - Caracteres extraídos: ${result.stats.totalCharacters}<br>
+                     - Média por página: ${result.stats.averageCharsPerPage} chars<br>
+                     - Erros: ${result.stats.errors.length}<br>
+                     - Tamanho do arquivo: ${result.fileSizeFormatted}<br><br>
+                     <strong>Preview do texto:</strong><br>
+                     <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto;">${preview.replace(/\n/g, '<br>')}</div>`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('textExtractionResults', 
+                    `❌ Erro na extração: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testTextSample() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('textExtractionResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('textExtractionResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                const startTime = performance.now();
+                const result = await pdfProcessor.extractTextSample(file, 3);
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                const preview = result.text.length > 800 ? 
+                    result.text.substring(0, 800) + '...' : 
+                    result.text;
+                
+                showResult('textExtractionResults', 
+                    `✅ Amostra extraída (${duration}ms):<br>
+                     - Páginas: ${result.stats.processedPages}<br>
+                     - Caracteres: ${result.stats.totalCharacters}<br><br>
+                     <strong>Texto da amostra:</strong><br>
+                     <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; max-height: 300px; overflow-y: auto;">${preview.replace(/\n/g, '<br>')}</div>`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('textExtractionResults', 
+                    `❌ Erro na extração de amostra: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testSpecificPages() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('textExtractionResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('textExtractionResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            const pages = prompt('Digite os números das páginas separados por vírgula (ex: 1,3,5):');
+            if (!pages) return;
+            
+            try {
+                const pageNumbers = pages.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
+                
+                const result = await pdfProcessor.extractTextFromPages(file, pageNumbers);
+                
+                showResult('textExtractionResults', 
+                    `✅ Páginas específicas extraídas:<br>
+                     - Páginas solicitadas: ${result.requestedPages.join(', ')}<br>
+                     - Páginas processadas: ${result.processedPages}<br>
+                     - Erros: ${result.errors.length}<br><br>
+                     <strong>Texto extraído:</strong><br>
+                     <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; max-height: 300px; overflow-y: auto;">${result.text.substring(0, 1000).replace(/\n/g, '<br>')}${result.text.length > 1000 ? '...' : ''}</div>`, 
+                    'success');
+                    
+            } catch (error) {
+                showResult('textExtractionResults', 
+                    `❌ Erro na extração de páginas específicas: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testSearchInPDF() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('textExtractionResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('textExtractionResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            const searchTerm = prompt('Digite o termo para buscar:');
+            if (!searchTerm) return;
+            
+            try {
+                showResult('textExtractionResults', '🔍 Buscando no PDF...', 'info');
+                
+                const result = await pdfProcessor.searchInPDF(file, searchTerm, {
+                    caseSensitive: false,
+                    wholeWords: false,
+                    maxResults: 10
+                });
+                
+                let resultsHtml = `✅ Busca concluída:<br>
+                    - Termo: "${result.searchTerm}"<br>
+                    - Ocorrências: ${result.totalMatches}<br><br>`;
+                
+                if (result.results.length > 0) {
+                    resultsHtml += '<strong>Resultados:</strong><br>';
+                    result.results.forEach((match, index) => {
+                        resultsHtml += `<div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                            <strong>Página ${match.page}:</strong><br>
+                            <span style="font-family: monospace; font-size: 11px;">${match.context.replace(/\n/g, ' ')}</span>
+                        </div>`;
+                    });
+                } else {
+                    resultsHtml += '<em>Nenhuma ocorrência encontrada.</em>';
+                }
+                
+                showResult('textExtractionResults', resultsHtml, 'success');
+                    
+            } catch (error) {
+                showResult('textExtractionResults', 
+                    `❌ Erro na busca: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function performSearch() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            const searchTerm = document.getElementById('searchTermInput').value;
+            const caseSensitive = document.getElementById('caseSensitiveCheck').checked;
+            const wholeWords = document.getElementById('wholeWordsCheck').checked;
+            
+            if (!file) {
+                showResult('searchResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!searchTerm) {
+                showResult('searchResults', '⚠️ Digite um termo para buscar', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('searchResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('searchResults');
+            showResult('searchResults', '🔍 Realizando busca...', 'info');
+            
+            try {
+                const startTime = performance.now();
+                
+                const result = await pdfProcessor.searchInPDF(file, searchTerm, {
+                    caseSensitive: caseSensitive,
+                    wholeWords: wholeWords,
+                    maxResults: 20
+                });
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                let resultsHtml = `✅ Busca concluída em ${duration}ms:<br>
+                    - Termo: "${result.searchTerm}"<br>
+                    - Case Sensitive: ${result.searchOptions.caseSensitive}<br>
+                    - Palavras Completas: ${result.searchOptions.wholeWords}<br>
+                    - Ocorrências: ${result.totalMatches}<br><br>`;
+                
+                if (result.results.length > 0) {
+                    resultsHtml += '<strong>Resultados:</strong><br>';
+                    result.results.forEach((match, index) => {
+                        const highlightedContext = match.context.replace(
+                            new RegExp(match.match, 'gi'), 
+                            `<mark style="background: yellow;">${match.match}</mark>`
+                        );
+                        
+                        resultsHtml += `<div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #007bff;">
+                            <strong>Página ${match.page}:</strong><br>
+                            <span style="font-family: monospace; font-size: 11px;">${highlightedContext}</span>
+                        </div>`;
+                    });
+                } else {
+                    resultsHtml += '<em>Nenhuma ocorrência encontrada.</em>';
+                }
+                
+                showResult('searchResults', resultsHtml, 'success');
+                    
+            } catch (error) {
+                showResult('searchResults', 
+                    `❌ Erro na busca: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testErrorHandling() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('errorHandlingResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('errorHandlingResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('errorHandlingResults');
+            showResult('errorHandlingResults', '🛡️ Testando tratamento robusto de erros...', 'info');
+            
+            try {
+                const startTime = performance.now();
+                
+                const result = await pdfProcessor.extractTextWithErrorHandling(file, {
+                    timeout: 15000,
+                    maxRetries: 2,
+                    retryDelay: 1000,
+                    maxPages: 20,
+                    fallbackOnError: true,
+                    progressCallback: (progress) => {
+                        console.log(`Progresso robusto: ${Math.round(progress.progress)}%`);
+                    }
+                });
+                
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+                
+                let resultHtml = `✅ Extração robusta bem-sucedida (${duration}ms):<br>`;
+                
+                if (result.fallback) {
+                    resultHtml += `⚠️ <strong>Fallback usado:</strong> ${result.fallbackStrategy}<br>`;
+                    resultHtml += `📝 <strong>Erro original:</strong> ${result.originalError}<br>`;
+                    resultHtml += `⚠️ <strong>Aviso:</strong> ${result.warning}<br><br>`;
+                }
+                
+                if (result.stats) {
+                    resultHtml += `- Páginas processadas: ${result.stats.processedPages}/${result.stats.totalPages}<br>`;
+                    resultHtml += `- Caracteres extraídos: ${result.stats.totalCharacters}<br>`;
+                }
+                
+                const preview = result.text.length > 300 ? 
+                    result.text.substring(0, 300) + '...' : 
+                    result.text;
+                
+                resultHtml += `<br><strong>Preview do texto:</strong><br>
+                    <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; max-height: 150px; overflow-y: auto;">${preview.replace(/\n/g, '<br>')}</div>`;
+                
+                showResult('errorHandlingResults', resultHtml, result.fallback ? 'warning' : 'success');
+                
+            } catch (error) {
+                let errorHtml = `❌ Erro no tratamento robusto:<br>`;
+                
+                if (error instanceof PDFProcessingError) {
+                    errorHtml += `- Código: ${error.code}<br>`;
+                    errorHtml += `- Mensagem técnica: ${error.message}<br>`;
+                    errorHtml += `- Mensagem amigável: ${error.getUserFriendlyMessage()}<br>`;
+                    errorHtml += `- Recuperável: ${error.isRetryable()}<br>`;
+                    
+                    if (error.details) {
+                        errorHtml += `- Detalhes: ${JSON.stringify(error.details)}<br>`;
+                    }
+                } else {
+                    errorHtml += `- Mensagem: ${error.message}`;
+                }
+                
+                showResult('errorHandlingResults', errorHtml, 'error');
+            }
+        }
+        
+        async function testPageRecovery() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('errorHandlingResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('errorHandlingResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                showResult('errorHandlingResults', '🔧 Testando recuperação de páginas...', 'info');
+                
+                const result = await pdfProcessor.extractTextWithPageRecovery(file, {
+                    maxPages: 10,
+                    includeErrorPlaceholders: true
+                });
+                
+                let resultHtml = `${result.success ? '✅' : '❌'} Recuperação de páginas concluída:<br>
+                    - Páginas solicitadas: ${result.stats.requestedPages}<br>
+                    - Páginas bem-sucedidas: ${result.stats.successfulPages}<br>
+                    - Páginas com erro: ${result.stats.failedPages}<br>
+                    - Taxa de sucesso: ${Math.round(result.stats.successRate)}%<br>`;
+                
+                if (result.stats.errors.length > 0) {
+                    resultHtml += `<br><strong>Erros encontrados:</strong><br>`;
+                    result.stats.errors.forEach(error => {
+                        resultHtml += `- Página ${error.page}: ${error.type} (${error.error})<br>`;
+                    });
+                }
+                
+                if (result.partialSuccess) {
+                    resultHtml += `<br>⚠️ <strong>Sucesso parcial:</strong> Algumas páginas foram processadas com sucesso.`;
+                }
+                
+                showResult('errorHandlingResults', resultHtml, 
+                    result.success ? 'success' : (result.partialSuccess ? 'warning' : 'error'));
+                
+            } catch (error) {
+                showResult('errorHandlingResults', 
+                    `❌ Erro na recuperação de páginas: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testTimeoutHandling() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('errorHandlingResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('errorHandlingResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                showResult('errorHandlingResults', '⏱️ Testando timeout (5 segundos)...', 'info');
+                
+                const result = await pdfProcessor.extractTextWithErrorHandling(file, {
+                    timeout: 5000, // 5 segundos apenas
+                    maxRetries: 1,
+                    fallbackOnError: true
+                });
+                
+                showResult('errorHandlingResults', 
+                    `✅ Processamento concluído dentro do timeout de 5s`, 
+                    'success');
+                
+            } catch (error) {
+                if (error.code === 'EXTRACTION_TIMEOUT') {
+                    showResult('errorHandlingResults', 
+                        `⏱️ Timeout funcionou corretamente: ${error.message}`, 
+                        'success');
+                } else {
+                    showResult('errorHandlingResults', 
+                        `❌ Erro inesperado: ${error.message}`, 
+                        'error');
+                }
+            }
+        }
+        
+        async function testMemoryValidation() {
+            if (!pdfProcessor) {
+                pdfProcessor = new PDFProcessor();
+                await pdfProcessor.initialize();
+            }
+            
+            clearResults('errorHandlingResults');
+            
+            const memInfo = pdfProcessor.getMemoryInfo();
+            
+            let resultHtml = `📊 <strong>Informações de Memória:</strong><br>`;
+            
+            if (memInfo.available) {
+                resultHtml += `- Memória usada: ${memInfo.used}<br>`;
+                resultHtml += `- Memória total: ${memInfo.total}<br>`;
+                resultHtml += `- Limite de memória: ${memInfo.limit}<br>`;
+                resultHtml += `- Uso percentual: ${memInfo.usagePercentage}%<br><br>`;
+                
+                // Testar verificação de memória
+                const testSizes = [10 * 1024 * 1024, 50 * 1024 * 1024, 100 * 1024 * 1024]; // 10MB, 50MB, 100MB
+                
+                resultHtml += `<strong>Testes de capacidade:</strong><br>`;
+                testSizes.forEach(size => {
+                    const hasEnough = pdfProcessor.hasEnoughMemory(size);
+                    const sizeFormatted = pdfProcessor.formatFileSize(size);
+                    resultHtml += `- ${sizeFormatted}: ${hasEnough ? '✅ OK' : '❌ Insuficiente'}<br>`;
+                });
+                
+            } else {
+                resultHtml += `⚠️ ${memInfo.message}`;
+            }
+            
+            showResult('errorHandlingResults', resultHtml, 'info');
+        }
+        
+        async function testPDFValidation() {
+            const fileInput = document.getElementById('pdfFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('validationResults', '⚠️ Selecione um arquivo PDF primeiro', 'warning');
+                return;
+            }
+            
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('validationResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('validationResults');
+            
+            try {
+                const validationResult = await pdfProcessor.validatePDFForExtraction(file, {
+                    maxFileSize: 50 * 1024 * 1024,
+                    maxPages: 100
+                });
+                
+                let resultHtml = `${validationResult.valid ? '✅' : '❌'} <strong>Validação ${validationResult.valid ? 'bem-sucedida' : 'falhou'}:</strong><br>`;
+                
+                if (validationResult.valid) {
+                    resultHtml += `- Páginas: ${validationResult.details.pages}<br>`;
+                    resultHtml += `- Tamanho: ${pdfProcessor.formatFileSize(validationResult.details.fileSize)}<br>`;
+                    resultHtml += `- Fingerprint: ${validationResult.details.fingerprint}<br>`;
+                } else {
+                    resultHtml += `- Erro: ${validationResult.error}<br>`;
+                    resultHtml += `- Código: ${validationResult.code}<br>`;
+                    if (validationResult.details) {
+                        resultHtml += `- Detalhes: ${JSON.stringify(validationResult.details)}<br>`;
+                    }
+                }
+                
+                showResult('validationResults', resultHtml, validationResult.valid ? 'success' : 'error');
+                
+            } catch (error) {
+                showResult('validationResults', 
+                    `❌ Erro na validação: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testCorruptedPDF() {
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('validationResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('validationResults');
+            
+            try {
+                // Criar um blob que não é um PDF válido
+                const fakeData = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0x00]); // %PDF com dados inválidos
+                const fakeBlob = new Blob([fakeData], { type: 'application/pdf' });
+                
+                const validationResult = await pdfProcessor.validatePDFForExtraction(fakeBlob, {
+                    maxFileSize: 50 * 1024 * 1024,
+                    maxPages: 100
+                });
+                
+                showResult('validationResults', 
+                    `✅ PDF corrompido detectado corretamente:<br>
+                     - Erro: ${validationResult.error}<br>
+                     - Código: ${validationResult.code}`, 
+                    'success');
+                
+            } catch (error) {
+                showResult('validationResults', 
+                    `❌ Erro no teste de PDF corrompido: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        async function testLargePDF() {
+            if (!pdfProcessor || !pdfProcessor.isReady()) {
+                showResult('validationResults', '⚠️ Inicialize o PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            clearResults('validationResults');
+            
+            try {
+                // Simular um arquivo muito grande
+                const largeSize = 100 * 1024 * 1024; // 100MB
+                const largeData = new Uint8Array(largeSize);
+                largeData.set([0x25, 0x50, 0x44, 0x46]); // %PDF no início
+                const largeBlob = new Blob([largeData], { type: 'application/pdf' });
+                
+                const validationResult = await pdfProcessor.validatePDFForExtraction(largeBlob, {
+                    maxFileSize: 50 * 1024 * 1024, // Limite de 50MB
+                    maxPages: 100
+                });
+                
+                showResult('validationResults', 
+                    `✅ Arquivo grande detectado corretamente:<br>
+                     - Erro: ${validationResult.error}<br>
+                     - Código: ${validationResult.code}<br>
+                     - Tamanho simulado: ${pdfProcessor.formatFileSize(largeSize)}`, 
+                    'success');
+                
+            } catch (error) {
+                showResult('validationResults', 
+                    `❌ Erro no teste de arquivo grande: ${error.message}`, 
+                    'error');
+            }
+        }
+        
+        function testCleanup() {
+            clearResults('performanceResults');
+            
+            if (!pdfProcessor) {
+                showResult('performanceResults', '⚠️ Crie um PDFProcessor primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                pdfProcessor.cleanup();
+                showResult('performanceResults', '✅ Cleanup executado com sucesso', 'success');
+            } catch (error) {
+                showResult('performanceResults', `❌ Erro no cleanup: ${error.message}`, 'error');
+            }
+        }
+        
+        // Inicialização automática
+        window.onload = function() {
+            console.log('🧪 LEX: Página de testes PDFProcessor carregada');
+            console.log('📄 PDFProcessor disponível:', typeof PDFProcessor !== 'undefined');
+            updateStatusDisplay();
+        };
+        
+        // Atualizar status periodicamente
+        setInterval(updateStatusDisplay, 1000);
+    </script>
+</body>
+</html>

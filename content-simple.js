@@ -727,9 +727,9 @@ Responda de forma especializada e útil:`;
     });
   }
 
-  // Extrair conteúdo do documento via iframe
+  // Extrair conteúdo do documento via iframe - VERSÃO MELHORADA com PDF support
   async function extrairConteudoDocumento() {
-    console.log('📄 LEX: Iniciando extração de conteúdo do documento');
+    console.log('📄 LEX: Iniciando extração melhorada de conteúdo do documento');
     
     try {
       // 1. Detectar iframe do documento
@@ -749,9 +749,165 @@ Responda de forma especializada e útil:`;
         return null;
       }
       
-      // 3. Fazer requisição autenticada
-      console.log('🌐 Fazendo requisição autenticada para o documento...');
-      const response = await fetch(documentUrl, {
+      // 3. Detectar tipo de documento usando DocumentDetector
+      console.log('🔍 LEX: Detectando tipo de documento...');
+      const contentType = await DocumentDetector.getContentType(documentUrl);
+      const documentType = DocumentDetector.detectDocumentType(documentUrl, contentType);
+      
+      console.log('📋 LEX: Tipo detectado:', documentType, '| Content-Type:', contentType);
+      
+      // 4. Processar baseado no tipo detectado
+      switch (documentType) {
+        case 'PDF':
+          return await processarDocumentoPDF(documentUrl, contentType);
+        
+        case 'IMAGE':
+          console.log('🖼️ LEX: Imagem detectada - OCR será implementado em breve');
+          return await processarDocumentoImagem(documentUrl, contentType);
+        
+        default:
+          console.log('📄 LEX: HTML/Texto - usando método atual');
+          return await processarDocumentoHTML(documentUrl, contentType);
+      }
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro na extração melhorada de documento:', error);
+      return null;
+    }
+  }
+  
+  // Processar documento PDF usando PDFProcessor
+  async function processarDocumentoPDF(url, contentType) {
+    console.log('📄 LEX: Processando documento PDF...');
+    
+    try {
+      // Verificar se PDFProcessor está disponível
+      if (typeof PDFProcessor === 'undefined') {
+        console.warn('⚠️ LEX: PDFProcessor não disponível, usando fallback');
+        return await processarDocumentoHTML(url, contentType);
+      }
+      
+      // Inicializar PDFProcessor
+      const processor = new PDFProcessor();
+      await processor.initialize();
+      
+      console.log('📥 LEX: Baixando PDF...');
+      const pdfBlob = await DocumentDetector.getDocumentBlob(url);
+      
+      // Verificar se PDF está protegido por senha
+      const isProtected = await processor.isPasswordProtected(pdfBlob);
+      if (isProtected) {
+        console.warn('🔒 LEX: PDF protegido por senha');
+        return {
+          url: url,
+          tipo: 'PDF',
+          conteudo: '[PDF protegido por senha - não foi possível extrair texto]',
+          tamanho: pdfBlob.size,
+          erro: 'password_protected'
+        };
+      }
+      
+      console.log('📄 LEX: Extraindo texto do PDF...');
+      
+      // Usar extração robusta com fallback
+      const result = await processor.extractTextWithErrorHandling(pdfBlob, {
+        timeout: 30000,
+        maxRetries: 2,
+        maxPages: 50, // Limitar para evitar PDFs muito grandes
+        fallbackOnError: true,
+        progressCallback: (progress) => {
+          console.log(`📊 LEX: Processando PDF - ${Math.round(progress.progress)}% (página ${progress.currentPage}/${progress.totalPages})`);
+        }
+      });
+      
+      console.log('✅ LEX: PDF processado com sucesso');
+      console.log('- Páginas processadas:', result.stats?.processedPages || 'N/A');
+      console.log('- Caracteres extraídos:', result.stats?.totalCharacters || result.text.length);
+      console.log('- Tempo de processamento:', result.stats?.processingTime || 'N/A', 'ms');
+      
+      // Preparar resultado
+      const resultado = {
+        url: url,
+        tipo: 'PDF',
+        conteudo: result.text,
+        tamanho: pdfBlob.size,
+        metadata: result.metadata || null,
+        stats: result.stats || null
+      };
+      
+      // Adicionar informações de fallback se usado
+      if (result.fallback) {
+        resultado.fallback = true;
+        resultado.fallbackStrategy = result.fallbackStrategy;
+        resultado.warning = result.warning;
+        console.warn('⚠️ LEX: PDF processado com fallback:', result.fallbackStrategy);
+      }
+      
+      return resultado;
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro ao processar PDF:', error);
+      
+      // Fallback para método HTML se PDF falhar completamente
+      console.log('🔄 LEX: Tentando fallback para método HTML...');
+      try {
+        const htmlResult = await processarDocumentoHTML(url, contentType);
+        if (htmlResult) {
+          htmlResult.warning = 'PDF não pôde ser processado, usando conteúdo HTML alternativo';
+          return htmlResult;
+        }
+      } catch (htmlError) {
+        console.error('❌ LEX: Fallback HTML também falhou:', htmlError);
+      }
+      
+      return {
+        url: url,
+        tipo: 'PDF',
+        conteudo: '[Erro ao processar PDF - documento não pôde ser lido]',
+        tamanho: 0,
+        erro: error.message
+      };
+    }
+  }
+  
+  // Processar documento de imagem (placeholder para OCR futuro)
+  async function processarDocumentoImagem(url, contentType) {
+    console.log('🖼️ LEX: Processando documento de imagem...');
+    
+    try {
+      const imageBlob = await DocumentDetector.getDocumentBlob(url);
+      
+      // TODO: Implementar OCR com Tesseract.js na próxima fase
+      console.log('📋 LEX: OCR será implementado em breve');
+      
+      return {
+        url: url,
+        tipo: 'IMAGE',
+        conteudo: '[Imagem detectada - OCR será implementado em breve]\n\nTipo: ' + contentType + '\nTamanho: ' + DocumentDetector.formatFileSize(imageBlob.size),
+        tamanho: imageBlob.size,
+        pendente: 'ocr_implementation'
+      };
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro ao processar imagem:', error);
+      return {
+        url: url,
+        tipo: 'IMAGE',
+        conteudo: '[Erro ao processar imagem]',
+        tamanho: 0,
+        erro: error.message
+      };
+    }
+  }
+  
+  // Processar documento HTML (método atual mantido)
+  async function processarDocumentoHTML(url, contentType) {
+    console.log('📄 LEX: Processando documento HTML (método atual)...');
+    
+    try {
+      // 3. Fazer requisição autenticada (método atual mantido)
+      console.log('🌐 LEX: Fazendo requisição autenticada para o documento...');
+      const response = await fetch(url, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -761,44 +917,46 @@ Responda de forma especializada e útil:`;
       });
       
       if (!response.ok) {
-        console.error('❌ Erro na requisição:', response.status, response.statusText);
+        console.error('❌ LEX: Erro na requisição:', response.status, response.statusText);
         return null;
       }
       
-      // 4. Obter conteúdo
-      const contentType = response.headers.get('content-type') || '';
-      console.log('📋 Tipo de conteúdo:', contentType);
+      // 4. Obter conteúdo (método atual mantido)
+      const finalContentType = response.headers.get('content-type') || contentType || '';
+      console.log('📋 LEX: Tipo de conteúdo final:', finalContentType);
       
       let conteudo = '';
       
-      if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
+      if (finalContentType.includes('text/html') || finalContentType.includes('application/xhtml')) {
         // Documento HTML/XHTML
         const htmlContent = await response.text();
         conteudo = extrairTextoDeHTML(htmlContent);
-        console.log('✅ Conteúdo HTML extraído:', conteudo.substring(0, 200) + '...');
-      } else if (contentType.includes('text/plain')) {
+        console.log('✅ LEX: Conteúdo HTML extraído:', conteudo.substring(0, 200) + '...');
+      } else if (finalContentType.includes('text/plain')) {
         // Documento de texto
         conteudo = await response.text();
-        console.log('✅ Conteúdo de texto extraído:', conteudo.substring(0, 200) + '...');
-      } else if (contentType.includes('application/pdf')) {
-        // PDF - não podemos processar diretamente, mas podemos tentar
-        console.log('📄 Documento PDF detectado - conteúdo limitado');
-        conteudo = '[Documento PDF - conteúdo não extraível via JavaScript]';
+        console.log('✅ LEX: Conteúdo de texto extraído:', conteudo.substring(0, 200) + '...');
       } else {
-        console.log('⚠️ Tipo de documento não suportado:', contentType);
+        console.log('⚠️ LEX: Tipo de documento não suportado:', finalContentType);
         conteudo = '[Tipo de documento não suportado para extração de texto]';
       }
       
       return {
-        url: documentUrl,
-        tipo: contentType,
+        url: url,
+        tipo: 'HTML',
         conteudo: conteudo,
         tamanho: conteudo.length
       };
       
     } catch (error) {
-      console.error('❌ Erro ao extrair conteúdo do documento:', error);
-      return null;
+      console.error('❌ LEX: Erro ao processar HTML:', error);
+      return {
+        url: url,
+        tipo: 'HTML',
+        conteudo: '[Erro ao processar documento HTML]',
+        tamanho: 0,
+        erro: error.message
+      };
     }
   }
   
@@ -845,11 +1003,37 @@ Responda de forma especializada e útil:`;
       
       if (conteudoDocumento) {
         console.log('✅ Conteúdo do documento extraído com sucesso');
+        console.log('📊 Tipo de documento:', conteudoDocumento.tipo);
         console.log('📊 Tamanho do conteúdo:', conteudoDocumento.tamanho, 'caracteres');
+        
         // Adicionar conteúdo do documento ao contexto
         contexto.conteudoDocumento = conteudoDocumento.conteudo;
         contexto.tipoDocumento = conteudoDocumento.tipo;
         contexto.urlDocumento = conteudoDocumento.url;
+        
+        // Adicionar informações específicas do tipo de documento
+        if (conteudoDocumento.tipo === 'PDF') {
+          if (conteudoDocumento.metadata) {
+            contexto.metadataDocumento = conteudoDocumento.metadata;
+          }
+          if (conteudoDocumento.stats) {
+            contexto.statsProcessamento = conteudoDocumento.stats;
+          }
+          if (conteudoDocumento.fallback) {
+            contexto.avisoFallback = conteudoDocumento.warning;
+            console.warn('⚠️ LEX: PDF processado com fallback:', conteudoDocumento.fallbackStrategy);
+          }
+        }
+        
+        // Log adicional para diferentes tipos
+        if (conteudoDocumento.tipo === 'PDF') {
+          console.log('📄 LEX: PDF processado - páginas:', conteudoDocumento.stats?.processedPages || 'N/A');
+        } else if (conteudoDocumento.tipo === 'IMAGE') {
+          console.log('🖼️ LEX: Imagem detectada - OCR pendente');
+        } else {
+          console.log('📄 LEX: Documento HTML/texto processado');
+        }
+        
       } else {
         console.log('⚠️ Não foi possível extrair conteúdo do documento');
       }
@@ -1070,6 +1254,30 @@ Responda de forma especializada e útil:`;
     
     if (info.tribunal) {
       html += `<div class="lex-item"><span class="lex-label">Tribunal:</span> <span class="lex-value">${info.tribunal}</span></div>`;
+    }
+    
+    // Adicionar informações do documento processado
+    if (info.tipoDocumento) {
+      let tipoDisplay = info.tipoDocumento;
+      let statusIcon = '';
+      
+      if (info.tipoDocumento === 'PDF') {
+        statusIcon = '📄';
+        if (info.statsProcessamento) {
+          tipoDisplay += ` (${info.statsProcessamento.processedPages} páginas)`;
+        }
+        if (info.avisoFallback) {
+          statusIcon = '⚠️';
+          tipoDisplay += ' (processado com limitações)';
+        }
+      } else if (info.tipoDocumento === 'IMAGE') {
+        statusIcon = '🖼️';
+        tipoDisplay += ' (OCR pendente)';
+      } else if (info.tipoDocumento === 'HTML') {
+        statusIcon = '📄';
+      }
+      
+      html += `<div class="lex-item"><span class="lex-label">Documento:</span> <span class="lex-value">${statusIcon} ${tipoDisplay}</span></div>`;
     }
     
     return html || '<div class="lex-item"><span class="lex-value">Carregando informações...</span></div>';

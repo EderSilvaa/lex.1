@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Integração LEX - PDF Support</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .iframe-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 10px 0;
+            background: #f8f9fa;
+        }
+        .mock-iframe {
+            width: 100%;
+            height: 200px;
+            border: 1px solid #ccc;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: #666;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Teste de Integração LEX - Suporte a PDF</h1>
+    
+    <div class="test-container">
+        <h2>📋 Status das Bibliotecas</h2>
+        <button onclick="checkLibraries()">Verificar Bibliotecas</button>
+        <div id="libraryStatus"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🔍 Teste de Detecção de Documentos</h2>
+        <div class="iframe-container">
+            <h4>Simular iframes de documentos:</h4>
+            <iframe id="mockPdfIframe" src="about:blank" style="display: none;"></iframe>
+            <iframe id="mockHtmlIframe" src="about:blank" style="display: none;"></iframe>
+            <iframe id="mockImageIframe" src="about:blank" style="display: none;"></iframe>
+            
+            <div class="mock-iframe" id="mockDisplay">
+                Nenhum iframe simulado ativo
+            </div>
+        </div>
+        
+        <button onclick="simulatePDFDocument()">Simular Documento PDF</button>
+        <button onclick="simulateHTMLDocument()">Simular Documento HTML</button>
+        <button onclick="simulateImageDocument()">Simular Documento Imagem</button>
+        <button onclick="clearSimulation()">Limpar Simulação</button>
+        
+        <div id="detectionResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>📄 Teste de Extração de Conteúdo</h2>
+        <button onclick="testContentExtraction()">Testar Extração</button>
+        <button onclick="testWithRealPDF()">Testar com PDF Real</button>
+        <div id="extractionResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>🤖 Teste de Integração com IA</h2>
+        <input type="text" id="testQuestion" placeholder="Digite uma pergunta para testar" style="width: 400px; padding: 8px;">
+        <button onclick="testAIIntegration()">Testar com IA</button>
+        <div id="aiResults"></div>
+    </div>
+    
+    <div class="test-container">
+        <h2>📊 Log de Console</h2>
+        <button onclick="clearLog()">Limpar Log</button>
+        <div id="consoleLog" class="log"></div>
+    </div>
+
+    <!-- Carregar bibliotecas LEX -->
+    <script src="document-detector.js"></script>
+    <script src="pdf-processor.js"></script>
+    <script src="openai-client.js"></script>
+    
+    <script>
+        // Capturar logs do console
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function addToLog(message, type = 'log') {
+            const logDiv = document.getElementById('consoleLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: #666;">[${timestamp}]</span> ${message}`;
+            if (type === 'error') logEntry.style.color = '#dc3545';
+            if (type === 'warn') logEntry.style.color = '#ffc107';
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToLog(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToLog(args.join(' '), 'error');
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addToLog(args.join(' '), 'warn');
+        };
+        
+        function clearLog() {
+            document.getElementById('consoleLog').innerHTML = '';
+        }
+        
+        function showResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const result = document.createElement('div');
+            result.className = `test-result ${type}`;
+            result.innerHTML = message;
+            container.appendChild(result);
+        }
+        
+        function clearResults(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+        
+        function checkLibraries() {
+            clearResults('libraryStatus');
+            
+            const libraries = [
+                { name: 'DocumentDetector', available: typeof DocumentDetector !== 'undefined' },
+                { name: 'PDFProcessor', available: typeof PDFProcessor !== 'undefined' },
+                { name: 'PDFProcessingError', available: typeof PDFProcessingError !== 'undefined' }
+            ];
+            
+            libraries.forEach(lib => {
+                const status = lib.available ? '✅ Disponível' : '❌ Não encontrada';
+                const type = lib.available ? 'success' : 'error';
+                showResult('libraryStatus', `${lib.name}: ${status}`, type);
+            });
+            
+            // Testar métodos principais
+            if (typeof DocumentDetector !== 'undefined') {
+                try {
+                    const testType = DocumentDetector.detectDocumentType('test.pdf', 'application/pdf');
+                    showResult('libraryStatus', `DocumentDetector.detectDocumentType(): ${testType}`, 'success');
+                } catch (error) {
+                    showResult('libraryStatus', `Erro no DocumentDetector: ${error.message}`, 'error');
+                }
+            }
+        }
+        
+        function simulatePDFDocument() {
+            const iframe = document.getElementById('mockPdfIframe');
+            iframe.src = 'https://example.com/documento/download/123.pdf';
+            iframe.style.display = 'block';
+            
+            document.getElementById('mockDisplay').innerHTML = 
+                '📄 Simulando: iframe com src="https://example.com/documento/download/123.pdf"';
+            
+            showResult('detectionResults', '📄 Documento PDF simulado', 'info');
+        }
+        
+        function simulateHTMLDocument() {
+            const iframe = document.getElementById('mockHtmlIframe');
+            iframe.src = 'https://example.com/documento/visualizar?id=123';
+            iframe.style.display = 'block';
+            
+            document.getElementById('mockDisplay').innerHTML = 
+                '📄 Simulando: iframe com src="https://example.com/documento/visualizar?id=123"';
+            
+            showResult('detectionResults', '📄 Documento HTML simulado', 'info');
+        }
+        
+        function simulateImageDocument() {
+            const iframe = document.getElementById('mockImageIframe');
+            iframe.src = 'https://example.com/documento/imagem/123.jpg';
+            iframe.style.display = 'block';
+            
+            document.getElementById('mockDisplay').innerHTML = 
+                '🖼️ Simulando: iframe com src="https://example.com/documento/imagem/123.jpg"';
+            
+            showResult('detectionResults', '🖼️ Documento de imagem simulado', 'info');
+        }
+        
+        function clearSimulation() {
+            ['mockPdfIframe', 'mockHtmlIframe', 'mockImageIframe'].forEach(id => {
+                const iframe = document.getElementById(id);
+                iframe.src = 'about:blank';
+                iframe.style.display = 'none';
+            });
+            
+            document.getElementById('mockDisplay').innerHTML = 'Nenhum iframe simulado ativo';
+            clearResults('detectionResults');
+        }
+        
+        async function testContentExtraction() {
+            clearResults('extractionResults');
+            
+            // Verificar se há iframe simulado
+            const activeIframe = document.querySelector('iframe[src*="/documento/"]:not([src="about:blank"])');
+            
+            if (!activeIframe) {
+                showResult('extractionResults', '⚠️ Simule um documento primeiro', 'warning');
+                return;
+            }
+            
+            try {
+                showResult('extractionResults', '🔄 Testando detecção de tipo...', 'info');
+                
+                const url = activeIframe.src;
+                
+                if (typeof DocumentDetector !== 'undefined') {
+                    // Simular detecção de content-type
+                    let contentType = '';
+                    if (url.includes('.pdf')) contentType = 'application/pdf';
+                    else if (url.includes('.jpg') || url.includes('.png')) contentType = 'image/jpeg';
+                    else contentType = 'text/html';
+                    
+                    const documentType = DocumentDetector.detectDocumentType(url, contentType);
+                    
+                    showResult('extractionResults', 
+                        `✅ Tipo detectado: ${documentType}<br>
+                         - URL: ${url}<br>
+                         - Content-Type: ${contentType}`, 
+                        'success');
+                    
+                    // Simular processamento baseado no tipo
+                    if (documentType === 'PDF') {
+                        showResult('extractionResults', 
+                            '📄 Processamento PDF seria executado aqui<br>- PDFProcessor seria inicializado<br>- Texto seria extraído com fallback', 
+                            'info');
+                    } else if (documentType === 'IMAGE') {
+                        showResult('extractionResults', 
+                            '🖼️ Processamento de imagem seria executado aqui<br>- OCR seria aplicado (quando implementado)', 
+                            'info');
+                    } else {
+                        showResult('extractionResults', 
+                            '📄 Processamento HTML seria executado aqui<br>- Método atual seria mantido', 
+                            'info');
+                    }
+                } else {
+                    showResult('extractionResults', '❌ DocumentDetector não disponível', 'error');
+                }
+                
+            } catch (error) {
+                showResult('extractionResults', `❌ Erro no teste: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testWithRealPDF() {
+            clearResults('extractionResults');
+            
+            if (typeof PDFProcessor === 'undefined') {
+                showResult('extractionResults', '❌ PDFProcessor não disponível', 'error');
+                return;
+            }
+            
+            try {
+                showResult('extractionResults', '🔄 Inicializando PDFProcessor...', 'info');
+                
+                const processor = new PDFProcessor();
+                await processor.initialize();
+                
+                const status = processor.getStatus();
+                showResult('extractionResults', 
+                    `✅ PDFProcessor inicializado:<br>
+                     - Versão: ${status.version}<br>
+                     - Worker configurado: ${status.workerConfigured}<br>
+                     - Pronto: ${status.ready}`, 
+                    'success');
+                
+                showResult('extractionResults', 
+                    '📄 Para testar com PDF real, use a extensão no PJe com um documento PDF', 
+                    'info');
+                
+            } catch (error) {
+                showResult('extractionResults', `❌ Erro ao inicializar PDFProcessor: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testAIIntegration() {
+            const question = document.getElementById('testQuestion').value;
+            
+            if (!question) {
+                showResult('aiResults', '⚠️ Digite uma pergunta para testar', 'warning');
+                return;
+            }
+            
+            clearResults('aiResults');
+            showResult('aiResults', '🤖 Testando integração com IA...', 'info');
+            
+            // Simular contexto com documento processado
+            const mockContext = {
+                numeroProcesso: '1234567-89.2023.8.26.0001',
+                tipoDocumento: 'PDF',
+                conteudoDocumento: 'Texto extraído do PDF de exemplo...',
+                statsProcessamento: {
+                    processedPages: 5,
+                    totalCharacters: 2500,
+                    processingTime: 1200
+                }
+            };
+            
+            showResult('aiResults', 
+                `✅ Contexto simulado criado:<br>
+                 - Processo: ${mockContext.numeroProcesso}<br>
+                 - Tipo de documento: ${mockContext.tipoDocumento}<br>
+                 - Páginas processadas: ${mockContext.statsProcessamento.processedPages}<br>
+                 - Caracteres extraídos: ${mockContext.statsProcessamento.totalCharacters}<br><br>
+                 🤖 Pergunta: "${question}"<br><br>
+                 📝 A IA receberia este contexto completo incluindo o texto do PDF extraído`, 
+                'success');
+        }
+        
+        // Inicialização
+        window.onload = function() {
+            console.log('🧪 LEX: Página de teste de integração carregada');
+            checkLibraries();
+        };
+    </script>
+</body>
+</html>
