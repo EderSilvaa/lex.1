@@ -21,7 +21,7 @@
     "https://unpkg.com/*"
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "src/html/popup.html",
     "default_title": "Lex."
   },
   "content_scripts": [
@@ -87,18 +87,34 @@
         "*://*.trt24.jus.br/*",
         "file://*/teste-pje.html"
       ],
-      "js": ["pdf.min.js", "document-detector.js", "pdf-processor.js", "openai-client.js", "content-simple.js"],
+      "js": [
+        "src/js/pdf.min.js",
+        "src/js/document-detector.js",
+        "src/js/pdf-processor.js",
+        "src/js/openai-client.js",
+        "src/js/content-simple.js"
+      ],
       "run_at": "document_end",
       "all_frames": false
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/js/background.js"
   },
   "web_accessible_resources": [
     {
-      "resources": ["chat-styles.css", "content-simple.js", "openai-client.js", "document-detector.js", "pdf-processor.js", "pdf.min.js", "pdf.worker.min.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "styles/chat-styles.css",
+        "src/js/content-simple.js",
+        "src/js/openai-client.js",
+        "src/js/document-detector.js",
+        "src/js/pdf-processor.js",
+        "src/js/pdf.min.js",
+        "src/js/pdf.worker.min.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
