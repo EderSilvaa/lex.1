@@ -1,5 +1,5 @@
 // PDF Processor - PDF.js integration for LEX Document Processing System
-// Handles PDF text extraction and metadata processing
+// Handles PDF text extraction and metadata processing with robust worker configuration
 
 class PDFProcessor {
   constructor() {
@@ -128,25 +128,72 @@ class PDFProcessor {
     
     console.log('⚙️ LEX: Configurando PDF.js worker...');
     
-    // Configurar worker local
-    this.workerSrc = chrome.runtime.getURL('pdf.worker.min.js');
+    // Configurar worker local com caminho correto
+    this.workerSrc = chrome.runtime.getURL('src/js/pdf.worker.min.js');
     this.pdfjsLib.GlobalWorkerOptions.workerSrc = this.workerSrc;
+    
+    console.log('🔧 LEX: Worker configurado:', this.workerSrc);
     
     // Configurações globais
     this.pdfjsLib.GlobalWorkerOptions.verbosity = 0; // Reduzir logs
     
-    // Testar se o worker funciona
+    // Validar se o worker foi carregado corretamente
+    await this.validateWorkerConfiguration();
+  }
+  
+  /**
+   * Valida se a configuração do worker está funcionando
+   * @returns {Promise<void>}
+   */
+  async validateWorkerConfiguration() {
+    console.log('🔍 LEX: Validando configuração do worker...');
+    
     try {
-      const testArrayBuffer = new ArrayBuffer(8);
-      const testDoc = await this.pdfjsLib.getDocument(testArrayBuffer).promise;
-      console.log('⚠️ LEX: Worker testado (erro esperado para buffer vazio)');
-    } catch (error) {
-      // Erro esperado com buffer vazio, mas confirma que worker funciona
-      if (error.message.includes('Invalid PDF')) {
+      // Testar com um PDF mínimo válido (header PDF)
+      const testPdfData = new Uint8Array([
+        0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34, // %PDF-1.4
+        0x0A, 0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A, 0x0A, // Binary comment
+        0x31, 0x20, 0x30, 0x20, 0x6F, 0x62, 0x6A, 0x0A, // 1 0 obj
+        0x3C, 0x3C, 0x2F, 0x54, 0x79, 0x70, 0x65, 0x2F, // <</Type/
+        0x43, 0x61, 0x74, 0x61, 0x6C, 0x6F, 0x67, 0x2F, // Catalog/
+        0x50, 0x61, 0x67, 0x65, 0x73, 0x20, 0x32, 0x20, // Pages 2 
+        0x30, 0x20, 0x52, 0x3E, 0x3E, 0x0A, 0x65, 0x6E, // 0 R>>.en
+        0x64, 0x6F, 0x62, 0x6A, 0x0A, 0x0A              // dobj..
+      ]);
+      
+      const loadingTask = this.pdfjsLib.getDocument(testPdfData);
+      
+      // Tentar carregar o documento de teste
+      try {
+        const pdf = await loadingTask.promise;
         console.log('✅ LEX: Worker PDF.js funcionando corretamente');
-      } else {
-        console.warn('⚠️ LEX: Possível problema com worker:', error.message);
+        console.log('- Worker Source:', this.workerSrc);
+        console.log('- PDF Test Document carregado com sucesso');
+        return true;
+      } catch (pdfError) {
+        // Se o erro for sobre PDF inválido, o worker está funcionando
+        if (pdfError.message.includes('Invalid PDF') || 
+            pdfError.message.includes('Missing PDF header') ||
+            pdfError.name === 'InvalidPDFException') {
+          console.log('✅ LEX: Worker funcionando (erro de PDF esperado para teste)');
+          return true;
+        }
+        
+        // Se o erro for sobre worker, temos um problema
+        if (pdfError.message.includes('Setting up fake worker failed') ||
+            pdfError.message.includes('Cannot load script')) {
+          console.error('❌ LEX: Erro de configuração do worker:', pdfError.message);
+          throw new Error(`Worker não pôde ser carregado: ${pdfError.message}`);
+        }
+        
+        // Outros erros também indicam problema com worker
+        console.warn('⚠️ LEX: Possível problema com worker:', pdfError.message);
+        throw pdfError;
       }
+      
+    } catch (error) {
+      console.error('❌ LEX: Falha na validação do worker:', error.message);
+      throw new Error(`Validação do worker falhou: ${error.message}`);
     }
   }
   
@@ -191,9 +238,79 @@ class PDFProcessor {
       loading: this.loading,
       version: this.version,
       workerConfigured: !!this.workerSrc,
+      workerSource: this.workerSrc,
       libraryAvailable: !!this.pdfjsLib,
-      ready: this.isReady()
+      ready: this.isReady(),
+      environment: this.getEnvironmentInfo()
     };
+  }
+  
+  /**
+   * Obtém informações sobre o ambiente de execução
+   * @returns {Object}
+   */
+  getEnvironmentInfo() {
+    return {
+      isExtension: typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL,
+      manifestVersion: chrome?.runtime?.getManifest?.()?.manifest_version || null,
+      userAgent: navigator.userAgent,
+      chromeVersion: this.getChromeVersion(),
+      workerSupported: typeof Worker !== 'undefined'
+    };
+  }
+  
+  /**
+   * Extrai versão do Chrome do user agent
+   * @returns {string|null}
+   */
+  getChromeVersion() {
+    const match = navigator.userAgent.match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
+    return match ? match[1] : null;
+  }
+  
+  /**
+   * Testa a configuração do worker com diagnósticos detalhados
+   * @returns {Promise<Object>}
+   */
+  async testWorkerConfiguration() {
+    console.log('🧪 LEX: Iniciando teste de configuração do worker...');
+    
+    const testResult = {
+      success: false,
+      workerConfigured: false,
+      workerFunctional: false,
+      environment: this.getEnvironmentInfo(),
+      errors: [],
+      details: {}
+    };
+    
+    try {
+      // Verificar se está inicializado
+      if (!this.isReady()) {
+        await this.initialize();
+      }
+      
+      testResult.workerConfigured = !!this.workerSrc;
+      testResult.details.workerSource = this.workerSrc;
+      
+      // Testar funcionalidade do worker
+      await this.validateWorkerConfiguration();
+      testResult.workerFunctional = true;
+      testResult.success = true;
+      
+      console.log('✅ LEX: Teste de configuração do worker bem-sucedido');
+      
+    } catch (error) {
+      testResult.errors.push({
+        type: 'worker_test_failed',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.error('❌ LEX: Teste de configuração do worker falhou:', error.message);
+    }
+    
+    return testResult;
   }
   
   /**

@@ -1,0 +1,120 @@
+{
+  "manifest_version": 3,
+  "name": "Lex.",
+  "version": "1.0",
+  "description": "Assistente jurídico inteligente para o sistema PJe",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "*://*.pje.jus.br/*",
+    "*://*.tjsp.jus.br/*",
+    "*://*.tjpa.jus.br/*",
+    "*://localhost/*",
+    "file://*/*",
+    "https://pje.tjpa.jus.br/*",
+    "https://api.openai.com/*",
+    "https://cdnjs.cloudflare.com/*",
+    "https://unpkg.com/*"
+  ],
+  "action": {
+    "default_popup": "src/html/popup.html",
+    "default_title": "Lex."
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.pje.jus.br/*",
+        "*://*.tjsp.jus.br/*",
+        "*://*.trf1.jus.br/*",
+        "*://*.trf2.jus.br/*",
+        "*://*.trf3.jus.br/*",
+        "*://*.trf4.jus.br/*",
+        "*://*.trf5.jus.br/*",
+        "*://*.trf6.jus.br/*",
+        "*://*.tjrj.jus.br/*",
+        "*://*.tjmg.jus.br/*",
+        "*://*.tjrs.jus.br/*",
+        "*://*.tjpr.jus.br/*",
+        "*://*.tjsc.jus.br/*",
+        "*://*.tjgo.jus.br/*",
+        "*://*.tjba.jus.br/*",
+        "*://*.tjpe.jus.br/*",
+        "*://*.tjce.jus.br/*",
+        "*://*.tjpb.jus.br/*",
+        "*://*.tjrn.jus.br/*",
+        "*://*.tjal.jus.br/*",
+        "*://*.tjse.jus.br/*",
+        "*://*.tjma.jus.br/*",
+        "*://*.tjpi.jus.br/*",
+        "*://*.tjmt.jus.br/*",
+        "*://*.tjms.jus.br/*",
+        "*://*.tjro.jus.br/*",
+        "*://*.tjac.jus.br/*",
+        "*://*.tjap.jus.br/*",
+        "*://*.tjam.jus.br/*",
+        "*://*.tjrr.jus.br/*",
+        "*://*.tjto.jus.br/*",
+        "*://*.tjdf.jus.br/*",
+        "*://*.tjpa.jus.br/*",
+        "*://*.tst.jus.br/*",
+        "*://*.trt1.jus.br/*",
+        "*://*.trt2.jus.br/*",
+        "*://*.trt3.jus.br/*",
+        "*://*.trt4.jus.br/*",
+        "*://*.trt5.jus.br/*",
+        "*://*.trt6.jus.br/*",
+        "*://*.trt7.jus.br/*",
+        "*://*.trt8.jus.br/*",
+        "*://*.trt9.jus.br/*",
+        "*://*.trt10.jus.br/*",
+        "*://*.trt11.jus.br/*",
+        "*://*.trt12.jus.br/*",
+        "*://*.trt13.jus.br/*",
+        "*://*.trt14.jus.br/*",
+        "*://*.trt15.jus.br/*",
+        "*://*.trt16.jus.br/*",
+        "*://*.trt17.jus.br/*",
+        "*://*.trt18.jus.br/*",
+        "*://*.trt19.jus.br/*",
+        "*://*.trt20.jus.br/*",
+        "*://*.trt21.jus.br/*",
+        "*://*.trt22.jus.br/*",
+        "*://*.trt23.jus.br/*",
+        "*://*.trt24.jus.br/*",
+        "file://*/teste-pje.html"
+      ],
+      "js": [
+        "src/js/pdf.min.js",
+        "dist/js/document-detector.js",
+        "dist/js/pdf-processor.js",
+        "dist/js/openai-client.js",
+        "dist/js/content-simple.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "dist/js/background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "styles/chat-styles.css",
+        "dist/js/content-simple.js",
+        "dist/js/openai-client.js",
+        "dist/js/document-detector.js",
+        "dist/js/pdf-processor.js",
+        "src/js/pdf.min.js",
+        "src/js/pdf.worker.min.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
