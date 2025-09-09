@@ -122,6 +122,13 @@ Content-Security-Policy:
 - [ ] Content scripts seguros (sem eval/Function)?
 - [ ] HTTPS para todas as origens externas?
 
+### Verificações de Sintaxe JavaScript
+- [ ] **Syntax check**: `node -c src/js/content-simple.js`
+- [ ] **Template strings**: Backticks (`) conflitantes?
+- [ ] **Regex patterns**: Caracteres especiais escapados?
+- [ ] **Comentários**: Sem caracteres que quebram parsing?
+- [ ] **Console errors**: F12 → Console para erros runtime
+
 ---
 
 ## 🏗️ Arquitetura de Classes CSS
@@ -196,6 +203,90 @@ Content-Security-Policy:
 3. Verificar CORS headers
 4. Manter Service Worker ativo
 
+### Problema: Extensão não aparece/funciona
+**Causas comuns:**
+1. **Erro de sintaxe JavaScript** (mais comum)
+2. Content script não injetado
+3. CSS não carregado
+4. Conflitos com outras extensões
+
+**Debug sistemático:**
+1. **Console → Verificar erros JavaScript**
+2. **Syntax check**: `node -c arquivo.js`
+3. **Extensions → Reload** da extensão
+4. **Network → Verificar recursos**
+5. **Elements → Verificar DOM injection**
+
+---
+
+## 🤖 Fluxo de IA e Integração Supabase
+
+### Arquitetura de IA
+```
+PJe → DocumentDetector → PDFProcessor → OpenAIClient → Supabase Edge Function → OpenAI API
+```
+
+### Supabase Edge Function Integration
+- **URL**: `https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA`
+- **Auth**: Bearer token + apikey (público Supabase)
+- **Payload**: `{ pergunta: prompt, contexto: 'Processo judicial via extensão Lex' }`
+- **Vantagens**: API key OpenAI escondida, rate limiting, logs centralizados
+
+### Sistema de Prompts Otimizado
+
+#### Prompt Structure (v2.0)
+```
+Você é Lex, assistente jurídico especializado em direito brasileiro.
+
+INSTRUÇÕES ESSENCIAIS:
+• Resposta MÁXIMO 300 palavras, concisa e prática
+• Use HTML simples: <strong>, <em>, <br>, <ul>, <li>
+• NUNCA use markdown
+• Estruture em seções claras
+
+ESTRUTURA OBRIGATÓRIA:
+1. 📄 Resumo: [2-3 linhas]
+2. ⚠️ Ação Necessária: [o que fazer]
+3. 📅 Prazo: [quando fazer]
+4. 💡 Dica: [recomendação prática]
+```
+
+#### Melhorias Implementadas
+- ✅ **Limite de palavras**: 500 → 300 (mais conciso)
+- ✅ **Estrutura fixa**: 4 seções obrigatórias  
+- ✅ **Formatação consistente**: HTML puro, sem markdown
+- ✅ **Emojis organizacionais**: Melhor UX visual
+- ✅ **Linguagem acessível**: Menos juridiquês
+
+### Sistema de Limpeza de Resposta
+
+#### Função `limparResposta()`
+```javascript
+// Remove markdown malformado
+.replace(/```html\s*/gi, '') 
+.replace(/```\s*/g, '')      
+.replace(/#{1,6}\s*/g, '')   
+.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+// Melhora formatação
+.replace(/\n{3,}/g, '<br><br>')
+.replace(/\n{2}/g, '<br><br>')
+.replace(/\n/g, '<br>')
+```
+
+#### Problemas Resolvidos
+- ❌ ````html` sem fechamento
+- ❌ Texto corrido sem estrutura  
+- ❌ Markdown malformado
+- ❌ Excesso de quebras de linha
+
+### Fallback System
+- **Trigger**: OpenAI indisponível/não configurado
+- **Responses**: Estáticas baseadas em keywords
+- **Status**: Feedback específico do problema
+- **Categories**: análise, documento, prazo, geral
+
 ---
 
 ## 🎨 Padrões de Design Implementados
@@ -259,4 +350,28 @@ chatContainer // Container principal
 
 ---
 
-*Última atualização: $(date)*
+## 📈 Changelog de Melhorias
+
+### v2.1 - Otimização de IA e Prompts (2025-01-09)
+- ✅ **Sistema de prompts v2.0**: Estrutura fixa, 300 palavras máximo
+- ✅ **Limpeza de resposta**: Remove markdown malformado automaticamente  
+- ✅ **Debug de sintaxe**: Comando `node -c` para validação JavaScript
+- ✅ **Integração Supabase**: Edge Functions para segurança da API key
+- ✅ **Fallback inteligente**: Respostas úteis mesmo sem IA
+- ✅ **UX melhorada**: Emojis organizacionais, formatação consistente
+
+### v2.0 - Fonte Michroma e UX (2025-01-09)  
+- ✅ **Tipografia**: Fonte Michroma nos títulos
+- ✅ **CSS otimizado**: Carregamento assíncrono com Promise
+- ✅ **Cleanup**: 12 arquivos de teste obsoletos removidos
+- ✅ **Documentação**: Mapeamento sistêmico completo
+
+### v1.0 - Base LEX (2025-01-08)
+- ✅ **Extração**: PDF, HTML e detecção de imagens
+- ✅ **Processamento**: PDF.js integrado com worker
+- ✅ **Interface**: Chat moderno e responsivo
+- ✅ **Arquitetura**: Manifest V3 compliant
+
+---
+
+*Última atualização: 09/01/2025*

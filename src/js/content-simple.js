@@ -85,24 +85,108 @@
       }
 
       criarPromptJuridico(contexto, pergunta) {
-        const systemPrompt = `Você é Lex, um assistente jurídico especializado em direito brasileiro e sistema PJe.
-
-INSTRUÇÕES:
-- Responda sempre em português brasileiro
-- Use linguagem jurídica precisa mas acessível
-- Cite artigos de lei quando relevante (CPC, CF, CLT, etc.)
-- Seja objetivo e prático
-- Formate a resposta em HTML simples (br, strong, em)
-- Máximo 500 palavras
+        const tipoConversa = this.detectarTipoConversa(pergunta);
+        const promptBase = this.obterPromptBase(tipoConversa);
+        
+        const systemPrompt = `${promptBase}
 
 CONTEXTO DO PROCESSO:
 ${this.formatarContexto(contexto)}
 
-PERGUNTA DO USUÁRIO: ${pergunta}
+PERGUNTA: ${pergunta}
 
-Responda de forma especializada e útil:`;
+${this.obterInstrucoesEspecificas(tipoConversa)}`;
 
         return systemPrompt;
+      }
+
+      detectarTipoConversa(pergunta) {
+        const perguntaLower = pergunta.toLowerCase();
+        
+        // Conversa casual/cumprimento
+        if (/^(oi|olá|e aí|tudo bem|como vai)/i.test(pergunta)) {
+          return 'cumprimento';
+        }
+        
+        // Análise técnica de documento
+        if (perguntaLower.includes('analisar') || perguntaLower.includes('análise')) {
+          return 'analise_tecnica';
+        }
+        
+        // Dúvida sobre prazos
+        if (perguntaLower.includes('prazo') || perguntaLower.includes('quando')) {
+          return 'prazos';
+        }
+        
+        // Explicação de conceitos jurídicos
+        if (perguntaLower.includes('o que é') || perguntaLower.includes('explique')) {
+          return 'explicacao';
+        }
+        
+        // Estratégia/próximos passos
+        if (perguntaLower.includes('próximos passos') || perguntaLower.includes('estratégia') || perguntaLower.includes('como proceder')) {
+          return 'estrategia';
+        }
+        
+        // Conversa geral jurídica
+        return 'conversa_geral';
+      }
+
+      obterPromptBase(tipo) {
+        const prompts = {
+          cumprimento: `Você é Lex, uma assistente jurídica amigável e acessível. Responda de forma calorosa e natural, como uma colega experiente.`,
+          
+          analise_tecnica: `Você é Lex, especialista em análise processual. Faça uma análise técnica mas acessível, como se estivesse explicando para um colega.`,
+          
+          prazos: `Você é Lex, especialista em prazos processuais. Seja precisa com datas e artigos de lei, mas mantenha um tom acessível e prático.`,
+          
+          explicacao: `Você é Lex, educadora jurídica. Explique conceitos de forma didática, usando exemplos práticos quando possível.`,
+          
+          estrategia: `Você é Lex, consultora estratégica. Apresente opções e recomendações como uma mentora experiente daria conselhos.`,
+          
+          conversa_geral: `Você é Lex, assistente jurídica conversacional. Responda de forma natural e útil, adaptando seu tom ao contexto da pergunta.`
+        };
+        
+        return prompts[tipo];
+      }
+
+      obterInstrucoesEspecificas(tipo) {
+        const instrucoes = {
+          cumprimento: `Responda de forma amigável e pergunte como posso ajudar com o processo. Máximo 2-3 linhas.`,
+          
+          analise_tecnica: `Estruture sua resposta em:
+• <strong>Análise:</strong> O que identifiquei no documento
+• <strong>Próximos passos:</strong> O que precisa ser feito
+• <strong>Observações:</strong> Pontos de atenção
+Máximo 300 palavras, use HTML simples.`,
+          
+          prazos: `Seja específica com:
+• <strong>Prazo:</strong> Data/período exato
+• <strong>Fundamento:</strong> Artigo de lei aplicável  
+• <strong>Consequência:</strong> O que acontece se não cumprir
+• <strong>Dica:</strong> Como se organizar
+Use HTML simples, máximo 250 palavras.`,
+          
+          explicacao: `Explique de forma didática:
+• <strong>Conceito:</strong> O que significa
+• <strong>Na prática:</strong> Como funciona no dia a dia
+• <strong>Exemplo:</strong> Situação concreta (se aplicável)
+Use linguagem acessível, máximo 300 palavras.`,
+          
+          estrategia: `Apresente opções estruturadas:
+• <strong>Cenário atual:</strong> Situação identificada
+• <strong>Opções:</strong> Caminhos possíveis
+• <strong>Recomendação:</strong> Sua sugestão e por quê
+Tom consultivo, máximo 300 palavras.`,
+          
+          conversa_geral: `Responda de forma natural e conversacional. Adapte o tom à pergunta:
+- Se for dúvida: seja didática
+- Se for urgente: seja direta e prática  
+- Se for complexa: quebre em partes
+Use HTML simples, máximo 300 palavras.`
+        };
+        
+        return instrucoes[tipo];
       }
 
       formatarContexto(info) {
@@ -157,12 +241,35 @@ Responda de forma especializada e útil:`;
         const data = await response.json();
         
         if (data.resposta) {
-          return data.resposta;
+          return this.limparResposta(data.resposta);
         } else if (data.fallback) {
-          return data.fallback;
+          return this.limparResposta(data.fallback);
         } else {
           throw new Error('Resposta inválida da Edge Function');
         }
+      }
+
+      limparResposta(resposta) {
+        if (!resposta) return resposta;
+        
+        // Remove markdown malformado
+        let cleaned = resposta
+          .replace(/```html\s*/gi, '') 
+          .replace(/```\s*/g, '')      
+          .replace(/#{1,6}\s*/g, '')   
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+          .replace(/\*(.*?)\*/g, '<em>$1</em>')             
+          .trim();
+        
+        // Melhora formatação
+        cleaned = cleaned
+          .replace(/\n{3,}/g, '<br><br>')    // Múltiplas quebras → 2 <br>
+          .replace(/\n{2}/g, '<br><br>')     // Dupla quebra → 2 <br>
+          .replace(/\n/g, '<br>')            // Quebra simples → <br>
+          .replace(/<br>\s*<br>\s*<br>/g, '<br><br>') // Max 2 <br> seguidos
+          .trim();
+        
+        return cleaned;
       }
 
       respostaFallback(pergunta) {
