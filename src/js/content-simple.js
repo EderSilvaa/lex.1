@@ -15,19 +15,34 @@
     // Verificar se o CSS já foi carregado
     if (document.querySelector('link[href*="chat-styles.css"]')) {
       console.log('✅ LEX: CSS já carregado');
-      return;
+      return Promise.resolve();
     }
     
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.type = 'text/css';
-    link.href = chrome.runtime.getURL('styles/chat-styles.css');
-    document.head.appendChild(link);
-    console.log('✅ LEX: CSS carregado');
+    return new Promise((resolve) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = chrome.runtime.getURL('styles/chat-styles.css');
+      
+      link.onload = () => {
+        console.log('✅ LEX: CSS carregado com sucesso');
+        // Aguardar um pouco mais para garantir que a fonte Michroma carregue
+        setTimeout(resolve, 100);
+      };
+      
+      link.onerror = () => {
+        console.error('❌ LEX: Erro ao carregar CSS');
+        resolve();
+      };
+      
+      document.head.appendChild(link);
+    });
   }
   
-  // Carregar CSS imediatamente
-  carregarCSS();
+  // Carregar CSS imediatamente e aguardar
+  carregarCSS().then(() => {
+    console.log('✅ LEX: CSS e fontes prontos');
+  });
 
   // Variáveis globais
   let chatContainer = null;
