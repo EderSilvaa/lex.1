@@ -32,6 +32,30 @@
     lastUpdate: 0
   };
   
+  // Função para aguardar carregamento da fonte Michroma
+  function aguardarFonteMichroma() {
+    return new Promise((resolve) => {
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+          // Verificar se a fonte Michroma está disponível
+          if (document.fonts.check('12px Michroma')) {
+            console.log('✅ Fonte Michroma carregada com sucesso');
+            resolve(true);
+          } else {
+            console.log('⚠️ Fonte Michroma não encontrada, usando fallback');
+            resolve(false);
+          }
+        });
+      } else {
+        // Fallback para navegadores sem suporte a document.fonts
+        setTimeout(() => {
+          console.log('⚠️ document.fonts não suportado, usando fallback');
+          resolve(false);
+        }, 2000);
+      }
+    });
+  }
+
   // Inicialização ultra-otimizada
   function inicializarAssistente() {
     // Aguardar DOM estar pronto
@@ -40,23 +64,26 @@
       return;
     }
     
-    // Usar requestIdleCallback para não bloquear o thread principal
-    if (window.requestIdleCallback) {
-      requestIdleCallback(() => {
+    // Aguardar carregamento da fonte e então criar o botão
+    aguardarFonteMichroma().then(() => {
+      // Usar requestIdleCallback para não bloquear o thread principal
+      if (window.requestIdleCallback) {
+        requestIdleCallback(() => {
+          setTimeout(() => {
+            if (document.body) {
+              botaoChat = criarBotaoChat();
+            }
+          }, 3000); // 3 segundos para garantir que a página carregou
+        });
+      } else {
+        // Fallback para navegadores sem requestIdleCallback
         setTimeout(() => {
           if (document.body) {
             botaoChat = criarBotaoChat();
           }
-        }, 3000); // 3 segundos para garantir que a página carregou
-      });
-    } else {
-      // Fallback para navegadores sem requestIdleCallback
-      setTimeout(() => {
-        if (document.body) {
-          botaoChat = criarBotaoChat();
-        }
-      }, 3000);
-    }
+        }, 3000);
+      }
+    });
   }
 
   // Otimização: Extrair informações apenas quando necessário
@@ -205,8 +232,9 @@
       padding: 12px 16px !important;
       display: block !important;
       font-size: 14px !important;
-      font-family: 'Michroma', monospace !important;
+      font-family: 'Michroma', 'Courier New', monospace !important;
       font-weight: 400 !important;
+      letter-spacing: 0.5px !important;
       line-height: 20px !important;
       background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%) !important;
       border-radius: 6px !important;
@@ -285,7 +313,8 @@
       z-index: 2147483647 !important;
       box-shadow: 0 4px 15px rgba(45, 27, 105, 0.4) !important;
       transition: all 0.3s ease !important;
-      font-family: 'Michroma', monospace !important;
+      font-family: 'Michroma', 'Courier New', monospace !important;
+      letter-spacing: 0.5px !important;
       user-select: none !important;
     `);
     

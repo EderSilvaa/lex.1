@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Fonte Michroma</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../styles/chat-styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #333;
+            border-radius: 8px;
+        }
+        
+        .michroma-test {
+            font-family: 'Michroma', 'Courier New', monospace;
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        
+        .font-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        
+        .font-loaded {
+            background: #4ade80;
+            color: black;
+        }
+        
+        .font-not-loaded {
+            background: #ef4444;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste da Fonte Michroma</h1>
+    
+    <div class="test-section">
+        <h2>Status do Carregamento da Fonte</h2>
+        <div id="font-status" class="font-status">Verificando...</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Testes Visuais</h2>
+        <p>Fonte padrão: Lex. - Assistente Jurídico</p>
+        <p class="michroma-test">Fonte Michroma: Lex. - Assistente Jurídico</p>
+        <p class="lex-michroma">Classe CSS: Lex. - Assistente Jurídico</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>Elementos do Chat</h2>
+        <div class="lex-title">▲ Lex.</div>
+        <div class="lex-name">Lex.</div>
+        <div class="lex-card-header">📋 Informações do Processo</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Botão de Teste</h2>
+        <button id="test-button" style="
+            color: white;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-family: 'Michroma', 'Courier New', monospace;
+            font-weight: 400;
+            background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        ">▲ Lex. - Teste</button>
+    </div>
+
+    <script>
+        // Verificar se a fonte Michroma foi carregada
+        function verificarFonte() {
+            const statusDiv = document.getElementById('font-status');
+            
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(() => {
+                    if (document.fonts.check('12px Michroma')) {
+                        statusDiv.textContent = '✅ Fonte Michroma carregada com sucesso!';
+                        statusDiv.className = 'font-status font-loaded';
+                        console.log('✅ Fonte Michroma disponível');
+                    } else {
+                        statusDiv.textContent = '❌ Fonte Michroma não foi carregada';
+                        statusDiv.className = 'font-status font-not-loaded';
+                        console.log('❌ Fonte Michroma não disponível');
+                    }
+                });
+            } else {
+                statusDiv.textContent = '⚠️ document.fonts não suportado neste navegador';
+                statusDiv.className = 'font-status font-not-loaded';
+            }
+        }
+        
+        // Verificar quando a página carregar
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', verificarFonte);
+        } else {
+            verificarFonte();
+        }
+        
+        // Verificar novamente após 2 segundos
+        setTimeout(verificarFonte, 2000);
+    </script>
+</body>
+</html>

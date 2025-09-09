@@ -9,6 +9,25 @@
   
   window.lexAssistantActive = true;
   console.log('🚀 LEX: Extensão iniciada');
+  
+  // Carregar CSS do chat
+  function carregarCSS() {
+    // Verificar se o CSS já foi carregado
+    if (document.querySelector('link[href*="chat-styles.css"]')) {
+      console.log('✅ LEX: CSS já carregado');
+      return;
+    }
+    
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.type = 'text/css';
+    link.href = chrome.runtime.getURL('styles/chat-styles.css');
+    document.head.appendChild(link);
+    console.log('✅ LEX: CSS carregado');
+  }
+  
+  // Carregar CSS imediatamente
+  carregarCSS();
 
   // Variáveis globais
   let chatContainer = null;
@@ -548,7 +567,7 @@ Responda de forma especializada e útil:`;
         <div class="lex-header-top">
           <div class="lex-title-area">
             <div class="lex-title">
-              <span class="lex-name">Lex.</span>
+              <span class="lex-name" style="font-family: 'Michroma', 'Courier New', monospace !important; letter-spacing: 0.5px !important;">Lex.</span>
             </div>
           </div>
           <button class="lex-close">×</button>

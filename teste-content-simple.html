@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Content Simple</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/chat-styles.css">
+    <style>
+        body {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste Content Simple</h1>
+    
+    <div class="lex-title">
+        <span class="lex-name" style="font-family: 'Playfair Display', serif !important; letter-spacing: 0.5px !important; font-size: 24px;">Lex.</span>
+    </div>
+    
+    <div class="lex-name" style="font-family: 'Playfair Display', serif !important; letter-spacing: 0.5px !important; font-size: 24px;">Lex. (classe direta)</div>
+    
+    <div style="font-family: 'Playfair Display', serif !important; letter-spacing: 0.5px !important; font-size: 24px;">Lex. (inline puro)</div>
+    
+    <div style="font-family: Arial, sans-serif; font-size: 24px;">Lex. (Arial para comparação)</div>
+    
+    <script src="src/js/content-simple.js"></script>
+    
+    <script>
+        setTimeout(() => {
+            console.log('Verificando fontes...');
+            
+            if (document.fonts && document.fonts.check('12px "Playfair Display"')) {
+                console.log('✅ Playfair Display carregada');
+                document.body.style.borderLeft = '5px solid #4ade80';
+            } else {
+                console.log('❌ Playfair Display não carregada');
+                document.body.style.borderLeft = '5px solid #ef4444';
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

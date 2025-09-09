@@ -204,6 +204,124 @@ Quando a IA não está disponível, a Lex usa respostas estruturadas:
 - Guias de peticionamento
 - Comandos de ajuda
 
+## 🎨 Sistema de Fontes e Identidade Visual
+
+### 🔤 **Fonte Michroma - Identidade da Lex**
+
+**Fonte Principal:** `Michroma` (Google Fonts)  
+**Características:** Futurística, tecnológica, monospace  
+**Uso:** Elementos de marca (logo, títulos, botões)
+
+### 🛠️ **Implementação do Sistema de Fontes**
+
+#### **Problema Identificado e Resolvido**
+Durante o desenvolvimento, identificamos que a fonte Michroma não estava carregando corretamente. O problema estava na falta de carregamento do CSS no `content-simple.js`.
+
+#### **Solução Implementada**
+
+**1. Carregamento Automático do CSS:**
+```javascript
+// Função para carregar CSS do chat
+function carregarCSS() {
+  // Verificar se o CSS já foi carregado
+  if (document.querySelector('link[href*="chat-styles.css"]')) {
+    console.log('✅ LEX: CSS já carregado');
+    return;
+  }
+  
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.type = 'text/css';
+  link.href = chrome.runtime.getURL('styles/chat-styles.css');
+  document.head.appendChild(link);
+  console.log('✅ LEX: CSS carregado');
+}
+
+// Carregar CSS imediatamente
+carregarCSS();
+```
+
+**2. Fallback Inline para Elementos Críticos:**
+```javascript
+// Aplicação direta no elemento principal
+<span class="lex-name" style="font-family: 'Michroma', 'Courier New', monospace !important; letter-spacing: 0.5px !important;">Lex.</span>
+```
+
+**3. Configuração no CSS:**
+```css
+/* Import do Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap');
+
+/* Classe específica para elementos com fonte Michroma */
+.lex-michroma {
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.5px !important;
+}
+
+/* Aplicação nos elementos principais */
+.lex-title, .lex-name, .lex-card-header {
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  letter-spacing: 0.5px !important;
+}
+```
+
+#### **Sistema de Fallbacks**
+
+**Hierarquia de Fontes:**
+1. **Michroma** (Google Fonts) - Fonte principal
+2. **Courier New** - Fallback monospace padrão
+3. **Monaco** - Fallback para macOS
+4. **Consolas** - Fallback para Windows
+5. **monospace** - Fallback genérico do sistema
+
+#### **Testes Implementados**
+
+**Arquivos de Teste Criados:**
+- `teste-michroma-final.html` - Teste completo da implementação
+- `debug-google-fonts.html` - Debug de conectividade
+- `teste-content-simple.html` - Teste específico do content script
+
+**Verificação Automática:**
+```javascript
+// Verificação se a fonte foi carregada
+if (document.fonts && document.fonts.check('12px Michroma')) {
+  console.log('✅ Michroma carregada com sucesso!');
+} else {
+  console.log('⚠️ Usando fallback');
+}
+```
+
+### 🎯 **Aplicação da Fonte**
+
+**Elementos que usam Michroma:**
+- **Logo principal:** `▲ Lex.`
+- **Títulos do chat:** Cabeçalhos e seções
+- **Botões de ação:** Botão flutuante e botões do chat
+- **Headers de cards:** Seções de informações
+
+**Elementos que usam fontes padrão:**
+- **Texto do chat:** Mensagens e conteúdo
+- **Inputs:** Campos de entrada
+- **Informações do processo:** Dados extraídos
+
+### 🔧 **Processo de Debug**
+
+**Etapas seguidas para resolver o problema:**
+
+1. **Identificação:** Fonte não carregava em testes HTML
+2. **Diagnóstico:** Google Fonts acessível, mas fonte específica não funcionava
+3. **Teste de alternativas:** Testamos Orbitron e Playfair Display
+4. **Descoberta:** `content-simple.js` não carregava o CSS
+5. **Solução:** Implementação de carregamento automático + fallbacks
+6. **Validação:** Testes confirmaram funcionamento
+
+**Lições Aprendidas:**
+- Content scripts precisam carregar CSS explicitamente
+- Fallbacks inline são essenciais para elementos críticos
+- Testes visuais são fundamentais para validar fontes
+- Google Fonts pode ter problemas específicos com certas fontes
+
 ## 🛡️ Segurança e Privacidade
 
 ### 🔐 Medidas de Segurança
@@ -382,6 +500,7 @@ const result: PDFExtractionResult = await processor.extractTextFromPDF(blob, {
 2. **✅ Worker Issues:** Configuração robusta do PDF.js worker
 3. **✅ Type Safety:** Erros detectados em tempo de compilação
 4. **✅ Modularização:** Código organizado em módulos TypeScript
+5. **✅ Fonte Michroma:** Sistema de carregamento de fontes Google Fonts implementado
 
 ### 🐛 **Problemas Conhecidos (Ainda Existentes)**
 
@@ -437,7 +556,14 @@ lex-extension/
 
 ## 📝 Notas de Versão
 
-**v2.0.0 - TypeScript Integration** (Atual)
+**v2.1.0 - Font System & Visual Identity** (Atual)
+- ✅ Sistema de fontes Michroma implementado
+- ✅ Carregamento automático de CSS em content scripts
+- ✅ Fallbacks robustos para fontes
+- ✅ Identidade visual da Lex consolidada
+- ✅ Testes de validação de fontes criados
+
+**v2.0.0 - TypeScript Integration**
 - ✅ Integração completa do TypeScript
 - ✅ Sistema de build automatizado
 - ✅ PDFProcessor convertido e otimizado

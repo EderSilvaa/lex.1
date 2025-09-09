@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Final Michroma</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap');
+        
+        body {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        
+        .michroma-test {
+            font-family: 'Michroma', 'Courier New', 'Monaco', 'Consolas', monospace;
+            font-size: 20px;
+            margin: 20px 0;
+            color: #4ade80;
+            letter-spacing: 0.5px;
+        }
+        
+        .fallback-test {
+            font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+            font-size: 20px;
+            margin: 20px 0;
+            color: #ef4444;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste Final da Fonte</h1>
+    
+    <div class="fallback-test">Fallback (Courier): ▲ Lex. - Assistente Jurídico</div>
+    <div class="michroma-test">Michroma: ▲ Lex. - Assistente Jurídico</div>
+    
+    <p>Se as duas linhas parecem diferentes, a Michroma está funcionando!</p>
+    <p>Se parecem iguais, está usando o fallback.</p>
+    
+    <div style="
+        font-family: 'Michroma', 'Courier New', 'Monaco', 'Consolas', monospace;
+        font-size: 14px;
+        color: white;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%);
+        border-radius: 6px;
+        display: inline-block;
+        margin: 20px 0;
+        letter-spacing: 0.5px;
+    ">▲ Lex. - Botão de Teste</div>
+</body>
+</html>

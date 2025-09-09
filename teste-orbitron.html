@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Orbitron</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        
+        .orbitron-test {
+            font-family: 'Orbitron', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 20px;
+            margin: 20px 0;
+            color: #4ade80;
+            letter-spacing: 0.5px;
+        }
+        
+        .fallback-test {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 20px;
+            margin: 20px 0;
+            color: #ef4444;
+            letter-spacing: 0.5px;
+        }
+        
+        .botao-teste {
+            font-family: 'Orbitron', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            color: white;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%);
+            border: none;
+            border-radius: 6px;
+            display: inline-block;
+            margin: 20px 0;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste Orbitron (substituto da Michroma)</h1>
+    
+    <div class="fallback-test">Fallback (Consolas): ▲ Lex. - Assistente Jurídico</div>
+    <div class="orbitron-test">Orbitron: ▲ Lex. - Assistente Jurídico</div>
+    
+    <div class="botao-teste">▲ Lex. - Botão de Teste</div>
+    
+    <div id="status" style="margin: 20px 0; padding: 10px; border-radius: 4px;"></div>
+    
+    <script>
+        setTimeout(() => {
+            const status = document.getElementById('status');
+            
+            if (document.fonts && document.fonts.check('12px Orbitron')) {
+                status.textContent = '✅ Orbitron carregada com sucesso!';
+                status.style.background = '#4ade80';
+                status.style.color = 'black';
+            } else {
+                status.textContent = '❌ Orbitron não carregou, usando fallback';
+                status.style.background = '#ef4444';
+                status.style.color = 'white';
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

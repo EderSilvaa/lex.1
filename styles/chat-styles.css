@@ -1,11 +1,18 @@
 /* Lex Chat - Design Moderno e Minimalista */
+@import url('https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap');
 
 /* Reset básico para evitar conflitos */
 .lex-chat, .lex-chat * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: Arial, sans-serif;
+}
+
+/* Classe específica para elementos com fonte Michroma */
+.lex-michroma {
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.5px !important;
 }
 
 /* Container principal */
@@ -23,6 +30,7 @@
   overflow: hidden;
   z-index: 999999;
   border: 1px solid #333;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .lex-chat.visible {
@@ -51,7 +59,9 @@
 
 .lex-title {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  letter-spacing: 0.5px !important;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -59,6 +69,12 @@
 
 .lex-logo {
   font-size: 14px;
+}
+
+.lex-name {
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  font-weight: 400;
+  letter-spacing: 0.5px !important;
 }
 
 .lex-subtitle {
@@ -116,7 +132,9 @@
   background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
   padding: 10px 12px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
+  font-family: 'Michroma', 'Courier New', monospace !important;
+  letter-spacing: 0.5px !important;
   color: white;
   display: flex;
   align-items: center;

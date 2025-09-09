@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Final Michroma</title>
+    <link href="https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/chat-styles.css">
+    <style>
+        body {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #333;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎉 Teste Final - Michroma Funcionando!</h1>
+    
+    <div class="test-section">
+        <h2>Comparação Visual</h2>
+        <div style="font-family: Arial, sans-serif; font-size: 24px; margin: 10px 0;">Arial: ▲ Lex. - Assistente Jurídico</div>
+        <div style="font-family: 'Michroma', 'Courier New', monospace; font-size: 24px; margin: 10px 0; letter-spacing: 0.5px;">Michroma: ▲ Lex. - Assistente Jurídico</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Elementos do Chat</h2>
+        <div class="lex-title">
+            <span class="lex-name" style="font-family: 'Michroma', 'Courier New', monospace !important; letter-spacing: 0.5px !important; font-size: 20px;">▲ Lex.</span>
+        </div>
+        <div class="lex-card-header" style="display: inline-block; margin: 10px 0;">📋 Informações do Processo</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Botão Estilizado</h2>
+        <div style="
+            font-family: 'Michroma', 'Courier New', monospace;
+            font-size: 14px;
+            color: white;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%);
+            border-radius: 6px;
+            display: inline-block;
+            letter-spacing: 0.5px;
+        ">▲ Lex. - Assistente Jurídico</div>
+    </div>
+    
+    <div id="status" style="margin: 20px 0; padding: 15px; border-radius: 8px; font-size: 16px;"></div>
+    
+    <script>
+        setTimeout(() => {
+            const status = document.getElementById('status');
+            
+            if (document.fonts && document.fonts.check('12px Michroma')) {
+                status.textContent = '🎉 SUCESSO! Fonte Michroma carregada e funcionando perfeitamente!';
+                status.style.background = '#4ade80';
+                status.style.color = 'black';
+                status.style.fontWeight = 'bold';
+                console.log('🎉 MICHROMA FUNCIONANDO!');
+            } else {
+                status.textContent = '⚠️ Michroma não carregou, mas fallback está funcionando';
+                status.style.background = '#f59e0b';
+                status.style.color = 'black';
+                console.log('⚠️ Usando fallback');
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

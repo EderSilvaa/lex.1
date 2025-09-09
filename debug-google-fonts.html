@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Debug Google Fonts</title>
+    <style>
+        body {
+            background: #222;
+            color: white;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        
+        .success { background: #4ade80; color: black; }
+        .error { background: #ef4444; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Debug Google Fonts</h1>
+    
+    <div id="network-status" class="status">Testando conectividade...</div>
+    <div id="font-status" class="status">Testando fonte...</div>
+    
+    <script>
+        // Testar se consegue acessar o Google Fonts
+        fetch('https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap')
+            .then(response => {
+                if (response.ok) {
+                    document.getElementById('network-status').textContent = '✅ Google Fonts acessível';
+                    document.getElementById('network-status').className = 'status success';
+                    
+                    // Criar link dinamicamente
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = 'https://fonts.googleapis.com/css2?family=Michroma:wght@400&display=swap';
+                    document.head.appendChild(link);
+                    
+                    // Testar fonte após carregar
+                    setTimeout(() => {
+                        if (document.fonts && document.fonts.check('12px Michroma')) {
+                            document.getElementById('font-status').textContent = '✅ Fonte Michroma carregada!';
+                            document.getElementById('font-status').className = 'status success';
+                        } else {
+                            document.getElementById('font-status').textContent = '❌ Fonte não carregou';
+                            document.getElementById('font-status').className = 'status error';
+                        }
+                    }, 2000);
+                    
+                } else {
+                    document.getElementById('network-status').textContent = '❌ Google Fonts inacessível: ' + response.status;
+                    document.getElementById('network-status').className = 'status error';
+                }
+            })
+            .catch(error => {
+                document.getElementById('network-status').textContent = '❌ Erro de rede: ' + error.message;
+                document.getElementById('network-status').className = 'status error';
+            });
+    </script>
+</body>
+</html>
