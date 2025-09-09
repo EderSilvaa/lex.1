@@ -52,6 +52,166 @@
     info: null,
     lastUpdate: 0
   };
+
+  // Sistema de atalhos de teclado
+  function inicializarAtalhosTeclado() {
+    console.log('⌨️ LEX: Inicializando atalhos de teclado...');
+    
+    document.addEventListener('keydown', function(e) {
+      // Ctrl + M: Abrir/fechar LEX
+      if (e.ctrlKey && e.key === 'm') {
+        e.preventDefault();
+        e.stopPropagation();
+        const isVisible = chatContainer && chatContainer.classList.contains('visible');
+        toggleLex();
+        mostrarNotificacaoAtalho(isVisible ? 'LEX fechada' : 'LEX aberta');
+        console.log('⌨️ LEX: Atalho Ctrl+M ativado');
+        return false;
+      }
+      
+      // Ctrl + ; (ponto e vírgula): Abrir LEX e analisar documento automaticamente
+      if (e.ctrlKey && e.key === ';') {
+        e.preventDefault();
+        e.stopPropagation();
+        abrirLexComAnaliseAutomatica();
+        mostrarNotificacaoAtalho('LEX: Análise automática iniciada');
+        console.log('⌨️ LEX: Atalho Ctrl+; ativado - análise automática');
+        return false;
+      }
+      
+      // Alternativa: Ctrl + , (vírgula) caso ; não funcione
+      if (e.ctrlKey && e.key === ',') {
+        e.preventDefault();
+        e.stopPropagation();
+        abrirLexComFoco();
+        mostrarNotificacaoAtalho('LEX ativada com foco');
+        console.log('⌨️ LEX: Atalho Ctrl+, ativado');
+        return false;
+      }
+      
+      // ESC: Fechar LEX (se estiver aberta)
+      if (e.key === 'Escape' && chatContainer && chatContainer.classList.contains('visible')) {
+        e.preventDefault();
+        fecharLex();
+        mostrarNotificacaoAtalho('LEX fechada');
+        console.log('⌨️ LEX: Atalho ESC ativado');
+        return false;
+      }
+    }, true); // Use capture para garantir precedência
+    
+    console.log('✅ LEX: Atalhos configurados:', {
+      'Ctrl+M': 'Abrir/fechar LEX',
+      'Ctrl+;': 'Análise automática do documento',
+      'Ctrl+,': 'Abrir LEX com foco no input',
+      'ESC': 'Fechar LEX'
+    });
+  }
+
+  // Funções para controle da LEX via atalhos
+  function toggleLex() {
+    if (!chatContainer) {
+      criarInterfaceChat();
+      return;
+    }
+    
+    if (chatContainer.classList.contains('visible')) {
+      fecharLex();
+    } else {
+      abrirLex();
+    }
+  }
+
+  function abrirLex() {
+    if (!chatContainer) {
+      criarInterfaceChat();
+    } else {
+      chatContainer.classList.add('visible');
+    }
+  }
+
+  function fecharLex() {
+    if (chatContainer) {
+      chatContainer.classList.remove('visible');
+    }
+  }
+
+  function abrirLexComFoco() {
+    abrirLex();
+    // Aguardar um pouco para garantir que a interface esteja visível
+    setTimeout(() => {
+      const input = chatContainer?.querySelector('.lex-input');
+      if (input) {
+        input.focus();
+        input.placeholder = '✨ LEX ativada via atalho! Digite sua pergunta...';
+        console.log('✅ LEX: Input focado via atalho');
+        
+        // Restaurar placeholder depois de 3 segundos
+        setTimeout(() => {
+          input.placeholder = 'Digite sua pergunta sobre o processo...';
+        }, 3000);
+      }
+    }, 100);
+  }
+
+  function abrirLexComAnaliseAutomatica() {
+    abrirLex();
+    console.log('🔍 LEX: Iniciando análise automática via atalho...');
+    
+    // Aguardar interface carregar e disparar análise
+    setTimeout(() => {
+      const input = chatContainer?.querySelector('.lex-input');
+      if (input) {
+        // Simular digitação de comando de análise
+        input.value = 'Analisar este documento automaticamente';
+        input.placeholder = '🤖 Analisando documento automaticamente...';
+        
+        // Disparar análise automaticamente
+        enviarMensagem('Analisar este documento automaticamente');
+        console.log('🚀 LEX: Análise automática iniciada');
+      }
+    }, 200); // Delay maior para garantir que tudo carregou
+  }
+
+  // Mostrar notificação de atalho ativado
+  function mostrarNotificacaoAtalho(mensagem) {
+    // Criar notificação temporária
+    const notificacao = document.createElement('div');
+    notificacao.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 999999;
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    `;
+    notificacao.textContent = `⌨️ ${mensagem}`;
+    
+    document.body.appendChild(notificacao);
+    
+    // Animar entrada
+    setTimeout(() => {
+      notificacao.style.transform = 'translateX(0)';
+    }, 10);
+    
+    // Remover após 2 segundos
+    setTimeout(() => {
+      notificacao.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (notificacao.parentNode) {
+          notificacao.parentNode.removeChild(notificacao);
+        }
+      }, 300);
+    }, 2000);
+  }
   
   // Criar OpenAI Client diretamente (solução robusta)
   function criarOpenAIClient() {
@@ -324,6 +484,9 @@ Use HTML simples, máximo 300 palavras.`
     // Criar OpenAI Client integrado
     console.log('🤖 LEX: Criando OpenAI Client...');
     criarOpenAIClient();
+    
+    // Inicializar atalhos de teclado
+    inicializarAtalhosTeclado();
     
     // Aguardar um pouco para garantir que o body existe
     setTimeout(() => {

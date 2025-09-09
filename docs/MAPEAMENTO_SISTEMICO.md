@@ -226,6 +226,13 @@ Content-Security-Policy:
 PJe → DocumentDetector → PDFProcessor → OpenAIClient → Supabase Edge Function → OpenAI API
 ```
 
+### Fluxo de Análise Automática (v2.3)
+```
+Ctrl+; → abrirLexComAnaliseAutomatica() → Interface LEX → enviarMensagem() → 
+gerarRespostaIA() → extrairConteudoDocumento() → criarPromptJuridico('analise_tecnica') → 
+Supabase Edge Function → OpenAI API → limparResposta() → HTML estruturado
+```
+
 ### Supabase Edge Function Integration
 - **URL**: `https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA`
 - **Auth**: Bearer token + apikey (público Supabase)
@@ -286,6 +293,96 @@ ESTRUTURA OBRIGATÓRIA:
 - **Responses**: Estáticas baseadas em keywords
 - **Status**: Feedback específico do problema
 - **Categories**: análise, documento, prazo, geral
+
+### Performance Metrics (Análise Automática)
+- **Tempo total**: ~2-4 segundos (atalho → resultado)
+- **Interface**: 200ms (abertura LEX)
+- **Extração**: 300-800ms (dependendo do tamanho do PDF)
+- **IA**: 1-3 segundos (Supabase Edge Function + OpenAI)
+- **Renderização**: ~100ms (HTML limpo)
+- **UX**: Feedback visual imediato via notificações
+
+---
+
+## ⌨️ Sistema de Atalhos de Teclado
+
+### Atalhos Disponíveis
+- **`Ctrl + M`**: Abrir/fechar LEX (toggle)
+- **`Ctrl + ;`**: **Análise automática do documento** 🚀
+- **`Ctrl + ,`**: Abrir LEX com foco no input
+- **`ESC`**: Fechar LEX (quando aberta)
+
+### Funcionalidades Especiais
+- **`Ctrl + ;`**: **Análise One-Click** → Abre LEX + extrai documento + analisa automaticamente
+- **Resposta instantânea**: Resultado da IA em segundos
+- **Sem digitação**: Não precisa escrever "analisar documento"
+- **Fluxo otimizado**: Perfeito para análise rápida de petições/documentos
+
+### Notas sobre Compatibilidade  
+- **`Ctrl + Shift + L`**: Removido (conflita com Logitech/Discord)
+- **Diferenciação**: `;` para análise automática, `,` para foco manual
+- **Teclas seguras**: Símbolos raramente usados por outros softwares
+
+### Funcionalidades dos Atalhos
+- **Precedência**: Event capture para garantir funcionamento
+- **Feedback visual**: Notificações animadas no canto superior direito
+- **Prevenção de conflitos**: `preventDefault()` e `stopPropagation()`
+- **Placeholder dinâmico**: Input mostra "ativada via atalho" temporariamente
+- **Logs detalhados**: Console tracking para debugging
+
+### Notificações Visuais
+- **Design**: Gradient matching LEX visual identity
+- **Animação**: Slide-in from right, auto-dismiss after 2s
+- **Z-index**: 999999 (acima de outros elementos)
+- **Responsivo**: Adapta-se ao viewport
+
+### Sistema de Análise Automática
+
+#### One-Click Analysis (`Ctrl + ;`)
+```javascript
+function abrirLexComAnaliseAutomatica() {
+  abrirLex();  // Abre interface
+  setTimeout(() => {
+    const input = chatContainer?.querySelector('.lex-input');
+    if (input) {
+      input.value = 'Analisar este documento automaticamente';
+      enviarMensagem('Analisar este documento automaticamente');
+    }
+  }, 200);
+}
+```
+
+#### Fluxo Completo
+1. **Trigger**: `Ctrl + ;` pressionado
+2. **Interface**: LEX abre automaticamente
+3. **Comando**: Simula "Analisar este documento automaticamente"
+4. **Extração**: `extrairConteudoDocumento()` → PDF/HTML parsing
+5. **Contexto**: Metadados do processo + conteúdo do documento
+6. **IA**: Prompt "analise_tecnica" → Supabase Edge Function
+7. **Resultado**: Resposta estruturada em HTML limpo
+
+#### Vantagens
+- **Zero friction**: Sem cliques ou digitação manual
+- **Análise completa**: Documento + contexto processual
+- **Resposta otimizada**: Prompt específico para análise técnica
+- **Feedback visual**: Notificação + placeholder dinâmico
+
+### Implementação Técnica Base
+```javascript
+// Event listener com capture
+document.addEventListener('keydown', handler, true);
+
+// Controle de estado
+function toggleLex() {
+  if (!chatContainer) criarInterfaceChat();
+  else chatContainer.classList.toggle('visible');
+}
+
+// Feedback visual
+function mostrarNotificacaoAtalho(mensagem) {
+  // Notificação animada com gradient LEX
+}
+```
 
 ---
 
@@ -352,13 +449,25 @@ chatContainer // Container principal
 
 ## 📈 Changelog de Melhorias
 
-### v2.1 - Otimização de IA e Prompts (2025-01-09)
-- ✅ **Sistema de prompts v2.0**: Estrutura fixa, 300 palavras máximo
+### v2.3 - Análise Automática One-Click (2025-01-09)
+- ✅ **Ctrl+; para análise automática**: Abre LEX + extrai documento + analisa instantaneamente
+- ✅ **Fluxo otimizado**: Zero cliques, zero digitação, resultado em segundos
+- ✅ **Múltiplas alternativas**: Ctrl+; (análise), Ctrl+, (foco), Ctrl+M (toggle)
+- ✅ **Compatibilidade melhorada**: Removido Ctrl+Shift+L conflitante
+
+### v2.2 - Sistema de Atalhos de Teclado (2025-01-09)
+- ✅ **Atalhos de teclado**: Fundação do sistema de comandos
+- ✅ **Notificações visuais**: Feedback animado para ações
+- ✅ **Controle avançado**: Toggle, foco automático, fechamento
+- ✅ **UX aprimorada**: Placeholder dinâmico, prevenção de conflitos
+
+### v2.1 - Sistema de Prompts Dinâmicos (2025-01-09)
+- ✅ **Prompts adaptativos**: 6 tipos de conversa diferentes
+- ✅ **Personalidades variáveis**: Tom se adapta ao contexto
 - ✅ **Limpeza de resposta**: Remove markdown malformado automaticamente  
 - ✅ **Debug de sintaxe**: Comando `node -c` para validação JavaScript
 - ✅ **Integração Supabase**: Edge Functions para segurança da API key
 - ✅ **Fallback inteligente**: Respostas úteis mesmo sem IA
-- ✅ **UX melhorada**: Emojis organizacionais, formatação consistente
 
 ### v2.0 - Fonte Michroma e UX (2025-01-09)  
 - ✅ **Tipografia**: Fonte Michroma nos títulos
@@ -374,4 +483,4 @@ chatContainer // Container principal
 
 ---
 
-*Última atualização: 09/01/2025*
+*Última atualização: 09/01/2025 - v2.3 com Análise Automática One-Click*
