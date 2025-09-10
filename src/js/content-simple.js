@@ -859,18 +859,6 @@ Use HTML simples, máximo 300 palavras.`
         </div>
       </div>
       
-      <div class="lex-info">
-        <div class="lex-card">
-          <div class="lex-card-header">
-            <span>📋</span>
-            <span>Informações do Processo</span>
-          </div>
-          <div class="lex-card-content">
-            ${gerarInfoProcesso(info)}
-          </div>
-        </div>
-      </div>
-      
       <div class="lex-messages"></div>
       
       <div class="lex-input-area">
@@ -885,8 +873,8 @@ Use HTML simples, máximo 300 palavras.`
     // Configurar eventos
     configurarEventos();
     
-    // Adicionar mensagem inicial
-    adicionarMensagemInicial();
+    // Adicionar informações discretas do processo
+    adicionarInfoDiscreta(info);
     
     // Mostrar chat
     chatContainer.classList.add('visible');
@@ -946,24 +934,28 @@ Use HTML simples, máximo 300 palavras.`
       });
     }
   }
-  
-  // Adicionar mensagem inicial
-  function adicionarMensagemInicial() {
+
+  // Adicionar informações do processo de forma discreta
+  function adicionarInfoDiscreta(info) {
     const messagesContainer = chatContainer.querySelector('.lex-messages');
     if (!messagesContainer) return;
     
-    // Mensagem de boas-vindas
-    const welcomeMessage = document.createElement('div');
-    welcomeMessage.className = 'lex-message assistant';
-    welcomeMessage.innerHTML = `
-      <div class="lex-bubble">
-        Olá! Sou a Lex. ▲<br><br>
-        Seu assistente jurídico inteligente. Identifiquei automaticamente as informações do processo atual. Como posso ajudá-lo?
-      </div>
-      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-    `;
+    // Criar elemento de informações discretas
+    const infoElement = document.createElement('div');
+    infoElement.className = 'lex-process-context';
     
-    messagesContainer.appendChild(welcomeMessage);
+    let contextInfo = '';
+    if (info.numeroProcesso) {
+      contextInfo += `<span class="lex-context-process">${info.numeroProcesso}</span>`;
+    }
+    if (info.documentoId) {
+      contextInfo += `<span class="lex-context-doc">Documento ${info.documentoId}</span>`;
+    }
+    
+    if (contextInfo) {
+      infoElement.innerHTML = contextInfo;
+      messagesContainer.appendChild(infoElement);
+    }
   }
 
   // Enviar mensagem
@@ -1111,20 +1103,33 @@ Use HTML simples, máximo 300 palavras.`
         };
       }
       
-      console.log('📄 LEX: Extraindo texto do PDF...');
+      console.log('📄 LEX: Extraindo texto do PDF com OCR híbrido...');
       
-      // Usar extração robusta com fallback
-      const result = await processor.extractTextWithErrorHandling(pdfBlob, {
-        timeout: 30000,
-        maxRetries: 2,
-        maxPages: 50, // Limitar para evitar PDFs muito grandes
-        fallbackOnError: true,
+      // Usar extração híbrida (PDF.js + OCR para documentos escaneados)
+      const result = await processor.extractTextHybrid(pdfBlob, {
+        includeMetadata: true,
+        includePageNumbers: true,
+        maxPages: 20, // Limitar para evitar PDFs muito grandes (OCR é mais lento)
+        // Configurações OCR
+        ocrFallback: true,
+        minTextThreshold: 50,
+        ocrQuality: 2, // Balanceado
         progressCallback: (progress) => {
-          console.log(`📊 LEX: Processando PDF - ${Math.round(progress.progress)}% (página ${progress.currentPage}/${progress.totalPages})`);
+          const method = progress.method || 'pdf';
+          const methodLabel = method === 'ocr' ? '🖼️ OCR' : '📄 PDF';
+          console.log(`📊 LEX: ${methodLabel} - ${Math.round(progress.progress)}% (página ${progress.currentPage}/${progress.totalPages})`);
         }
       });
       
       console.log('✅ LEX: PDF processado com sucesso');
+      console.log('- Método usado:', result.extractionMethod || 'N/A');
+      console.log('- OCR utilizado:', result.ocrUsed ? 'Sim' : 'Não');
+      if (result.scannedPdfDetected) {
+        console.log('- PDF escaneado detectado:', result.scannedPdfDetected);
+      }
+      if (result.ocrUsed && result.stats?.averageConfidence) {
+        console.log('- Confiança OCR:', Math.round(result.stats.averageConfidence) + '%');
+      }
       console.log('- Páginas processadas:', result.stats?.processedPages || 'N/A');
       console.log('- Caracteres extraídos:', result.stats?.totalCharacters || result.text.length);
       console.log('- Tempo de processamento:', result.stats?.processingTime || 'N/A', 'ms');
@@ -1528,64 +1533,6 @@ Use HTML simples, máximo 300 palavras.`
     return info;
   }
   
-  // Gerar informações do processo para exibição
-  function gerarInfoProcesso(info) {
-    let html = '';
-    
-    if (info.numeroProcesso) {
-      html += `<div class="lex-item"><span class="lex-label">Processo:</span> <span class="lex-value">${info.numeroProcesso}</span></div>`;
-    }
-    
-    if (info.classeProcessual) {
-      html += `<div class="lex-item"><span class="lex-label">Classe:</span> <span class="lex-value">${info.classeProcessual}</span></div>`;
-    }
-    
-    if (info.assunto) {
-      html += `<div class="lex-item"><span class="lex-label">Assunto:</span> <span class="lex-value">${info.assunto}</span></div>`;
-    }
-    
-    if (info.autor) {
-      html += `<div class="lex-item"><span class="lex-label">Autor:</span> <span class="lex-value">${info.autor}</span></div>`;
-    }
-    
-    if (info.reu) {
-      html += `<div class="lex-item"><span class="lex-label">Réu:</span> <span class="lex-value">${info.reu}</span></div>`;
-    }
-    
-    if (info.documentoId) {
-      html += `<div class="lex-item"><span class="lex-label">Doc. ID:</span> <span class="lex-value">${info.documentoId}</span></div>`;
-    }
-    
-    if (info.tribunal) {
-      html += `<div class="lex-item"><span class="lex-label">Tribunal:</span> <span class="lex-value">${info.tribunal}</span></div>`;
-    }
-    
-    // Adicionar informações do documento processado
-    if (info.tipoDocumento) {
-      let tipoDisplay = info.tipoDocumento;
-      let statusIcon = '';
-      
-      if (info.tipoDocumento === 'PDF') {
-        statusIcon = '📄';
-        if (info.statsProcessamento) {
-          tipoDisplay += ` (${info.statsProcessamento.processedPages} páginas)`;
-        }
-        if (info.avisoFallback) {
-          statusIcon = '⚠️';
-          tipoDisplay += ' (processado com limitações)';
-        }
-      } else if (info.tipoDocumento === 'IMAGE') {
-        statusIcon = '🖼️';
-        tipoDisplay += ' (OCR pendente)';
-      } else if (info.tipoDocumento === 'HTML') {
-        statusIcon = '📄';
-      }
-      
-      html += `<div class="lex-item"><span class="lex-label">Documento:</span> <span class="lex-value">${statusIcon} ${tipoDisplay}</span></div>`;
-    }
-    
-    return html || '<div class="lex-item"><span class="lex-value">Carregando informações...</span></div>';
-  }
   
   // Iniciar
   inicializar();

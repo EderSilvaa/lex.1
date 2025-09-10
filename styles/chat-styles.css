@@ -102,6 +102,53 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Informações do processo integradas no header */
+.lex-process-info {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lex-process-number {
+  font-size: 11px;
+  color: rgba(0, 255, 65, 0.8);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.3px;
+}
+
+.lex-doc-id {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: 'Courier New', monospace;
+}
+
+/* Informações de contexto discretas na área de mensagens */
+.lex-process-context {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.lex-context-process {
+  font-size: 12px;
+  color: rgba(0, 255, 65, 0.6);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.lex-context-doc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.3px;
+}
+
 .lex-close {
   background: rgba(255, 255, 255, 0.1);
   border: none;
