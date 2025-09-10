@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEX - Teste do Sistema OCR Híbrido</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .upload-area {
+            border: 2px dashed #007bff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .upload-area:hover {
+            background-color: #f8f9fa;
+        }
+        .upload-area.dragover {
+            background-color: #e3f2fd;
+            border-color: #1976d2;
+        }
+        #fileInput {
+            display: none;
+        }
+        .progress {
+            display: none;
+            margin: 20px 0;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            height: 20px;
+            background: #007bff;
+            border-radius: 4px;
+            transition: width 0.3s;
+            position: relative;
+        }
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-weight: bold;
+            line-height: 20px;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .results.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .results.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .text-output {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .stats {
+            margin-top: 15px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .stat-item {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .log {
+            background: #343a40;
+            color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+            margin-top: 20px;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 LEX - Teste do Sistema OCR Híbrido</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <h3>📄 Selecione ou arraste um PDF aqui</h3>
+            <p>Sistema testará primeiro extração nativa, depois OCR se necessário</p>
+            <input type="file" id="fileInput" accept=".pdf" />
+        </div>
+        
+        <div class="progress" id="progress">
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+            <div id="progressDetails" style="margin-top: 10px; font-size: 12px;"></div>
+        </div>
+        
+        <div class="results" id="results">
+            <h3 id="resultsTitle">Resultados</h3>
+            <div id="resultsContent"></div>
+            <div class="text-output" id="textOutput"></div>
+            <div class="stats" id="stats"></div>
+        </div>
+        
+        <div class="log" id="log">
+            <div><strong>📋 Log do Sistema:</strong></div>
+        </div>
+        
+        <div style="margin-top: 20px; text-align: center;">
+            <button class="btn" onclick="clearResults()">🗑️ Limpar</button>
+            <button class="btn" onclick="testOCRSystem()">🧪 Testar Sistema</button>
+        </div>
+    </div>
+
+    <!-- Carregar dependências -->
+    <script src="src/js/pdf.min.js"></script>
+    <script src="src/js/ocr-system.js"></script>
+    <script src="src/js/pdf-processor.js"></script>
+
+    <script>
+        let logElement;
+        let ocrSystem;
+        let pdfProcessor;
+
+        // Configurar captura de logs do console
+        function setupLogging() {
+            logElement = document.getElementById('log');
+            
+            const originalLog = console.log;
+            const originalError = console.error;
+            const originalWarn = console.warn;
+            
+            function addToLog(type, args) {
+                const message = args.join(' ');
+                const timestamp = new Date().toLocaleTimeString();
+                const div = document.createElement('div');
+                div.innerHTML = `<span style="color: #6c757d;">[${timestamp}]</span> ${message}`;
+                logElement.appendChild(div);
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            
+            console.log = function(...args) {
+                addToLog('log', args);
+                originalLog.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                addToLog('error', args);
+                originalError.apply(console, args);
+            };
+            
+            console.warn = function(...args) {
+                addToLog('warn', args);
+                originalWarn.apply(console, args);
+            };
+        }
+
+        // Inicializar sistema
+        async function initializeSystem() {
+            try {
+                console.log('🚀 LEX: Inicializando sistema de teste...');
+                
+                // Inicializar OCR
+                if (window.HybridOCRSystem) {
+                    ocrSystem = new window.HybridOCRSystem();
+                    console.log('✅ LEX: HybridOCRSystem carregado');
+                } else {
+                    console.error('❌ LEX: HybridOCRSystem não encontrado');
+                }
+                
+                // Inicializar PDF Processor
+                if (window.PDFProcessor) {
+                    pdfProcessor = new window.PDFProcessor();
+                    await pdfProcessor.initialize();
+                    console.log('✅ LEX: PDFProcessor inicializado');
+                } else {
+                    console.error('❌ LEX: PDFProcessor não encontrado');
+                }
+                
+                console.log('🎯 LEX: Sistema pronto para teste');
+                
+            } catch (error) {
+                console.error('❌ LEX: Erro na inicialização:', error);
+            }
+        }
+
+        // Configurar upload
+        function setupUpload() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFile);
+            
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFile({ target: { files } });
+                }
+            });
+        }
+
+        // Processar arquivo
+        async function handleFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (file.type !== 'application/pdf') {
+                showResults('error', 'Por favor, selecione um arquivo PDF.');
+                return;
+            }
+            
+            console.log(`📄 LEX: Arquivo selecionado: ${file.name} (${formatSize(file.size)})`);
+            
+            try {
+                showProgress(true);
+                updateProgress(0, 'Iniciando processamento...');
+                
+                // Testar sistema híbrido
+                await testHybridExtraction(file);
+                
+            } catch (error) {
+                console.error('❌ LEX: Erro no processamento:', error);
+                showResults('error', `Erro: ${error.message}`);
+            } finally {
+                showProgress(false);
+            }
+        }
+
+        // Testar extração híbrida
+        async function testHybridExtraction(file) {
+            console.log('🔄 LEX: Iniciando teste híbrido...');
+            
+            const startTime = Date.now();
+            
+            // Configurar callback de progresso
+            const progressCallback = (progress) => {
+                updateProgress(
+                    progress.progress, 
+                    `${progress.method || 'Processando'} - Página ${progress.currentPage}/${progress.totalPages}`
+                );
+            };
+            
+            updateProgress(10, 'Inicializando extração híbrida...');
+            
+            try {
+                // Usar sistema híbrido
+                const result = await pdfProcessor.extractTextHybrid(file, {
+                    progressCallback,
+                    includeMetadata: true,
+                    includePageNumbers: true,
+                    maxPages: 5, // Limitar para teste
+                    ocrFallback: true,
+                    minTextThreshold: 50
+                });
+                
+                const endTime = Date.now();
+                const processingTime = endTime - startTime;
+                
+                console.log('✅ LEX: Extração híbrida concluída');
+                console.log('📊 LEX: Resultado:', result);
+                
+                // Mostrar resultados
+                displayResults(result, processingTime);
+                
+            } catch (error) {
+                console.error('❌ LEX: Erro na extração híbrida:', error);
+                throw error;
+            }
+        }
+
+        // Exibir resultados
+        function displayResults(result, processingTime) {
+            const hasText = result.text && result.text.trim().length > 0;
+            
+            if (hasText) {
+                showResults('success', 'Extração bem-sucedida!');
+            } else {
+                showResults('error', 'Nenhum texto foi extraído.');
+            }
+            
+            // Texto extraído
+            document.getElementById('textOutput').textContent = 
+                result.text || '[Nenhum texto extraído]';
+            
+            // Estatísticas
+            const stats = document.getElementById('stats');
+            stats.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-value">${result.stats?.processedPages || 0}</div>
+                    <div>Páginas Processadas</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${result.text?.length || 0}</div>
+                    <div>Caracteres Extraídos</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${Math.round(processingTime / 1000)}s</div>
+                    <div>Tempo Total</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${result.extractionMethod || 'N/A'}</div>
+                    <div>Método Usado</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${result.ocrUsed ? 'Sim' : 'Não'}</div>
+                    <div>OCR Utilizado</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${result.stats?.averageConfidence ? Math.round(result.stats.averageConfidence) + '%' : 'N/A'}</div>
+                    <div>Confiança OCR</div>
+                </div>
+            `;
+        }
+
+        // Testar sistema OCR diretamente
+        async function testOCRSystem() {
+            console.log('🧪 LEX: Testando sistema OCR...');
+            
+            try {
+                if (!ocrSystem) {
+                    console.error('❌ LEX: Sistema OCR não inicializado');
+                    return;
+                }
+                
+                // Testar status dos providers
+                const status = await ocrSystem.getSystemStatus();
+                console.log('📊 LEX: Status do sistema OCR:', status);
+                
+                showResults('success', `Sistema OCR OK - ${status.availableProviders.length} providers disponíveis`);
+                
+                document.getElementById('textOutput').textContent = JSON.stringify(status, null, 2);
+                
+            } catch (error) {
+                console.error('❌ LEX: Erro no teste do sistema OCR:', error);
+                showResults('error', `Erro no teste: ${error.message}`);
+            }
+        }
+
+        // Utilitários de UI
+        function showProgress(show) {
+            document.getElementById('progress').style.display = show ? 'block' : 'none';
+        }
+        
+        function updateProgress(percent, text) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const progressDetails = document.getElementById('progressDetails');
+            
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `${Math.round(percent)}%`;
+            progressDetails.textContent = text || '';
+        }
+        
+        function showResults(type, message) {
+            const results = document.getElementById('results');
+            const resultsContent = document.getElementById('resultsContent');
+            
+            results.className = `results ${type}`;
+            results.style.display = 'block';
+            resultsContent.textContent = message;
+        }
+        
+        function clearResults() {
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('textOutput').textContent = '';
+            document.getElementById('stats').innerHTML = '';
+            document.getElementById('log').innerHTML = '<div><strong>📋 Log do Sistema:</strong></div>';
+            document.getElementById('fileInput').value = '';
+        }
+        
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Inicializar quando a página carregar
+        window.addEventListener('load', async () => {
+            setupLogging();
+            setupUpload();
+            await initializeSystem();
+        });
+    </script>
+</body>
+</html>

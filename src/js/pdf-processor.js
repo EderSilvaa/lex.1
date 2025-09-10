@@ -614,6 +614,262 @@ class PDFProcessor {
   }
   
   /**
+   * Extrai texto híbrido do PDF (texto nativo + OCR para páginas escaneadas)
+   * @param {Blob} pdfBlob - Blob do PDF
+   * @param {Object} options - Opções de extração
+   * @returns {Promise<Object>} - Resultado da extração híbrida
+   */
+  async extractTextHybrid(pdfBlob, options = {}) {
+    if (!this.isReady()) {
+      await this.initialize();
+    }
+    
+    console.log('🔄 LEX: Iniciando extração híbrida (PDF.js + OCR MVP)...');
+    
+    const defaultOptions = {
+      includeMetadata: true,
+      includePageNumbers: true,
+      maxPages: null,
+      progressCallback: null,
+      pageDelimiter: '\n--- Página {pageNum} ---\n',
+      combineTextItems: true,
+      normalizeWhitespace: true,
+      // OCR options
+      ocrFallback: true,
+      minTextThreshold: 50,
+      ocrQuality: 2
+    };
+    
+    const config = { ...defaultOptions, ...options };
+    
+    try {
+      // Use the new HybridOCRSystem
+      if (!window.HybridOCRSystem) {
+        throw new Error('HybridOCRSystem não carregado');
+      }
+      
+      const ocrSystem = new window.HybridOCRSystem();
+      return await ocrSystem.extractTextFromPDF(pdfBlob, config);
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro na extração híbrida:', error);
+      throw new Error(`Falha na extração híbrida: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Verifica se a extração de texto foi bem-sucedida
+   * @param {Object} result - Resultado da extração
+   * @param {Object} config - Configurações
+   * @returns {boolean} - true se tem texto suficiente
+   */
+  isTextExtractionSuccessful(result, config) {
+    if (!result || !result.text) {
+      return false;
+    }
+    
+    const cleanText = result.text.trim();
+    const textLength = cleanText.length;
+    const wordCount = cleanText.split(/\s+/).length;
+    
+    // Critérios para considerar extração bem-sucedida
+    const hasMinimumText = textLength >= config.minTextThreshold;
+    const hasWords = wordCount >= 5; // Pelo menos 5 palavras
+    const hasReasonableRatio = (textLength / result.stats.processedPages) >= 10; // 10 chars por página no mínimo
+    
+    console.log('📊 LEX: Análise de texto nativo:');
+    console.log(`- Caracteres: ${textLength}`);
+    console.log(`- Palavras: ${wordCount}`);
+    console.log(`- Páginas: ${result.stats.processedPages}`);
+    console.log(`- Ratio chars/página: ${Math.round(textLength / result.stats.processedPages)}`);
+    console.log(`- Texto suficiente: ${hasMinimumText && hasWords && hasReasonableRatio}`);
+    
+    return hasMinimumText && hasWords && hasReasonableRatio;
+  }
+  
+  /**
+   * Extrai texto usando OCR nas páginas do PDF
+   * @param {Blob} pdfBlob - Blob do PDF
+   * @param {Object} config - Configurações
+   * @param {Object} nativeResult - Resultado da extração nativa (fallback)
+   * @returns {Promise<Object>} - Resultado da extração OCR
+   */
+  async extractTextWithOCR(pdfBlob, config, nativeResult) {
+    console.log('🔍 LEX: Iniciando extração OCR do PDF...');
+    
+    try {
+      // Inicializar OCR se necessário
+      let ocrProcessor;
+      if (window.OCRProcessor) {
+        ocrProcessor = new window.OCRProcessor();
+        await ocrProcessor.initialize();
+      } else {
+        console.error('❌ LEX: OCRProcessor não disponível');
+        throw new Error('OCRProcessor não carregado');
+      }
+      
+      const arrayBuffer = await pdfBlob.arrayBuffer();
+      const loadingTask = this.pdfjsLib.getDocument(arrayBuffer);
+      const pdf = await loadingTask.promise;
+      
+      const totalPages = pdf.numPages;
+      const pagesToProcess = config.maxPages ? Math.min(config.maxPages, totalPages) : totalPages;
+      
+      let fullText = '';
+      const pageTexts = [];
+      const ocrStats = {
+        processedPages: 0,
+        successfulPages: 0,
+        totalConfidence: 0,
+        averageConfidence: 0,
+        processingTime: 0
+      };
+      
+      const startTime = Date.now();
+      
+      for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+        try {
+          console.log(`🖼️ LEX: OCR página ${pageNum}/${pagesToProcess}...`);
+          
+          // Callback de progresso
+          if (config.progressCallback) {
+            config.progressCallback({
+              currentPage: pageNum,
+              totalPages: pagesToProcess,
+              progress: (pageNum / pagesToProcess) * 100,
+              method: 'ocr'
+            });
+          }
+          
+          // Renderizar página como imagem
+          const canvas = await this.renderPageToCanvas(pdf, pageNum, config);
+          
+          // Executar OCR na imagem
+          const ocrResult = await ocrProcessor.extractTextFromImage(canvas, {
+            minConfidence: 30,
+            preprocess: true,
+            enhanceContrast: true
+          });
+          
+          if (ocrResult.success) {
+            const pageText = ocrResult.text.trim();
+            
+            if (pageText) {
+              // Adicionar delimitador de página se configurado
+              if (config.includePageNumbers) {
+                const delimiter = config.pageDelimiter.replace('{pageNum}', pageNum);
+                fullText += delimiter + pageText + '\n';
+              } else {
+                fullText += pageText + '\n';
+              }
+              
+              pageTexts.push({
+                pageNumber: pageNum,
+                text: pageText,
+                confidence: ocrResult.confidence,
+                words: ocrResult.stats.wordsFound
+              });
+              
+              ocrStats.successfulPages++;
+              ocrStats.totalConfidence += ocrResult.confidence;
+            }
+          }
+          
+          ocrStats.processedPages++;
+          
+        } catch (pageError) {
+          console.warn(`⚠️ LEX: Erro OCR na página ${pageNum}:`, pageError);
+          // Continuar com próxima página
+        }
+      }
+      
+      const endTime = Date.now();
+      ocrStats.processingTime = endTime - startTime;
+      ocrStats.averageConfidence = ocrStats.successfulPages > 0 
+        ? ocrStats.totalConfidence / ocrStats.successfulPages 
+        : 0;
+      
+      console.log('✅ LEX: OCR do PDF concluído');
+      console.log(`- Páginas processadas: ${ocrStats.processedPages}`);
+      console.log(`- Páginas com sucesso: ${ocrStats.successfulPages}`);
+      console.log(`- Confiança média: ${Math.round(ocrStats.averageConfidence)}%`);
+      console.log(`- Tempo total: ${Math.round(ocrStats.processingTime/1000)}s`);
+      
+      // Limpar recursos OCR
+      await ocrProcessor.terminate();
+      
+      // Construir resultado final
+      return {
+        text: fullText.trim(),
+        pages: pageTexts,
+        metadata: nativeResult.metadata || {},
+        stats: {
+          processedPages: ocrStats.processedPages,
+          successfulPages: ocrStats.successfulPages,
+          totalCharacters: fullText.length,
+          totalWords: fullText.split(/\s+/).length,
+          processingTime: ocrStats.processingTime,
+          averageConfidence: ocrStats.averageConfidence
+        },
+        extractionMethod: 'ocr',
+        ocrUsed: true,
+        scannedPdfDetected: true,
+        success: ocrStats.successfulPages > 0,
+        fileSize: pdfBlob.size,
+        fileSizeFormatted: this.formatFileSize(pdfBlob.size)
+      };
+      
+    } catch (error) {
+      console.error('❌ LEX: Erro na extração OCR:', error);
+      // Fallback para resultado nativo
+      console.log('🔄 LEX: Usando resultado de texto nativo como fallback');
+      nativeResult.extractionMethod = 'native_fallback';
+      nativeResult.ocrUsed = false;
+      nativeResult.ocrError = error.message;
+      nativeResult.scannedPdfDetected = true;
+      return nativeResult;
+    }
+  }
+  
+  /**
+   * Renderiza uma página do PDF para Canvas
+   * @param {Object} pdf - Documento PDF
+   * @param {number} pageNumber - Número da página
+   * @param {Object} config - Configurações
+   * @returns {Promise<Canvas>} - Canvas com a página renderizada
+   */
+  async renderPageToCanvas(pdf, pageNumber, config) {
+    const page = await pdf.getPage(pageNumber);
+    
+    // Configurar viewport com escala otimizada para OCR
+    const scale = config.ocrQuality === 3 ? 3.0 : 
+                  config.ocrQuality === 2 ? 2.0 : 1.5;
+    
+    const viewport = page.getViewport({ scale });
+    
+    // Criar canvas
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    
+    // Configurar fundo branco para melhor OCR
+    context.fillStyle = 'white';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Renderizar página
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport
+    };
+    
+    await page.render(renderContext).promise;
+    
+    return canvas;
+  }
+  
+  /**
    * Processa o conteúdo de texto de uma página
    * @param {Object} textContent - Conteúdo de texto do PDF.js
    * @param {Object} config - Configurações de processamento

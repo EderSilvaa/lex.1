@@ -18,7 +18,9 @@
     "https://pje.tjpa.jus.br/*",
     "https://api.openai.com/*",
     "https://cdnjs.cloudflare.com/*",
-    "https://unpkg.com/*"
+    "https://unpkg.com/*",
+    "https://cdn.jsdelivr.net/*",
+    "https://api.ocr.space/*"
   ],
   "action": {
     "default_popup": "src/html/popup.html",
@@ -91,6 +93,7 @@
         "src/js/pdf.min.js",
         "src/js/document-detector.js",
         "src/js/pdf-processor.js",
+        "src/js/ocr-system.js",
         "src/js/openai-client.js",
         "src/js/content-simple.js"
       ],
@@ -110,7 +113,8 @@
         "src/js/document-detector.js",
         "src/js/pdf-processor.js",
         "src/js/pdf.min.js",
-        "src/js/pdf.worker.min.js"
+        "src/js/pdf.worker.min.js",
+        "src/js/ocr-system.js"
       ],
       "matches": [
         "<all_urls>"
