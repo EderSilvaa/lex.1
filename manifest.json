@@ -23,8 +23,7 @@
     "https://api.ocr.space/*"
   ],
   "action": {
-    "default_popup": "src/html/popup.html",
-    "default_title": "Lex."
+    "default_title": "Lex. - AI Legal Assistant"
   },
   "content_scripts": [
     {
