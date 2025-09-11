@@ -62,9 +62,7 @@
       if (e.ctrlKey && e.key === 'm') {
         e.preventDefault();
         e.stopPropagation();
-        const isVisible = chatContainer && chatContainer.classList.contains('visible');
         toggleLex();
-        mostrarNotificacaoAtalho(isVisible ? 'LEX fechada' : 'LEX aberta');
         console.log('⌨️ LEX: Atalho Ctrl+M ativado');
         return false;
       }
@@ -74,7 +72,6 @@
         e.preventDefault();
         e.stopPropagation();
         abrirLexComAnaliseAutomatica();
-        mostrarNotificacaoAtalho('LEX: Análise automática iniciada');
         console.log('⌨️ LEX: Atalho Ctrl+; ativado - análise automática');
         return false;
       }
@@ -84,7 +81,6 @@
         e.preventDefault();
         e.stopPropagation();
         abrirLexComFoco();
-        mostrarNotificacaoAtalho('LEX ativada com foco');
         console.log('⌨️ LEX: Atalho Ctrl+, ativado');
         return false;
       }
@@ -93,7 +89,6 @@
       if (e.key === 'Escape' && chatContainer && chatContainer.classList.contains('visible')) {
         e.preventDefault();
         fecharLex();
-        mostrarNotificacaoAtalho('LEX fechada');
         console.log('⌨️ LEX: Atalho ESC ativado');
         return false;
       }
@@ -172,46 +167,7 @@
     }, 200); // Delay maior para garantir que tudo carregou
   }
 
-  // Mostrar notificação de atalho ativado
-  function mostrarNotificacaoAtalho(mensagem) {
-    // Criar notificação temporária
-    const notificacao = document.createElement('div');
-    notificacao.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      font-weight: 500;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      z-index: 999999;
-      transform: translateX(100%);
-      transition: transform 0.3s ease;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-    `;
-    notificacao.textContent = `⌨️ ${mensagem}`;
-    
-    document.body.appendChild(notificacao);
-    
-    // Animar entrada
-    setTimeout(() => {
-      notificacao.style.transform = 'translateX(0)';
-    }, 10);
-    
-    // Remover após 2 segundos
-    setTimeout(() => {
-      notificacao.style.transform = 'translateX(100%)';
-      setTimeout(() => {
-        if (notificacao.parentNode) {
-          notificacao.parentNode.removeChild(notificacao);
-        }
-      }, 300);
-    }, 2000);
-  }
+  // Função de notificação removida - popups desabilitados
   
   // Criar OpenAI Client diretamente (solução robusta)
   function criarOpenAIClient() {
@@ -508,249 +464,10 @@ Use HTML simples, máximo 300 palavras.`
   
   // Adicionar estilos
   function adicionarEstilos() {
-    const styleSheet = document.createElement('style');
-    styleSheet.textContent = `
-      /* Estilos completos para o chat Lex */
-      .lex-chat {
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        width: 380px;
-        height: 550px;
-        background-color: #1a1a1a;
-        border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-        display: none;
-        flex-direction: column;
-        overflow: hidden;
-        z-index: 999999;
-        border: 1px solid #333;
-        font-family: Arial, sans-serif;
-      }
-      
-      .lex-chat.visible {
-        display: flex;
-      }
-      
-      .lex-header {
-        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-        color: white;
-        padding: 12px 16px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      
-      .lex-header-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 6px;
-      }
-      
-      .lex-title-area {
-        display: flex;
-        flex-direction: column;
-      }
-      
-      .lex-title {
-        font-size: 16px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      
-      .lex-subtitle {
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.7);
-        margin-top: 2px;
-      }
-      
-      .lex-status {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 4px;
-      }
-      
-      .lex-status-dot {
-        width: 8px;
-        height: 8px;
-        background-color: #4ade80;
-        border-radius: 50%;
-      }
-      
-      .lex-status-text {
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.7);
-      }
-      
-      .lex-close {
-        background: rgba(255, 255, 255, 0.1);
-        border: none;
-        color: white;
-        width: 28px;
-        height: 28px;
-        border-radius: 6px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      
-      .lex-info {
-        background-color: #2a2a2a;
-        padding: 12px;
-        border-bottom: 1px solid #333;
-      }
-      
-      .lex-card {
-        background-color: rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
-        overflow: hidden;
-      }
-      
-      .lex-card-header {
-        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-        padding: 10px 12px;
-        font-size: 13px;
-        font-weight: 600;
-        color: white;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      
-      .lex-card-content {
-        padding: 12px;
-      }
-      
-      .lex-item {
-        display: flex;
-        margin-bottom: 8px;
-        font-size: 12px;
-      }
-      
-      .lex-item:last-child {
-        margin-bottom: 0;
-      }
-      
-      .lex-label {
-        color: rgba(255, 255, 255, 0.7);
-        font-weight: 600;
-        min-width: 80px;
-      }
-      
-      .lex-value {
-        color: white;
-        word-break: break-word;
-      }
-      
-      .lex-messages {
-        flex: 1;
-        padding: 16px;
-        overflow-y: auto;
-        background-color: #1a1a1a;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-      
-      .lex-message {
-        max-width: 85%;
-        display: flex;
-        flex-direction: column;
-      }
-      
-      .lex-message.user {
-        align-self: flex-end;
-      }
-      
-      .lex-message.assistant {
-        align-self: flex-start;
-      }
-      
-      .lex-bubble {
-        padding: 12px 14px;
-        border-radius: 10px;
-        font-size: 13px;
-        line-height: 1.5;
-        position: relative;
-      }
-      
-      .lex-message.user .lex-bubble {
-        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-        color: white;
-        border-bottom-right-radius: 4px;
-      }
-      
-      .lex-message.assistant .lex-bubble {
-        background-color: #2a2a2a;
-        color: white;
-        border-bottom-left-radius: 4px;
-        border-left: 3px solid #4a1a5c;
-      }
-      
-      .lex-time {
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.5);
-        margin-top: 4px;
-        align-self: flex-end;
-      }
-      
-      .lex-input-area {
-        padding: 12px 16px;
-        background-color: #2a2a2a;
-        border-top: 1px solid #333;
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-      
-      .lex-input {
-        flex: 1;
-        background-color: rgba(0, 0, 0, 0.2);
-        border: 1px solid #444;
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: white;
-        font-size: 13px;
-        min-height: 40px;
-        outline: none;
-      }
-      
-      .lex-send {
-        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-        color: white;
-        border: none;
-        width: 40px;
-        height: 40px;
-        border-radius: 8px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      
-      .lex-button {
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        width: 50px;
-        height: 50px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%);
-        color: white;
-        border: none;
-        cursor: pointer;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        z-index: 999998;
-      }
-    `;
-    document.head.appendChild(styleSheet);
+    // Função removida - usando CSS externo para melhor performance
+    // Os estilos agora vêm do arquivo chat-styles.css
+    console.log('✅ LEX: Usando CSS externo - estilos inline desabilitados');
+    return;
   }  
  
   // Criar botão do chat
@@ -779,26 +496,8 @@ Use HTML simples, máximo 300 palavras.`
     botao.title = 'Lex. - Assistente Jurídico Inteligente';
     botao.id = 'lex-chat-button';
     
-    // Aplicar estilos inline para garantir visibilidade
-    botao.style.cssText = `
-      position: fixed !important;
-      right: 20px !important;
-      bottom: 20px !important;
-      width: 50px !important;
-      height: 50px !important;
-      border-radius: 50% !important;
-      background: linear-gradient(135deg, #4a1a5c 0%, #2d4a4a 100%) !important;
-      color: white !important;
-      border: none !important;
-      cursor: pointer !important;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      font-size: 20px !important;
-      z-index: 999999 !important;
-      font-family: Arial, sans-serif !important;
-    `;
+    // Usar classe CSS em vez de estilos inline
+    botao.className = 'lex-toggle';
     
     botao.addEventListener('click', function() {
       console.log('🖱️ LEX: Botão clicado!');
