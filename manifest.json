@@ -89,11 +89,7 @@
         "file://*/teste-pje.html"
       ],
       "js": [
-        "src/js/pdf.min.js",
         "src/js/document-detector.js",
-        "src/js/pdf-processor.js",
-        "src/js/ocr-system.js",
-        "src/js/openai-client.js",
         "src/js/content-simple.js"
       ],
       "run_at": "document_end",
@@ -108,12 +104,7 @@
       "resources": [
         "styles/chat-styles.css",
         "src/js/content-simple.js",
-        "src/js/openai-client.js",
-        "src/js/document-detector.js",
-        "src/js/pdf-processor.js",
-        "src/js/pdf.min.js",
-        "src/js/pdf.worker.min.js",
-        "src/js/ocr-system.js"
+        "src/js/document-detector.js"
       ],
       "matches": [
         "<all_urls>"
