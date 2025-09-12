@@ -154,17 +154,49 @@
     
     // Aguardar interface carregar e disparar análise
     setTimeout(() => {
+      const messagesContainer = chatContainer?.querySelector('.lex-messages');
       const input = chatContainer?.querySelector('.lex-input');
-      if (input) {
-        // Simular digitação de comando de análise
-        input.value = 'Analisar este documento automaticamente';
-        input.placeholder = '🤖 Analisando documento automaticamente...';
+      
+      if (messagesContainer && input) {
+        // Expandir chat para análise automática
+        expandirChat();
         
-        // Disparar análise automaticamente
-        enviarMensagem('Analisar este documento automaticamente');
+        // Ir direto para mensagem de análise sem mostrar mensagem do usuário
+        input.placeholder = 'Analisando documento automaticamente...';
+        
+        // Adicionar mensagem de análise simples
+        const thinkingMessage = document.createElement('div');
+        thinkingMessage.className = 'lex-message assistant';
+        thinkingMessage.innerHTML = `
+          <div class="lex-bubble">Analisando...</div>
+        `;
+        messagesContainer.appendChild(thinkingMessage);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        
+        // Processar análise diretamente sem enviar mensagem visível
+        processarAnaliseAutomatica(thinkingMessage);
         console.log('🚀 LEX: Análise automática iniciada');
       }
     }, 200); // Delay maior para garantir que tudo carregou
+  }
+
+  // Função para processar análise automática (versão simplificada)
+  function processarAnaliseAutomatica(thinkingMessage) {
+    console.log('🔍 LEX: Análise automática - usando sistema de chat existente');
+    
+    // Simular envio da mensagem "analisar processo" usando o sistema existente
+    const perguntaAnalise = 'analisar processo';
+    
+    // Esconder a mensagem temporária
+    if (thinkingMessage) {
+      thinkingMessage.style.display = 'none';
+    }
+    
+    // Usar o sistema de envio existente que já funciona perfeitamente
+    setTimeout(() => {
+      enviarMensagem(perguntaAnalise, true); // true = isAutomatico (não mostrar mensagem do usuário)
+      console.log('✅ LEX: Análise automática delegada para sistema de chat padrão');
+    }, 100);
   }
 
   // Função de notificação removida - popups desabilitados
@@ -575,8 +607,8 @@ Use HTML simples, máximo 300 palavras.`
     // Adicionar informações discretas do processo
     adicionarInfoDiscreta(info);
     
-    // Mostrar chat
-    chatContainer.classList.add('visible');
+    // Mostrar chat no estado compacto inicial
+    chatContainer.classList.add('visible', 'compact');
     
     // Atualizar status da IA
     atualizarStatusIA();
@@ -637,9 +669,11 @@ Use HTML simples, máximo 300 palavras.`
   // Adicionar informações do processo de forma discreta
   function adicionarInfoDiscreta(info) {
     const messagesContainer = chatContainer.querySelector('.lex-messages');
-    if (!messagesContainer) return;
+    const header = chatContainer.querySelector('.lex-header');
     
-    // Criar elemento de informações discretas
+    if (!messagesContainer || !header) return;
+    
+    // Criar elemento de informações discretas para área de mensagens (expandido)
     const infoElement = document.createElement('div');
     infoElement.className = 'lex-process-context';
     
@@ -655,28 +689,59 @@ Use HTML simples, máximo 300 palavras.`
       infoElement.innerHTML = contextInfo;
       messagesContainer.appendChild(infoElement);
     }
+    
+    // Criar elemento de informações compactas para o header (compacto)
+    const compactInfoElement = document.createElement('div');
+    compactInfoElement.className = 'lex-compact-info';
+    
+    let compactInfo = '';
+    if (info.numeroProcesso) {
+      compactInfo += `<div class="lex-compact-process">${info.numeroProcesso}</div>`;
+    }
+    if (info.documentoId) {
+      compactInfo += `<div class="lex-compact-doc">Doc ${info.documentoId}</div>`;
+    }
+    
+    if (compactInfo) {
+      compactInfoElement.innerHTML = compactInfo;
+      header.appendChild(compactInfoElement);
+    }
   }
 
+  // Expandir chat para mostrar área de mensagens
+  function expandirChat() {
+    if (chatContainer.classList.contains('compact')) {
+      console.log('🔄 LEX: Expandindo chat para modo completo');
+      chatContainer.classList.remove('compact');
+      chatContainer.classList.add('expanded');
+    }
+  }
+  
   // Enviar mensagem
-  function enviarMensagem(texto) {
+  function enviarMensagem(texto, isAutomatico = false) {
     texto = texto.trim();
     if (!texto) return;
+    
+    // Expandir chat na primeira mensagem
+    expandirChat();
     
     const messagesContainer = chatContainer.querySelector('.lex-messages');
     const input = chatContainer.querySelector('.lex-input');
     
     if (!messagesContainer || !input) return;
     
-    // Adicionar mensagem do usuário
-    const userMessage = document.createElement('div');
-    userMessage.className = 'lex-message user';
-    userMessage.innerHTML = `
-      <div class="lex-bubble">${texto}</div>
-      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-    `;
-    
-    messagesContainer.appendChild(userMessage);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // Adicionar mensagem do usuário (apenas se não for automático)
+    if (!isAutomatico) {
+      const userMessage = document.createElement('div');
+      userMessage.className = 'lex-message user';
+      userMessage.innerHTML = `
+        <div class="lex-bubble">${texto}</div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      `;
+      
+      messagesContainer.appendChild(userMessage);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
     
     // Limpar input
     input.value = '';
@@ -685,7 +750,7 @@ Use HTML simples, máximo 300 palavras.`
     const thinkingMessage = document.createElement('div');
     thinkingMessage.className = 'lex-message assistant';
     thinkingMessage.innerHTML = `
-      <div class="lex-bubble">🤔 Analisando...</div>
+      <div class="lex-bubble">Analisando...</div>
     `;
     messagesContainer.appendChild(thinkingMessage);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;

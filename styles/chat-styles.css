@@ -65,13 +65,14 @@
   letter-spacing: 0.5px !important;
 }
 
-/* Container principal - Design Horizontal */
+/* Container principal - Design Adaptável (Compacto → Expandido) */
 .lex-chat {
   position: fixed;
   right: var(--lex-space-lg);
   bottom: var(--lex-space-lg);
   width: 380px;
-  height: 320px;
+  height: auto; /* Altura automática baseada no conteúdo */
+  max-height: 320px; /* Altura máxima quando expandido */
   background: var(--lex-black-premium);
   border-radius: var(--lex-radius-lg);
   box-shadow: 
@@ -84,10 +85,21 @@
   z-index: 999999;
   font-family: var(--lex-font-system);
   backdrop-filter: blur(20px);
+  transition: all 0.3s ease;
 }
 
 .lex-chat.visible {
   display: flex;
+}
+
+/* Estado compacto (inicial) */
+.lex-chat.compact {
+  height: auto;
+}
+
+/* Estado expandido (com chat) */  
+.lex-chat.expanded {
+  height: 320px;
 }
 
 /* Header - Design Minimalista */
@@ -191,6 +203,37 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* No estado compacto, mostrar informações no header */
+.lex-chat.compact .lex-process-context {
+  display: none; /* Não mostrar na área de mensagens quando compacto */
+}
+
+.lex-compact-info {
+  display: none; /* Por padrão oculto */
+  padding: var(--lex-space-xs) 0;
+  border-top: 1px solid var(--lex-gray-subtle);
+  margin-top: var(--lex-space-xs);
+}
+
+.lex-chat.compact .lex-compact-info {
+  display: block; /* Mostrar apenas no estado compacto */
+}
+
+.lex-compact-process {
+  font-size: 11px;
+  color: rgba(0, 255, 65, 0.6);
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.lex-compact-doc {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: 'Courier New', monospace;
+  text-align: center;
+}
+
 .lex-context-process {
   font-size: 12px;
   color: rgba(0, 255, 65, 0.6);
@@ -285,10 +328,16 @@
   padding: var(--lex-space-md) var(--lex-space-lg);
   overflow-y: auto;
   background-color: var(--lex-black-premium);
-  display: flex;
+  display: none; /* Oculta por padrão no estado compacto */
   flex-direction: column;
   gap: var(--lex-space-sm);
   scroll-behavior: smooth;
+  transition: all 0.3s ease;
+}
+
+/* Mostrar mensagens quando expandido */
+.lex-chat.expanded .lex-messages {
+  display: flex;
 }
 
 .lex-messages::-webkit-scrollbar {
@@ -397,6 +446,7 @@
   align-items: center;
   position: relative;
 }
+
 
 .lex-input {
   flex: 1;
