@@ -183,6 +183,7 @@
   // Função para processar análise automática (versão simplificada)
   function processarAnaliseAutomatica(thinkingMessage) {
     console.log('🔍 LEX: Análise automática - usando sistema de chat existente');
+    console.log('🧪 LEX: Verificando se extrairInformacoesCompletas existe:', typeof extrairInformacoesCompletas);
     
     // Simular envio da mensagem "analisar processo" usando o sistema existente
     const perguntaAnalise = 'analisar processo';
