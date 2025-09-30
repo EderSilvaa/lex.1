@@ -1,7 +1,7 @@
 # 📊 LEX - Resumo Completo do Projeto
 
-**Data:** 29/09/2025
-**Status:** ✅ Funcional - Análise completa de documentos implementada
+**Data:** 30/09/2025
+**Status:** ✅ Funcional - Análise completa + Features antigas reativadas (PDF iframe, OCR, HTML)
 
 ---
 
@@ -106,15 +106,59 @@ Arquivo: `src/js/process-crawler.js`
 
 ---
 
-### **Fase 4: Sistema de Cache**
+### **Fase 4: Integração de PDF.js e Tesseract.js**
+
+#### **Desafio: PDF.js não carregando**
+
+**Problema:**
+```
+❌ LEX: PDF.js não encontrado após 100 tentativas
+window.pdfjsLib: undefined
+```
+
+**Causa:**
+- Tentativa de carregar PDF.js via CDN
+- Manifest V3 bloqueia carregamento dinâmico de scripts (CSP)
+
+**Solução:**
+1. ✅ Download de PDF.js localmente:
+   ```bash
+   curl -o src/js/pdf.min.js https://cdnjs.cloudflare.com/.../pdf.min.js
+   curl -o src/js/pdf.worker.min.js https://cdnjs.cloudflare.com/.../pdf.worker.min.js
+   ```
+
+2. ✅ Adicionado ao `manifest.json` como content script:
+   ```json
+   "js": [
+     "src/js/pdf.min.js",           // PRIMEIRO
+     "src/js/tesseract.min.js",     // SEGUNDO
+     // ... outros scripts
+   ]
+   ```
+
+3. ✅ Configuração de worker:
+   ```javascript
+   this.workerSrc = chrome.runtime.getURL('src/js/pdf.worker.min.js');
+   pdfjsLib.GlobalWorkerOptions.workerSrc = this.workerSrc;
+   ```
+
+**Resultado:**
+```
+✅ LEX: PDF.js encontrado como content script (método 1)
+✅ LEX: Página 1 processada - 457 caracteres
+```
+
+---
+
+### **Fase 5: Sistema de Cache**
 
 **Implementado em:** `src/js/document-cache.js`
 
 **Funcionalidades:**
-- ✅ Cache em localStorage com TTL (30 minutos)
-- ✅ Compressão de dados
+- ✅ Cache em localStorage com TTL de **1 hora** (60 minutos)
+- ✅ Compressão de dados com **pako**
 - ✅ Evicção automática de entradas antigas
-- ✅ Estatísticas de uso
+- ✅ Estatísticas de uso (hits, misses, size)
 
 **Comandos úteis:**
 ```javascript
@@ -132,7 +176,7 @@ console.log(`✅ ${count} documentos removidos do cache!`);
 
 ---
 
-### **Fase 5: Integração com OpenAI via Supabase**
+### **Fase 6: Integração com OpenAI via Supabase**
 
 #### **Situação Atual:**
 
@@ -171,6 +215,58 @@ https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA
 - ✅ Ajustado `process-analyzer.js` para usar endpoint `/OPENIA`
 - ✅ Adaptado formato de payload para o que seu endpoint espera
 - ✅ Mock desativado (`useMock = false`)
+- ✅ Batches reduzidos de 5 para **3 documentos**
+- ✅ Limite de **15000 caracteres** por documento (evita erro 500)
+
+---
+
+### **Fase 7: Reativação de Features Antigas**
+
+#### **Problema: Análise de iframe individual não funcionava**
+
+**Features que estavam desativadas:**
+```
+❌ processarDocumentoPDF() - retornava fallback
+❌ processarDocumentoImagem() - placeholder sem OCR
+❌ processarDocumentoHTML() - funcionava mas incompleto
+```
+
+**Causa:**
+- Commit `88c7484` removeu arquivos antigos: `pdf-processor.js`, `ocr-system.js`
+- Funções existiam mas chamavam processadores que não existiam mais
+
+**Solução Implementada:**
+
+1. **✅ Reativado `processarDocumentoPDF()`:**
+   ```javascript
+   const processor = new window.PDFProcessor();
+   const resultado = await processor.extractTextFromPDF(pdfBlob, {
+     maxPages: undefined,
+     combineTextItems: true,
+     normalizeWhitespace: true
+   });
+   ```
+
+2. **✅ Reativado `processarDocumentoImagem()` com OCR:**
+   ```javascript
+   const { data: { text } } = await Tesseract.recognize(
+     imageBlob,
+     'por', // Português
+     { logger: info => console.log(`OCR Progress: ${info.progress}`) }
+   );
+   ```
+
+3. **✅ Mantido `processarDocumentoHTML()`:**
+   - Já funcionava, apenas mantido como estava
+   - Extração de texto de HTML via `extrairTextoDeHTML()`
+
+**Resultado:**
+```
+✅ Análise de PDF individual funciona
+✅ OCR de imagens funciona (Tesseract.js)
+✅ Análise de HTML funciona
+✅ Chat individual com perguntas funciona
+```
 
 ---
 
@@ -180,14 +276,18 @@ https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA
 lex-test1/
 ├── src/
 │   ├── js/
-│   │   ├── content-simple.js          # Interface e chat
+│   │   ├── content-simple.js          # Interface, chat e análise de iframe
 │   │   ├── document-detector.js       # Detecta tipo de documento
-│   │   ├── document-cache.js          # Sistema de cache
-│   │   ├── process-crawler.js         # Descobre documentos do processo
+│   │   ├── document-cache.js          # Sistema de cache (TTL 1h)
+│   │   ├── process-crawler.js         # Descobre documentos (PJe-TJPA)
 │   │   ├── process-analyzer.js        # Orquestra análise completa
+│   │   ├── pdf.min.js                 # PDF.js v3.11.174 (320 KB)
+│   │   ├── pdf.worker.min.js          # PDF.js worker (1.06 MB)
+│   │   ├── tesseract.min.js           # Tesseract.js v5 OCR (66 KB)
 │   │   └── background.js              # Service worker
 │   └── ts/
-│       └── pdf-processor.js           # Extração de texto de PDFs
+│       ├── pdf-processor.ts           # Source TypeScript
+│       └── pdf-processor.js           # Compilado para JS (491 linhas)
 ├── styles/
 │   └── chat-styles.css                # Estilos da interface
 ├── manifest.json                      # Configuração da extensão
@@ -196,7 +296,7 @@ lex-test1/
 │       └── analisar-processo-completo/
 │           └── index.ts               # Edge Function (alternativa, não usada)
 └── docs/
-    ├── ANALISE-COMPLETA-FEATURE.md   # Documentação técnica
+    ├── ANALISE-COMPLETA-FEATURE.md   # Documentação técnica completa
     ├── SUPABASE-ENDPOINT.md           # Especificação do endpoint
     ├── COMO-TESTAR.md                 # Guia de testes
     └── DEPLOY-SUPABASE.md             # Guia de deploy

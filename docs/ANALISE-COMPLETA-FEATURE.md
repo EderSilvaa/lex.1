@@ -9,28 +9,34 @@ Nova funcionalidade da Lex que permite analisar **todos os documentos de um proc
 ## ✨ Funcionalidades
 
 ### 1. **Descoberta Automática de Documentos**
-- ✅ Scraping inteligente do DOM
-- ✅ Acesso à página `/ConsultaDocumento/listView.seam`
-- ✅ Detecção de paginação
-- ✅ Múltiplas estratégias de descoberta
+- ✅ Scraping inteligente do DOM (PJe-TJPA específico)
+- ✅ Busca por links com parâmetro `idProcessoDocumento`
+- ✅ Detecção automática da sidebar "Docs"
+- ✅ Suporte para 10-14 documentos por processo
+- ✅ Extração de metadata: ID, nome, tipo, tamanho
 
 ### 2. **Download e Processamento**
 - ✅ Download autenticado usando sessão do usuário
-- ✅ Processamento de PDFs com extração de texto completa
-- ✅ Suporte para HTML/texto
-- ✅ Rate limiting para evitar sobrecarga
-- ✅ Processamento paralelo otimizado
+- ✅ **PDF.js v3.11.174** integrado localmente (Manifest V3 compliant)
+- ✅ **Tesseract.js v5** para OCR de imagens em português
+- ✅ Extração de texto de documentos HTML/texto
+- ✅ Processamento paralelo de múltiplos PDFs
+- ✅ Limite de 15000 caracteres por documento (evita erro 500)
+- ✅ Rate limiting: 3 downloads simultâneos, 500ms entre downloads
 
 ### 3. **Cache Inteligente**
-- ✅ Cache local com TTL de 30 minutos
-- ✅ Compressão automática
-- ✅ Evicção de entradas antigas
-- ✅ Estatísticas de uso
+- ✅ Cache local com TTL de **1 hora** (60 minutos)
+- ✅ Compressão automática com **pako**
+- ✅ Estatísticas de cache: hits, misses, size
+- ✅ Armazenamento no localStorage
+- ✅ Evita reprocessamento de PDFs já analisados
 
 ### 4. **Envio para API**
-- ✅ Batches otimizados (5 documentos por batch)
-- ✅ Retry automático
+- ✅ Batches otimizados (**3 documentos** por batch)
+- ✅ Integração com endpoint Supabase `/OPENIA` existente
 - ✅ Consolidação de resultados múltiplos
+- ✅ Tratamento de erro de rede (ERR_NETWORK_CHANGED)
+- ✅ Retry automático em caso de falha de batch
 
 ### 5. **UI Moderna**
 - ✅ Botão 🔍 no chat
@@ -78,49 +84,87 @@ Nova funcionalidade da Lex que permite analisar **todos os documentos de um proc
 
 ### **Novos Arquivos:**
 
-1. **`src/js/process-crawler.js`** (568 linhas)
-   - Descobre todos os documentos do processo
-   - Múltiplas estratégias de descoberta
-   - Parsing de tabelas HTML do PJe
+1. **`src/js/process-crawler.js`** (977 linhas)
+   - Descobre todos os documentos do processo (PJe-TJPA específico)
+   - Busca links com parâmetro `idProcessoDocumento`
+   - Parsing especializado para sidebar "Docs"
+   - Extração de metadata: ID, nome, tipo, tamanho
+   - Construção de URLs de download direto
 
 2. **`src/js/document-cache.js`** (481 linhas)
-   - Sistema de cache local
-   - Compressão e expiração automática
-   - Estatísticas detalhadas
+   - Sistema de cache local com TTL de 1 hora
+   - Compressão automática com pako
+   - Armazenamento no localStorage
+   - Estatísticas detalhadas (hits, misses, size)
 
-3. **`src/js/process-analyzer.js`** (612 linhas)
-   - Orquestrador principal
-   - Gerencia download/processamento/envio
-   - Sistema de callbacks para UI
+3. **`src/js/process-analyzer.js`** (764 linhas)
+   - Orquestrador principal da análise completa
+   - Gerencia descoberta → download → processamento → envio API
+   - Rate limiting: 3 downloads simultâneos, 500ms delay
+   - Batches de 3 documentos para API
+   - Limite de 15000 caracteres por documento
+   - Sistema de callbacks para UI (progresso em tempo real)
 
-4. **`docs/SUPABASE-ENDPOINT.md`**
+4. **`src/js/pdf.min.js`** (320 KB) + **`src/js/pdf.worker.min.js`** (1.06 MB)
+   - PDF.js v3.11.174 integrado localmente
+   - Manifest V3 compliant (sem CDN)
+   - Worker configurado via chrome.runtime.getURL()
+
+5. **`src/js/tesseract.min.js`** (66 KB)
+   - Tesseract.js v5 para OCR
+   - Reconhecimento em português
+   - Integrado para análise de documentos de imagem
+
+6. **`src/ts/pdf-processor.js`** (491 linhas - compilado de TypeScript)
+   - Extração completa de texto de PDFs
+   - Método `extractTextFromPDF(blob, options)`
+   - Metadados, estatísticas, progresso
+   - Fallback automático em caso de erro
+
+7. **`docs/SUPABASE-ENDPOINT.md`**
    - Instruções para criar endpoint
    - Código completo da Edge Function
    - Guia de deploy
 
-5. **`docs/ANALISE-COMPLETA-FEATURE.md`** (este arquivo)
+8. **`docs/ANALISE-COMPLETA-FEATURE.md`** (este arquivo)
    - Documentação completa da feature
 
 ### **Arquivos Modificados:**
 
 1. **`src/ts/pdf-processor.ts`**
    - ✅ Implementado `extractTextFromPDF()` completo
-   - Extração de metadados
-   - Suporte a callbacks de progresso
+   - ✅ Carregamento local de PDF.js (não CDN)
+   - ✅ Configuração de worker com chrome.runtime.getURL()
+   - ✅ Extração de metadados e estatísticas
+   - ✅ Suporte a callbacks de progresso
 
-2. **`src/js/content-simple.js`**
-   - ✅ Adicionado botão de análise completa
-   - ✅ Funções de modal de progresso
-   - ✅ Integração com ProcessAnalyzer
+2. **`src/js/content-simple.js`** (~1400 linhas)
+   - ✅ Adicionado botão "Análise Completa" no chat
+   - ✅ Funções de modal de progresso animado
+   - ✅ Integração com ProcessAnalyzer (callbacks)
+   - ✅ **REATIVADAS features antigas:**
+     - `processarDocumentoPDF()` - usa PDFProcessor.extractTextFromPDF()
+     - `processarDocumentoHTML()` - extração de texto HTML
+     - `processarDocumentoImagem()` - OCR com Tesseract.js
+     - `extrairConteudoDocumento()` - análise de iframe individual
+   - ✅ Atalhos de teclado mantidos (Ctrl+M, Ctrl+;, Ctrl+,, ESC)
 
 3. **`styles/chat-styles.css`**
-   - ✅ Estilos para botão 🔍
+   - ✅ Estilos para botão 🔍 "Análise Completa"
    - ✅ Estilos para modal de progresso
-   - ✅ Animações
+   - ✅ Animações de loading e transições
 
 4. **`manifest.json`**
-   - ✅ Adicionados novos content scripts
-   - ✅ Adicionados web accessible resources
+   - ✅ Adicionados novos content scripts:
+     - `pdf.min.js` (carregado PRIMEIRO)
+     - `tesseract.min.js`
+     - `document-cache.js`
+     - `process-crawler.js`
+     - `pdf-processor.js`
+     - `process-analyzer.js`
+   - ✅ Adicionados web_accessible_resources:
+     - `pdf.worker.min.js`
+     - Todos os scripts da extensão
 
 ---
 
