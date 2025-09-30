@@ -1,11 +1,13 @@
 // PDF Processor - PDF.js integration for LEX Document Processing System
 // Handles PDF text extraction and metadata processing with robust worker configuration
 
-import type { 
-  PDFExtractionResult, 
-  PDFProcessorStatus, 
-  EnvironmentInfo, 
-  ExtractionOptions
+import type {
+  PDFExtractionResult,
+  PDFProcessorStatus,
+  EnvironmentInfo,
+  ExtractionOptions,
+  PageResult,
+  PDFMetadata
 } from '../../types/lex-types';
 
 declare global {
@@ -338,9 +340,222 @@ export class PDFProcessor {
     return testResult;
   }
   
-  // Placeholder para outros métodos que serão convertidos posteriormente
-  public async extractTextFromPDF(_pdfBlob: Blob, _options?: ExtractionOptions): Promise<PDFExtractionResult> {
-    // TODO: Implementar conversão completa
-    throw new Error('Método ainda não convertido para TypeScript');
+  /**
+   * Extrai texto de um PDF
+   * @param pdfBlob - Blob do arquivo PDF
+   * @param options - Opções de extração
+   * @returns Resultado da extração com texto, páginas e metadados
+   */
+  public async extractTextFromPDF(pdfBlob: Blob, options?: ExtractionOptions): Promise<PDFExtractionResult> {
+    console.log('📄 LEX: Iniciando extração de texto do PDF...');
+    console.log('- Tamanho do arquivo:', this.formatBytes(pdfBlob.size));
+
+    const startTime = Date.now();
+    const result: PDFExtractionResult = {
+      text: '',
+      pages: [],
+      metadata: null,
+      stats: {
+        totalPages: 0,
+        processedPages: 0,
+        totalCharacters: 0,
+        averageCharsPerPage: 0,
+        processingTime: 0,
+        errors: []
+      },
+      success: false,
+      fileSize: pdfBlob.size,
+      fileSizeFormatted: this.formatBytes(pdfBlob.size)
+    };
+
+    try {
+      // Garantir que PDF.js está inicializado
+      if (!this.isReady()) {
+        console.log('⏳ LEX: Inicializando PDF.js...');
+        await this.initialize();
+      }
+
+      // Converter Blob para ArrayBuffer
+      console.log('🔄 LEX: Convertendo blob para ArrayBuffer...');
+      const arrayBuffer = await pdfBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Carregar documento PDF
+      console.log('📖 LEX: Carregando documento PDF...');
+      const loadingTask = this.pdfjsLib.getDocument({
+        data: uint8Array,
+        verbosity: 0 // Reduzir logs
+      });
+
+      const pdfDocument = await loadingTask.promise;
+      const numPages = pdfDocument.numPages;
+
+      console.log(`✅ LEX: PDF carregado com sucesso - ${numPages} páginas`);
+      result.stats.totalPages = numPages;
+
+      // Extrair metadados
+      try {
+        const metadata = await pdfDocument.getMetadata();
+        result.metadata = this.extractMetadata(metadata);
+        console.log('📋 LEX: Metadados extraídos:', result.metadata);
+      } catch (metadataError) {
+        console.warn('⚠️ LEX: Erro ao extrair metadados:', metadataError);
+      }
+
+      // Determinar quantas páginas processar
+      const maxPages = options?.maxPages ?? numPages;
+      const pagesToProcess = Math.min(maxPages, numPages);
+
+      console.log(`📄 LEX: Processando ${pagesToProcess} de ${numPages} páginas...`);
+
+      // Processar cada página
+      const pageDelimiter = options?.pageDelimiter ?? '\n\n--- Página {page} ---\n\n';
+
+      for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+        try {
+          // Callback de progresso
+          if (options?.progressCallback) {
+            options.progressCallback({
+              currentPage: pageNum,
+              totalPages: pagesToProcess,
+              progress: (pageNum / pagesToProcess) * 100
+            });
+          }
+
+          console.log(`📄 LEX: Processando página ${pageNum}/${pagesToProcess}...`);
+
+          const page = await pdfDocument.getPage(pageNum);
+          const textContent = await page.getTextContent();
+
+          // Extrair texto dos items
+          let pageText = '';
+          if (options?.combineTextItems !== false) {
+            // Combinar itens de texto em uma string
+            pageText = textContent.items
+              .map((item: any) => item.str)
+              .join(' ');
+          } else {
+            // Manter estrutura de layout
+            pageText = textContent.items
+              .map((item: any) => item.str)
+              .join('\n');
+          }
+
+          // Normalizar espaços em branco se solicitado
+          if (options?.normalizeWhitespace !== false) {
+            pageText = pageText
+              .replace(/\s+/g, ' ')
+              .replace(/\n\s*\n/g, '\n')
+              .trim();
+          }
+
+          // Adicionar ao resultado
+          const pageResult: PageResult = {
+            pageNumber: pageNum,
+            text: pageText,
+            characterCount: pageText.length
+          };
+
+          result.pages.push(pageResult);
+          result.stats.processedPages++;
+          result.stats.totalCharacters += pageText.length;
+
+          // Adicionar delimitador de página se solicitado
+          if (options?.includePageNumbers !== false) {
+            const delimiter = pageDelimiter.replace('{page}', pageNum.toString());
+            result.text += delimiter + pageText;
+          } else {
+            result.text += pageText + '\n';
+          }
+
+          console.log(`✅ LEX: Página ${pageNum} processada - ${pageText.length} caracteres`);
+
+        } catch (pageError) {
+          console.error(`❌ LEX: Erro ao processar página ${pageNum}:`, pageError);
+          result.stats.errors.push({
+            page: pageNum,
+            error: (pageError as Error).message
+          });
+        }
+      }
+
+      // Calcular estatísticas
+      result.stats.averageCharsPerPage = result.stats.processedPages > 0
+        ? Math.round(result.stats.totalCharacters / result.stats.processedPages)
+        : 0;
+
+      result.stats.processingTime = Date.now() - startTime;
+      result.success = result.stats.processedPages > 0;
+
+      console.log('✅ LEX: Extração de PDF concluída');
+      console.log('📊 LEX: Estatísticas:', {
+        páginas: `${result.stats.processedPages}/${result.stats.totalPages}`,
+        caracteres: result.stats.totalCharacters,
+        tempo: `${result.stats.processingTime}ms`,
+        erros: result.stats.errors.length
+      });
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ LEX: Erro fatal ao extrair texto do PDF:', error);
+      result.stats.processingTime = Date.now() - startTime;
+      result.success = false;
+      result.stats.errors.push({
+        page: 0,
+        error: `Erro fatal: ${(error as Error).message}`
+      });
+
+      throw new Error(`Falha ao extrair texto do PDF: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Extrai metadados do documento PDF
+   */
+  private extractMetadata(metadata: any): PDFMetadata {
+    const info = metadata.info || {};
+    const pdfVersion = metadata.pdfFormatVersion || null;
+
+    return {
+      title: info.Title || null,
+      author: info.Author || null,
+      subject: info.Subject || null,
+      creator: info.Creator || null,
+      producer: info.Producer || null,
+      creationDate: info.CreationDate ? this.parsePDFDate(info.CreationDate) : null,
+      modificationDate: info.ModDate ? this.parsePDFDate(info.ModDate) : null,
+      pdfVersion: pdfVersion
+    };
+  }
+
+  /**
+   * Converte data PDF para string ISO
+   */
+  private parsePDFDate(pdfDate: string): string | null {
+    try {
+      // Formato PDF: D:YYYYMMDDHHmmSSOHH'mm'
+      const match = pdfDate.match(/D:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+      if (match) {
+        const [, year, month, day, hour, minute, second] = match;
+        return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`).toISOString();
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Formata bytes para exibição
+   */
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }

@@ -524,3 +524,122 @@
 .lex-toggle:active {
   transform: translateY(-1px);
 }
+
+/* Botão de análise completa */
+.lex-analyze-full {
+  background: transparent;
+  color: var(--lex-blue);
+  border: 1px solid var(--lex-blue);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.lex-analyze-full:hover {
+  background: var(--lex-blue);
+  color: var(--lex-text-primary);
+  transform: translateY(-1px) scale(1.05);
+}
+
+.lex-analyze-full:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* Modal de progresso */
+.lex-progress-modal {
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-lg);
+  padding: var(--lex-space-lg);
+  margin: var(--lex-space-md) 0;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lex-progress-header {
+  display: flex;
+  align-items: center;
+  gap: var(--lex-space-md);
+  margin-bottom: var(--lex-space-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+}
+
+.lex-progress-icon {
+  font-size: 16px;
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lex-progress-title {
+  flex: 1;
+}
+
+.lex-progress-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lex-space-md);
+}
+
+.lex-progress-message {
+  font-size: 11px;
+  color: var(--lex-text-secondary);
+}
+
+.lex-progress-bar-container {
+  width: 100%;
+  height: 4px;
+  background: var(--lex-black-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.lex-progress-bar {
+  height: 100%;
+  background: var(--lex-gradient-primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+.lex-progress-stats {
+  font-size: 10px;
+  color: var(--lex-text-tertiary);
+  text-align: center;
+  font-family: 'Courier New', monospace;
+}

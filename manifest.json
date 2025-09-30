@@ -89,7 +89,13 @@
         "file://*/teste-pje.html"
       ],
       "js": [
+        "src/js/pdf.min.js",
+        "src/js/tesseract.min.js",
         "src/js/document-detector.js",
+        "src/js/document-cache.js",
+        "src/js/process-crawler.js",
+        "src/ts/pdf-processor.js",
+        "src/js/process-analyzer.js",
         "src/js/content-simple.js"
       ],
       "run_at": "document_end",
@@ -103,8 +109,15 @@
     {
       "resources": [
         "styles/chat-styles.css",
+        "src/js/pdf.min.js",
+        "src/js/pdf.worker.min.js",
+        "src/js/tesseract.min.js",
         "src/js/content-simple.js",
-        "src/js/document-detector.js"
+        "src/js/document-detector.js",
+        "src/js/document-cache.js",
+        "src/js/process-crawler.js",
+        "src/ts/pdf-processor.js",
+        "src/js/process-analyzer.js"
       ],
       "matches": [
         "<all_urls>"

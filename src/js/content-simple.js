@@ -594,6 +594,7 @@ Use HTML simples, máximo 300 palavras.`
       <div class="lex-messages"></div>
       
       <div class="lex-input-area">
+        <button class="lex-analyze-full" title="Analisar processo completo">🔍</button>
         <input type="text" class="lex-input" placeholder="Digite sua pergunta sobre o processo...">
         <button class="lex-send">➤</button>
       </div>
@@ -647,17 +648,25 @@ Use HTML simples, máximo 300 palavras.`
         chatContainer.classList.remove('visible');
       });
     }
-    
+
+    // Botão análise completa
+    const analyzeButton = chatContainer.querySelector('.lex-analyze-full');
+    if (analyzeButton) {
+      analyzeButton.addEventListener('click', function() {
+        iniciarAnaliseCompleta();
+      });
+    }
+
     // Botão enviar
     const sendButton = chatContainer.querySelector('.lex-send');
     const input = chatContainer.querySelector('.lex-input');
-    
+
     if (sendButton && input) {
       // Enviar ao clicar no botão
       sendButton.addEventListener('click', function() {
         enviarMensagem(input.value);
       });
-      
+
       // Enviar ao pressionar Enter
       input.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
@@ -837,36 +846,116 @@ Use HTML simples, máximo 300 palavras.`
     }
   }
   
-  // Processar documento PDF usando PDFProcessor (DESABILITADO TEMPORARIAMENTE)
+  // Processar documento PDF usando PDFProcessor
   async function processarDocumentoPDF(url, contentType) {
-    console.log('📄 LEX: PDF processamento desabilitado - usando fallback HTML');
-    return await processarDocumentoHTML(url, contentType);
+    console.log('📄 LEX: Iniciando processamento de PDF...');
+
+    try {
+      // Verificar se PDFProcessor está disponível
+      if (!window.PDFProcessor) {
+        console.warn('⚠️ LEX: PDFProcessor não disponível, usando fallback HTML');
+        return await processarDocumentoHTML(url, contentType);
+      }
+
+      // Baixar PDF como blob
+      console.log('📥 LEX: Baixando PDF do iframe...');
+      const pdfBlob = await DocumentDetector.getDocumentBlob(url);
+      console.log('✅ LEX: PDF baixado:', DocumentDetector.formatFileSize(pdfBlob.size));
+
+      // Processar PDF com PDFProcessor
+      const processor = new window.PDFProcessor();
+      const resultado = await processor.extractTextFromPDF(pdfBlob, {
+        maxPages: undefined, // processar todas as páginas
+        combineTextItems: true,
+        normalizeWhitespace: true
+      });
+
+      console.log('✅ LEX: PDF processado com sucesso');
+      console.log('📊 Páginas processadas:', resultado.stats.totalPages);
+      console.log('📊 Conteúdo extraído:', resultado.text.length, 'caracteres');
+
+      return {
+        url: url,
+        tipo: 'PDF',
+        conteudo: resultado.text,
+        tamanho: resultado.text.length,
+        metadata: resultado.metadata || {
+          paginas: resultado.stats.totalPages,
+          processedPages: resultado.stats.processedPages,
+          tamanhoArquivo: pdfBlob.size
+        },
+        stats: {
+          totalPages: resultado.stats.totalPages,
+          processedPages: resultado.stats.processedPages,
+          charactersExtracted: resultado.text.length,
+          processingTime: resultado.stats.processingTime
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ LEX: Erro ao processar PDF:', error);
+      console.log('🔄 LEX: Tentando fallback HTML...');
+      return await processarDocumentoHTML(url, contentType);
+    }
   }
   
-  // Processar documento de imagem (placeholder para OCR futuro)
+  // Processar documento de imagem com OCR
   async function processarDocumentoImagem(url, contentType) {
-    console.log('🖼️ LEX: Processando documento de imagem...');
-    
+    console.log('🖼️ LEX: Processando documento de imagem com OCR...');
+
     try {
+      // Verificar se Tesseract está disponível
+      if (!window.Tesseract) {
+        console.warn('⚠️ LEX: Tesseract.js não disponível');
+        const imageBlob = await DocumentDetector.getDocumentBlob(url);
+        return {
+          url: url,
+          tipo: 'IMAGE',
+          conteudo: '[Imagem detectada - OCR não disponível]\n\nTipo: ' + contentType + '\nTamanho: ' + DocumentDetector.formatFileSize(imageBlob.size),
+          tamanho: imageBlob.size,
+          erro: 'tesseract_not_loaded'
+        };
+      }
+
+      // Baixar imagem
+      console.log('📥 LEX: Baixando imagem...');
       const imageBlob = await DocumentDetector.getDocumentBlob(url);
-      
-      // TODO: Implementar OCR com Tesseract.js na próxima fase
-      console.log('📋 LEX: OCR será implementado em breve');
-      
+      console.log('✅ LEX: Imagem baixada:', DocumentDetector.formatFileSize(imageBlob.size));
+
+      // Processar com Tesseract.js
+      console.log('🔍 LEX: Iniciando OCR...');
+      const { data: { text } } = await Tesseract.recognize(
+        imageBlob,
+        'por', // Português
+        {
+          logger: info => {
+            if (info.status === 'recognizing text') {
+              console.log(`📊 OCR Progress: ${Math.round(info.progress * 100)}%`);
+            }
+          }
+        }
+      );
+
+      console.log('✅ LEX: OCR concluído:', text.length, 'caracteres extraídos');
+
       return {
         url: url,
         tipo: 'IMAGE',
-        conteudo: '[Imagem detectada - OCR será implementado em breve]\n\nTipo: ' + contentType + '\nTamanho: ' + DocumentDetector.formatFileSize(imageBlob.size),
-        tamanho: imageBlob.size,
-        pendente: 'ocr_implementation'
+        conteudo: text,
+        tamanho: text.length,
+        metadata: {
+          tamanhoArquivo: imageBlob.size,
+          contentType: contentType,
+          metodoExtracao: 'tesseract_ocr'
+        }
       };
-      
+
     } catch (error) {
       console.error('❌ LEX: Erro ao processar imagem:', error);
       return {
         url: url,
         tipo: 'IMAGE',
-        conteudo: '[Erro ao processar imagem]',
+        conteudo: '[Erro ao processar imagem com OCR: ' + error.message + ']',
         tamanho: 0,
         erro: error.message
       };
@@ -1196,8 +1285,195 @@ Use HTML simples, máximo 300 palavras.`
     
     return info;
   }
-  
-  
+
+  // ========== ANÁLISE COMPLETA DO PROCESSO ==========
+
+  /**
+   * Inicia análise completa do processo
+   */
+  async function iniciarAnaliseCompleta() {
+    console.log('🔍 LEX: Iniciando análise completa do processo...');
+
+    // Expandir chat
+    expandirChat();
+
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
+
+    // Criar modal de progresso
+    const progressModal = criarModalProgresso();
+    messagesContainer.appendChild(progressModal);
+
+    // Scroll para o modal
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    try {
+      // Verificar dependências
+      if (!window.ProcessAnalyzer) {
+        throw new Error('ProcessAnalyzer não carregado');
+      }
+
+      // Criar analyzer
+      const analyzer = new window.ProcessAnalyzer();
+
+      // Registrar callbacks de progresso
+      analyzer.on('progress', (progress) => {
+        atualizarModalProgresso(progressModal, progress);
+      });
+
+      analyzer.on('complete', (result) => {
+        finalizarModalProgresso(progressModal, result);
+      });
+
+      analyzer.on('error', (error) => {
+        mostrarErroModalProgresso(progressModal, error);
+      });
+
+      // Iniciar análise
+      const result = await analyzer.analyze({
+        useCache: true,
+        processPDFs: true,
+        processImages: false,
+        maxConcurrent: 3,
+        batchSize: 5
+      });
+
+      console.log('✅ LEX: Análise completa finalizada:', result);
+
+    } catch (error) {
+      console.error('❌ LEX: Erro na análise completa:', error);
+      mostrarErroModalProgresso(progressModal, { error: error.message });
+    }
+  }
+
+  /**
+   * Cria modal de progresso
+   * @returns {HTMLElement} Elemento do modal
+   */
+  function criarModalProgresso() {
+    const modal = document.createElement('div');
+    modal.className = 'lex-progress-modal';
+    modal.innerHTML = `
+      <div class="lex-progress-header">
+        <span class="lex-progress-icon">🔄</span>
+        <span class="lex-progress-title">Análise Completa do Processo</span>
+      </div>
+      <div class="lex-progress-body">
+        <div class="lex-progress-message">Inicializando...</div>
+        <div class="lex-progress-bar-container">
+          <div class="lex-progress-bar" style="width: 0%"></div>
+        </div>
+        <div class="lex-progress-stats">
+          <span class="lex-progress-current">0</span> / <span class="lex-progress-total">0</span> documentos
+        </div>
+      </div>
+    `;
+
+    return modal;
+  }
+
+  /**
+   * Atualiza modal de progresso
+   * @param {HTMLElement} modal - Elemento do modal
+   * @param {Object} progress - Dados de progresso
+   */
+  function atualizarModalProgresso(modal, progress) {
+    const messageEl = modal.querySelector('.lex-progress-message');
+    const barEl = modal.querySelector('.lex-progress-bar');
+    const currentEl = modal.querySelector('.lex-progress-current');
+    const totalEl = modal.querySelector('.lex-progress-total');
+
+    if (messageEl) messageEl.textContent = progress.message || 'Processando...';
+    if (barEl) barEl.style.width = `${progress.percentage || 0}%`;
+    if (currentEl) currentEl.textContent = progress.current || 0;
+    if (totalEl) totalEl.textContent = progress.total || 0;
+  }
+
+  /**
+   * Finaliza modal de progresso com resultado
+   * @param {HTMLElement} modal - Elemento do modal
+   * @param {Object} result - Resultado da análise
+   */
+  function finalizarModalProgresso(modal, result) {
+    const iconEl = modal.querySelector('.lex-progress-icon');
+    const messageEl = modal.querySelector('.lex-progress-message');
+    const barEl = modal.querySelector('.lex-progress-bar');
+
+    if (iconEl) iconEl.textContent = '✅';
+    if (messageEl) messageEl.textContent = 'Análise concluída com sucesso!';
+    if (barEl) {
+      barEl.style.width = '100%';
+      barEl.style.backgroundColor = '#4ade80';
+    }
+
+    // Adicionar resultado da análise
+    setTimeout(() => {
+      const messagesContainer = chatContainer.querySelector('.lex-messages');
+
+      // Extrair o texto da análise (pode vir em diferentes formatos)
+      let analiseTexto = '';
+      if (result.analysis) {
+        analiseTexto = result.analysis.resumo || result.analysis.analise ||
+                       result.analysis.resposta || JSON.stringify(result.analysis);
+      }
+
+      if (analiseTexto) {
+        const resultMessage = document.createElement('div');
+        resultMessage.className = 'lex-message assistant';
+        resultMessage.innerHTML = `
+          <div class="lex-bubble">
+            <strong>📊 Análise Completa do Processo</strong><br><br>
+            ${analiseTexto}
+            <br><br>
+            <em>✅ ${result.statistics.processedDocuments} documentos analisados</em>
+          </div>
+          <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        `;
+
+        messagesContainer.appendChild(resultMessage);
+      } else {
+        // Se não houver análise, mostrar mensagem genérica
+        const resultMessage = document.createElement('div');
+        resultMessage.className = 'lex-message assistant';
+        resultMessage.innerHTML = `
+          <div class="lex-bubble">
+            <strong>📊 Análise Completa do Processo</strong><br><br>
+            <em>✅ ${result.statistics.processedDocuments} documentos analisados</em>
+          </div>
+          <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        `;
+
+        messagesContainer.appendChild(resultMessage);
+      }
+
+      // Remover modal após 2 segundos
+      setTimeout(() => {
+        modal.remove();
+      }, 2000);
+
+    }, 1000);
+  }
+
+  /**
+   * Mostra erro no modal de progresso
+   * @param {HTMLElement} modal - Elemento do modal
+   * @param {Object} errorResult - Dados do erro
+   */
+  function mostrarErroModalProgresso(modal, errorResult) {
+    const iconEl = modal.querySelector('.lex-progress-icon');
+    const messageEl = modal.querySelector('.lex-progress-message');
+    const barEl = modal.querySelector('.lex-progress-bar');
+
+    if (iconEl) iconEl.textContent = '❌';
+    if (messageEl) messageEl.textContent = `Erro: ${errorResult.error || 'Erro desconhecido'}`;
+    if (barEl) barEl.style.backgroundColor = '#ef4444';
+
+    // Remover modal após 5 segundos
+    setTimeout(() => {
+      modal.remove();
+    }, 5000);
+  }
+
+
   // Iniciar
   inicializar();
   
