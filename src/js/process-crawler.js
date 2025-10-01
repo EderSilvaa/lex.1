@@ -26,18 +26,40 @@ class ProcessCrawler {
 
       console.log('📄 LEX: Processo identificado:', this.processNumber);
 
-      // 2. Detectar estratégia de descoberta baseado na URL
-      const discoveryStrategy = this.detectDiscoveryStrategy();
-      console.log('🎯 LEX: Estratégia de descoberta:', discoveryStrategy);
+      // ESTRATÉGIA HÍBRIDA: Detectar se estamos na página de documentos
+      if (this.isOnDocumentsPage()) {
+        console.log('✅ LEX: Já estamos na página de documentos');
+        console.log('⚡ LEX: Usando scraping direto do DOM (mais rápido)');
 
-      // 3. Executar descoberta baseada na estratégia
+        this.documents = await this.discoverViaDomScraping();
+
+        if (this.documents.length > 0) {
+          console.log(`✅ LEX: ${this.documents.length} documentos encontrados via DOM`);
+          return this.documents;
+        }
+
+        console.warn('⚠️ LEX: DOM scraping retornou 0 documentos (inesperado)');
+      }
+
+      // ESTRATÉGIA 2: Fetch da página de documentos (qualquer aba)
+      console.log('📡 LEX: Não estamos na página de docs, usando fetch...');
+
+      this.documents = await this.discoverViaFetch();
+
+      if (this.documents.length > 0) {
+        console.log(`✅ LEX: ${this.documents.length} documentos encontrados via fetch`);
+        return this.documents;
+      }
+
+      // FALLBACK: Tentar estratégias antigas baseadas na URL
+      console.log('⚠️ LEX: Fetch não encontrou documentos, tentando estratégias alternativas...');
+
+      const discoveryStrategy = this.detectDiscoveryStrategy();
+      console.log('🎯 LEX: Estratégia alternativa:', discoveryStrategy);
+
       switch (discoveryStrategy) {
         case 'consulta_documento':
           this.documents = await this.discoverViaConsultaDocumento();
-          break;
-
-        case 'dom_scraping':
-          this.documents = await this.discoverViaDomScraping();
           break;
 
         case 'timeline_scraping':
@@ -45,11 +67,21 @@ class ProcessCrawler {
           break;
 
         default:
-          console.warn('⚠️ LEX: Estratégia não reconhecida, usando DOM scraping padrão');
+          console.warn('⚠️ LEX: Usando DOM scraping padrão como último recurso');
           this.documents = await this.discoverViaDomScraping();
       }
 
       console.log(`✅ LEX: Descoberta concluída - ${this.documents.length} documentos encontrados`);
+
+      if (this.documents.length === 0) {
+        console.error('❌ LEX: Nenhum documento encontrado');
+        console.warn('⚠️ Possíveis causas:');
+        console.warn('  • Sessão expirada');
+        console.warn('  • Estrutura do PJe mudou');
+        console.warn('  • Processo não tem documentos');
+        console.warn('  • ID do processo não encontrado na URL');
+      }
+
       return this.documents;
 
     } catch (error) {
@@ -165,6 +197,81 @@ class ProcessCrawler {
 
     console.warn('⚠️ LEX: ID do processo não encontrado em nenhum lugar');
     return null;
+  }
+
+  /**
+   * Extrai ID do processo da URL atual
+   * @returns {string|null} ID do processo ou null se não encontrado
+   */
+  extractProcessIdFromUrl() {
+    try {
+      // Extrair da URL atual
+      const url = new URL(window.location.href);
+      const idProcesso = url.searchParams.get('idProcesso');
+
+      if (idProcesso) {
+        console.log(`✅ LEX: ID do processo extraído da URL: ${idProcesso}`);
+        return idProcesso;
+      }
+
+      // Fallback: tentar extrair do DOM (pode estar em elementos hidden)
+      const processElement = document.querySelector('[data-id-processo], #idProcesso, input[name="idProcesso"]');
+      if (processElement) {
+        const id = processElement.getAttribute('data-id-processo') ||
+                   processElement.value ||
+                   processElement.textContent.trim();
+        if (id) {
+          console.log(`✅ LEX: ID do processo extraído do DOM: ${id}`);
+          return id;
+        }
+      }
+
+      console.warn('⚠️ LEX: ID do processo não encontrado na URL ou DOM');
+      return null;
+
+    } catch (error) {
+      console.error('❌ LEX: Erro ao extrair ID do processo:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Verifica se estamos na página de documentos
+   * @returns {boolean} True se estiver na página de documentos
+   */
+  isOnDocumentsPage() {
+    // VERIFICAÇÃO PRECISA: Não confiar apenas na URL, verificar se TEM links de documentos
+
+    // Verificação 1: Existem links de documentos no DOM atual
+    const docLinksParam = document.querySelectorAll('a[href*="paramIdProcessoDocumento"]');
+    const docLinksId = document.querySelectorAll('a[href*="idProcessoDocumento"]');
+    const docLinksDownload = document.querySelectorAll('a[href*="nomeArqProcDocBin"]');
+
+    const totalDocLinks = docLinksParam.length + docLinksId.length + docLinksDownload.length;
+
+    if (totalDocLinks > 0) {
+      console.log(`✅ LEX: Estamos na página de documentos (${totalDocLinks} links encontrados)`);
+      console.log(`   - paramIdProcessoDocumento: ${docLinksParam.length}`);
+      console.log(`   - idProcessoDocumento: ${docLinksId.length}`);
+      console.log(`   - nomeArqProcDocBin: ${docLinksDownload.length}`);
+      return true;
+    }
+
+    // Verificação 2: URL específica de visualização de documentos (mas sem links = timeline)
+    if (window.location.href.includes('listAutosDigitais.seam')) {
+      console.log('⚠️ LEX: URL é listAutosDigitais mas SEM links de docs (provavelmente timeline)');
+      console.log('📍 LEX: Não estamos na página de documentos');
+      return false;
+    }
+
+    // Verificação 3: Outras possíveis URLs de documentos
+    if (window.location.pathname.includes('/ConsultaDocumento/listView.seam')) {
+      console.log('✅ LEX: Estamos na página de documentos (ConsultaDocumento)');
+      return true;
+    }
+
+    console.log('📍 LEX: Não estamos na página de documentos');
+    return false;
   }
 
   /**
@@ -391,14 +498,361 @@ class ProcessCrawler {
   }
 
   /**
+   * Descobre documentos via navegação programática para aba de documentos
+   * Funciona de QUALQUER aba do processo
+   * @returns {Promise<Array>} Array de documentos descobertos
+   */
+  async discoverViaFetch() {
+    console.log('🔄 LEX: Navegando para aba de documentos...');
+
+    try {
+      // 1. Procurar link da aba "Documentos" no menu
+      const linkDocumentos = document.querySelector('#navbar\\:linkAbaDocumentos, a[id*="linkAbaDocumentos"]');
+
+      if (!linkDocumentos) {
+        console.warn('⚠️ LEX: Link da aba Documentos não encontrado');
+        console.log('🔄 LEX: Tentando estratégia alternativa com iframe...');
+        return await this.discoverViaIframe();
+      }
+
+      console.log('✅ LEX: Link da aba Documentos encontrado');
+      console.log(`📍 LEX: ID do link: ${linkDocumentos.id}`);
+
+      // 2. Clicar no link e aguardar carregar
+      return new Promise((resolve) => {
+        let documents = [];
+
+        // Função para voltar para Autos
+        const voltarParaAutos = () => {
+          setTimeout(() => {
+            // Tentar vários seletores
+            const linkAutos = document.querySelector('#navbar\\:linkAbaAutos') ||
+                             document.querySelector('a[id*="linkAbaAutos"]') ||
+                             document.querySelector('a[onclick*="autosDigitais"]');
+
+            if (linkAutos) {
+              console.log('🔙 LEX: Voltando para aba Autos...');
+              console.log(`📍 LEX: Clicando em: ${linkAutos.id || linkAutos.className}`);
+              linkAutos.click();
+            } else {
+              console.warn('⚠️ LEX: Link da aba Autos não encontrado');
+              console.log('🔍 LEX: Links disponíveis no navbar:');
+              document.querySelectorAll('#navbar a, a[id*="navbar"]').forEach(link => {
+                console.log(`  - id="${link.id}" text="${link.textContent.trim()}"`);
+              });
+            }
+          }, 800);
+        };
+
+        // Observer para detectar quando a aba carregar
+        const checkInterval = setInterval(() => {
+          const docLinks = document.querySelectorAll('a[href*="paramIdProcessoDocumento"], a[href*="nomeArqProcDocBin"]');
+
+          if (docLinks.length > 0) {
+            clearInterval(checkInterval);
+            console.log(`✅ LEX: Aba de documentos carregada (${docLinks.length} links encontrados)`);
+
+            // Fazer scraping imediatamente
+            documents = this.parseDocumentLinks(docLinks);
+
+            console.log(`✅ LEX: ${documents.length} documentos extraídos da aba`);
+
+            // Voltar para a aba "Autos"
+            voltarParaAutos();
+
+            resolve(documents);
+          }
+        }, 500);
+
+        // Timeout de 10 segundos
+        setTimeout(() => {
+          clearInterval(checkInterval);
+
+          if (documents.length === 0) {
+            console.warn('⚠️ LEX: Timeout ao esperar aba de documentos carregar');
+          }
+
+          // Voltar para Autos MESMO em caso de timeout
+          voltarParaAutos();
+
+          resolve(documents);
+        }, 10000);
+
+        // Clicar no link
+        console.log('🖱️ LEX: Clicando na aba Documentos...');
+        linkDocumentos.click();
+      });
+
+    } catch (error) {
+      console.error('❌ LEX: Erro na navegação para aba de documentos:', error);
+      return [];
+    }
+  }
+
+  /**
+   * FALLBACK: Descobre documentos via iframe invisível
+   * Usado quando não consegue encontrar o link da aba
+   * @returns {Promise<Array>} Array de documentos descobertos
+   */
+  async discoverViaIframe() {
+    console.log('🖼️ LEX: Carregando página de documentos via iframe invisível...');
+
+    try {
+      // 1. Extrair ID do processo
+      const processId = this.extractProcessIdFromUrl();
+
+      if (!processId) {
+        throw new Error('ID do processo não encontrado na URL');
+      }
+
+      console.log(`📋 LEX: ID do processo: ${processId}`);
+
+      // 2. Construir URL da página de documentos
+      const docsUrl = `${this.baseUrl}/pje/Processo/ConsultaProcesso/Detalhe/listAutosDigitais.seam?idProcesso=${processId}`;
+
+      console.log(`🌐 LEX: URL de documentos: ${docsUrl}`);
+
+      // 3. Criar iframe invisível
+      return new Promise((resolve) => {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.style.position = 'absolute';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = 'none';
+
+        document.body.appendChild(iframe);
+
+        const cleanup = () => {
+          if (iframe && iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
+        };
+
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ LEX: Timeout ao carregar iframe de documentos');
+          cleanup();
+          resolve([]);
+        }, 15000); // 15 segundos
+
+        const onLoad = () => {
+          clearTimeout(timeout);
+
+          try {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+
+            if (!iframeDoc) {
+              console.error('❌ LEX: Não foi possível acessar conteúdo do iframe');
+              cleanup();
+              resolve([]);
+              return;
+            }
+
+            console.log('✅ LEX: Iframe carregado com sucesso');
+
+            // Buscar links de documentos no iframe
+            const linksIdProc = iframeDoc.querySelectorAll('a[href*="idProcessoDocumento"]');
+            const linksParam = iframeDoc.querySelectorAll('a[href*="paramIdProcessoDocumento"]');
+            const linksDownload = iframeDoc.querySelectorAll('a[href*="nomeArqProcDocBin"]');
+
+            console.log(`📄 LEX: Links no iframe:`);
+            console.log(`   - idProcessoDocumento: ${linksIdProc.length}`);
+            console.log(`   - paramIdProcessoDocumento: ${linksParam.length}`);
+            console.log(`   - nomeArqProcDocBin: ${linksDownload.length}`);
+
+            // Tentar parsear links (prioridade para paramIdProcessoDocumento)
+            let documents = [];
+
+            if (linksParam.length > 0) {
+              documents = this.parseDocumentLinks(linksParam);
+            } else if (linksIdProc.length > 0) {
+              documents = this.parseDocumentLinks(linksIdProc);
+            } else if (linksDownload.length > 0) {
+              // Parsear links de download diretamente do iframe
+              documents = this.parseDownloadLinks(iframeDoc, linksDownload);
+            }
+
+            console.log(`✅ LEX: ${documents.length} documentos extraídos do iframe`);
+
+            cleanup();
+            resolve(documents);
+
+          } catch (error) {
+            console.error('❌ LEX: Erro ao processar iframe:', error);
+            cleanup();
+            resolve([]);
+          }
+        };
+
+        const onError = () => {
+          console.error('❌ LEX: Erro ao carregar iframe');
+          clearTimeout(timeout);
+          cleanup();
+          resolve([]);
+        };
+
+        iframe.addEventListener('load', onLoad);
+        iframe.addEventListener('error', onError);
+
+        // Carregar URL
+        iframe.src = docsUrl;
+      });
+
+    } catch (error) {
+      console.error('❌ LEX: Erro na estratégia iframe:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Parseia links de download direto (nomeArqProcDocBin) do DOM do iframe
+   * @param {Document} doc - Documento do iframe
+   * @param {NodeList} linkElements - Links de download
+   * @returns {Array} Lista de documentos
+   */
+  parseDownloadLinks(doc, linkElements) {
+    const documents = [];
+    const foundIds = new Set();
+
+    console.log(`🔍 LEX: Parseando ${linkElements.length} links de download...`);
+
+    for (const link of linkElements) {
+      try {
+        const href = link.href || link.getAttribute('href');
+        if (!href) continue;
+
+        const url = new URL(href, this.baseUrl);
+        const idBin = url.searchParams.get('idBin');
+        const numeroDocumento = url.searchParams.get('numeroDocumento');
+        const nomeArqProcDocBin = url.searchParams.get('nomeArqProcDocBin');
+
+        if (idBin && numeroDocumento && nomeArqProcDocBin) {
+          if (foundIds.has(idBin)) continue;
+          foundIds.add(idBin);
+
+          // Tentar extrair nome melhor da tabela
+          const row = link.closest('tr');
+          let documentName = decodeURIComponent(nomeArqProcDocBin);
+
+          if (row) {
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+              const text = cell.textContent.trim();
+              if (text && text.match(/^\d+\..*/) && text.length < 100 && text.length > 3) {
+                documentName = text;
+                break;
+              }
+            }
+          }
+
+          documents.push({
+            id: idBin,
+            url: href,
+            name: documentName,
+            type: this.inferDocumentType(documentName, documentName),
+            source: 'iframe_download_links',
+            metadata: {
+              discovered: new Date().toISOString(),
+              processNumber: this.processNumber,
+              idBin: idBin,
+              numeroDocumento: numeroDocumento
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('⚠️ LEX: Erro ao parsear link de download:', error);
+        continue;
+      }
+    }
+
+    return documents;
+  }
+
+  /**
+   * Parseia links de documentos extraindo informações
+   * Método reutilizável para DOM atual ou HTML parseado
+   * @param {NodeList|Array} linkElements - Links para parsear
+   * @returns {Array} Lista de documentos parseados
+   */
+  parseDocumentLinks(linkElements) {
+    const documents = [];
+    const foundIds = new Set(); // Evitar duplicatas
+
+    console.log(`🔍 LEX: Parseando ${linkElements.length} links...`);
+
+    for (const link of linkElements) {
+      try {
+        const href = link.href || link.getAttribute('href');
+        if (!href) continue;
+
+        // Extrair parâmetros da URL (suporta múltiplos formatos do PJe)
+        const url = new URL(href, this.baseUrl);
+
+        // IDs de documento (diferentes formatos)
+        const idProcessoDocumento = url.searchParams.get('idProcessoDocumento') ||
+                                    url.searchParams.get('paramIdProcessoDocumento') ||
+                                    url.searchParams.get('idProcessoDoc');
+
+        // Nome do arquivo (diferentes formatos)
+        const nomeArqProcDocBin = url.searchParams.get('nomeArqProcDocBin');
+
+        // Bins (diferentes formatos)
+        const idBin = url.searchParams.get('idBin') ||
+                      url.searchParams.get('paramIdProcessoDocumentoBin');
+
+        const numeroDocumento = url.searchParams.get('numeroDocumento');
+
+        // Se tem ID do documento, é válido
+        if (idProcessoDocumento) {
+
+          // Evitar duplicatas
+          if (foundIds.has(idProcessoDocumento)) continue;
+          foundIds.add(idProcessoDocumento);
+
+          // Extrair nome do documento do texto do link se não tiver no parâmetro
+          let documentName = nomeArqProcDocBin
+            ? decodeURIComponent(nomeArqProcDocBin)
+            : link.textContent?.trim() || `Documento ${idProcessoDocumento}`;
+
+          // Construir URL de download direto
+          const downloadUrl = idBin && numeroDocumento && nomeArqProcDocBin
+            ? `${this.baseUrl}/pje/Processo/ConsultaProcesso/Detalhe/listAutosDigitais.seam?idBin=${idBin}&numeroDocumento=${numeroDocumento}&nomeArqProcDocBin=${encodeURIComponent(nomeArqProcDocBin)}&idProcessoDocumento=${idProcessoDocumento}&actionMethod=Processo%2FConsultaProcesso%2FDetalhe%2FlistAutosDigitais.xhtml%3AprocessoDocumentoBinHome.setDownloadInstance%28%29`
+            : href;
+
+          const document = {
+            id: idProcessoDocumento,
+            url: downloadUrl,
+            name: documentName,
+            type: this.inferDocumentType(documentName, documentName),
+            source: 'pje_autos_digitais',
+            metadata: {
+              discovered: new Date().toISOString(),
+              processNumber: this.processNumber,
+              idBin: idBin,
+              numeroDocumento: numeroDocumento,
+              originalUrl: href
+            }
+          };
+
+          documents.push(document);
+          console.log(`✅ LEX: Documento parseado: ${document.name} (ID: ${idProcessoDocumento})`);
+        }
+      } catch (error) {
+        console.warn('⚠️ LEX: Erro ao parsear link:', error);
+        continue;
+      }
+    }
+
+    console.log(`📊 LEX: ${documents.length} documentos parseados com sucesso`);
+    return documents;
+  }
+
+  /**
    * Descobre documentos fazendo scraping do DOM atual
    * @returns {Promise<Array>} Lista de documentos
    */
   async discoverViaDomScraping() {
     console.log('📋 LEX: Usando estratégia DOM Scraping...');
-
-    const documents = [];
-    const foundIds = new Set(); // Evitar duplicatas
 
     try {
       // 1. ESTRATÉGIA ESPECÍFICA PJE-TJPA: Buscar links com idProcessoDocumento e nomeArqProcDocBin
@@ -407,51 +861,83 @@ class ProcessCrawler {
       const pjeDocLinks = document.querySelectorAll('a[href*="idProcessoDocumento"]');
       console.log(`📄 LEX: Encontrados ${pjeDocLinks.length} links com idProcessoDocumento`);
 
-      for (const link of pjeDocLinks) {
-        const href = link.href || link.getAttribute('href');
-        if (!href) continue;
+      // Usar método de parsing reutilizável
+      let documents = this.parseDocumentLinks(pjeDocLinks);
 
-        // Extrair parâmetros da URL
-        const url = new URL(href);
-        const idProcessoDocumento = url.searchParams.get('idProcessoDocumento');
-        const nomeArqProcDocBin = url.searchParams.get('nomeArqProcDocBin');
-        const idBin = url.searchParams.get('idBin');
-        const numeroDocumento = url.searchParams.get('numeroDocumento');
+      if (documents.length > 0) {
+        return documents;
+      }
 
-        // Se tem idProcessoDocumento E nomeArqProcDocBin, é um documento
-        if (idProcessoDocumento && nomeArqProcDocBin) {
+      // 2. FALLBACK: Procurar por links com nomeArqProcDocBin (links de download)
+      if (documents.length === 0) {
+        const foundIds = new Set(); // Controle de duplicatas
+        console.log('⚠️ LEX: Nenhum documento com paramIdProcessoDocumento encontrado');
+        console.log('🔍 LEX: Tentando buscar links de download (nomeArqProcDocBin)...');
 
-          // Evitar duplicatas
-          if (foundIds.has(idProcessoDocumento)) continue;
-          foundIds.add(idProcessoDocumento);
+        const downloadLinks = document.querySelectorAll('a[href*="nomeArqProcDocBin"]');
+        console.log(`📥 LEX: Encontrados ${downloadLinks.length} links de download direto`);
 
-          // Construir URL de download direto
-          const downloadUrl = idBin && numeroDocumento
-            ? `${this.baseUrl}/pje/Processo/ConsultaProcesso/Detalhe/listAutosDigitais.seam?idBin=${idBin}&numeroDocumento=${numeroDocumento}&nomeArqProcDocBin=${encodeURIComponent(nomeArqProcDocBin)}&idProcessoDocumento=${idProcessoDocumento}&actionMethod=Processo%2FConsultaProcesso%2FDetalhe%2FlistAutosDigitais.xhtml%3AprocessoDocumentoBinHome.setDownloadInstance%28%29`
-            : href;
+        for (const link of downloadLinks) {
+          const href = link.href || link.getAttribute('href');
+          if (!href) continue;
 
-          const document = {
-            id: idProcessoDocumento,
-            url: downloadUrl,
-            name: decodeURIComponent(nomeArqProcDocBin),
-            type: this.inferDocumentType(nomeArqProcDocBin, nomeArqProcDocBin),
-            source: 'pje_autos_digitais',
-            metadata: {
-              discovered: new Date().toISOString(),
-              processNumber: this.processNumber,
-              idBin: idBin,
-              numeroDocumento: numeroDocumento
+          try {
+            const url = new URL(href, this.baseUrl);
+            const idBin = url.searchParams.get('idBin');
+            const numeroDocumento = url.searchParams.get('numeroDocumento');
+            const nomeArqProcDocBin = url.searchParams.get('nomeArqProcDocBin');
+
+            if (idBin && numeroDocumento && nomeArqProcDocBin) {
+              // Usar idBin como ID único (já que não temos idProcessoDocumento)
+              if (foundIds.has(idBin)) continue;
+              foundIds.add(idBin);
+
+              // Tentar extrair nome do documento da tabela
+              const row = link.closest('tr');
+              let documentName = decodeURIComponent(nomeArqProcDocBin);
+
+              // Tentar encontrar nome melhor na linha da tabela
+              if (row) {
+                const cells = row.querySelectorAll('td');
+                for (const cell of cells) {
+                  const text = cell.textContent.trim();
+                  // Procurar células com padrão de nome (ex: "3. Certidão de Óbito")
+                  if (text && text.match(/^\d+\..*/) && text.length < 100 && text.length > 3) {
+                    documentName = text;
+                    break;
+                  }
+                }
+              }
+
+              const document = {
+                id: idBin,
+                url: href,
+                name: documentName,
+                type: this.inferDocumentType(documentName, documentName),
+                source: 'pje_download_links',
+                metadata: {
+                  discovered: new Date().toISOString(),
+                  processNumber: this.processNumber,
+                  idBin: idBin,
+                  numeroDocumento: numeroDocumento,
+                  nomeArqProcDocBin: nomeArqProcDocBin
+                }
+              };
+
+              documents.push(document);
+              console.log(`✅ LEX: Documento de download: ${document.name} (idBin: ${idBin})`);
             }
-          };
-
-          documents.push(document);
-          console.log(`✅ LEX: Documento encontrado: ${document.name} (ID: ${idProcessoDocumento})`);
+          } catch (error) {
+            console.warn('⚠️ LEX: Erro ao parsear link de download:', error);
+            continue;
+          }
         }
       }
 
-      // 2. FALLBACK: Procurar por links de documentos tradicionais
+      // 3. FALLBACK: Procurar por links de documentos tradicionais
       if (documents.length === 0) {
-        console.log('⚠️ LEX: Nenhum documento PJE encontrado, tentando scraping tradicional...');
+        const foundIds = new Set(); // Controle de duplicatas
+        console.log('⚠️ LEX: Nenhum link de download encontrado, tentando scraping tradicional...');
 
         const documentLinks = document.querySelectorAll('a[href*="/documento/"], a[href*="download"]');
         console.log(`🔍 LEX: Encontrados ${documentLinks.length} links tradicionais de documentos`);

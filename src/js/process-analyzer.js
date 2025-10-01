@@ -515,17 +515,32 @@ ${conteudo}
 ---`;
         }).join('\n\n');
 
-        const promptCompleto = `Você é um assistente jurídico especializado. Analise COMPLETAMENTE o processo ${this.state.processNumber} com base nos documentos abaixo:
+        const promptCompleto = `Analise o processo ${this.state.processNumber} com base nos documentos abaixo. Seja OBJETIVO e CONCISO.
 
 ${documentosTexto}
 
-Forneça uma análise completa incluindo:
-1. RESUMO EXECUTIVO (2-3 parágrafos)
-2. PARTES DO PROCESSO
-3. PEDIDOS PRINCIPAIS
-4. FUNDAMENTOS LEGAIS
-5. CRONOLOGIA DOS EVENTOS
-6. ANÁLISE TÉCNICA E RECOMENDAÇÕES`;
+Formate em Markdown seguindo EXATAMENTE esta estrutura:
+
+# 📋 ${this.state.processNumber}
+
+## 📝 Resumo
+[1 parágrafo curto: do que trata o processo e fase atual]
+
+## 👥 Partes
+**Autor:** [Nome]
+**Réu:** [Nome]
+
+## ⚖️ Pedidos
+[Apenas os 2-3 pedidos principais, 1 linha cada]
+
+## 📅 Última Movimentação
+[Data e evento mais recente]
+
+## 🎯 Pontos-Chave
+[Apenas 2-3 informações críticas em bullets]
+
+---
+*Gerado automaticamente pela LEX*`;
 
         const payload = {
           pergunta: promptCompleto,
