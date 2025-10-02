@@ -7,6 +7,7 @@ class ProcessAnalyzer {
     this.crawler = new window.ProcessCrawler();
     this.cache = new window.DocumentCache({ ttl: 30 * 60 * 1000 }); // 30 minutos
     this.documentDetector = window.DocumentDetector;
+    this.session = window.lexSession || new window.SessionContext(); // Contexto da sessão
 
     this.state = {
       status: 'idle', // idle, discovering, downloading, processing, analyzing, completed, error
@@ -29,8 +30,8 @@ class ProcessAnalyzer {
       rateLimitDelay: 500, // ms entre downloads
       maxConcurrent: 3, // downloads simultâneos
       maxDocumentSize: 10 * 1024 * 1024, // 10MB por documento
-      batchSize: 3, // documentos por batch para API (reduzido para evitar erro 500)
-      maxContentPerDoc: 15000, // máximo de caracteres por documento (evita exceder tokens)
+      batchSize: 20, // TODOS os documentos em 1 batch (análise rápida envia apenas preview)
+      maxContentPerDoc: 200, // REDUZIDO: apenas preview de 200 caracteres
       useCache: true,
       processPDFs: true,
       processImages: false // OCR ainda não implementado
@@ -76,6 +77,14 @@ class ProcessAnalyzer {
 
       console.log(`📋 LEX: ${this.state.documents.length} documentos descobertos`);
 
+      // INICIALIZAR SESSÃO COM DOCUMENTOS DESCOBERTOS E INFORMAÇÕES DO PROCESSO
+      this.session.initialize({
+        processNumber: this.state.processNumber,
+        processInfo: this.processInfo || null, // Informações extraídas do DOM
+        documents: this.state.documents,
+        cache: this.cache
+      });
+
       // 2. DOWNLOAD E PROCESSAMENTO: Baixar e processar cada documento
       this.state.status = 'processing';
       this.updateProgress('Baixando e processando documentos...');
@@ -94,6 +103,9 @@ class ProcessAnalyzer {
 
       const analysisResult = await this.sendToAPI();
 
+      // SALVAR ANÁLISE NA SESSÃO
+      this.session.setLastAnalysis(analysisResult);
+
       // 4. FINALIZAÇÃO
       this.state.status = 'completed';
       this.state.endTime = Date.now();
@@ -108,6 +120,7 @@ class ProcessAnalyzer {
 
       console.log('🎉 LEX: Análise completa concluída!');
       console.log('📊 LEX: Estatísticas:', result.statistics);
+      console.log(`💬 LEX: Sessão ativa com ${this.session.processedDocuments.length} documentos disponíveis para conversa`);
 
       if (this.callbacks.onComplete) {
         this.callbacks.onComplete(result);
@@ -195,9 +208,23 @@ class ProcessAnalyzer {
         throw new Error('Falha ao baixar documento');
       }
 
-      // Verificar tamanho
+      // Verificar tamanho - AVISAR mas NÃO FALHAR
       if (blob.size > this.config.maxDocumentSize) {
-        throw new Error(`Documento muito grande: ${this.formatBytes(blob.size)}`);
+        console.warn(`⚠️ LEX: Documento ${document.id} muito grande (${this.formatBytes(blob.size)}), pulando processamento...`);
+
+        // Adicionar aos processados com marcação de "muito grande"
+        this.state.processed.push({
+          document: document,
+          data: {
+            texto: `[Documento muito grande: ${this.formatBytes(blob.size)} - Não processado]`,
+            tipo: 'skipped',
+            tamanho: blob.size
+          },
+          skipped: true
+        });
+
+        this.incrementProgress();
+        return;
       }
 
       // Detectar tipo de documento
@@ -258,6 +285,9 @@ class ProcessAnalyzer {
         data: processedData,
         fromCache: false
       });
+
+      // ADICIONAR À SESSÃO PARA ACESSO FUTURO
+      this.session.addProcessedDocument(document, processedData);
 
       this.incrementProgress();
 
@@ -499,48 +529,25 @@ class ProcessAnalyzer {
       for (let i = 0; i < batches.length; i++) {
         console.log(`📤 LEX: Enviando batch ${i + 1}/${batches.length}...`);
 
-        // Criar prompt consolidado com todos os documentos (limitando tamanho)
+        // OTIMIZAÇÃO: Enviar apenas RESUMO dos documentos (não conteúdo completo)
         const documentosTexto = batches[i].map((doc, idx) => {
-          let conteudo = doc.conteudo || '(sem conteúdo extraído)';
+          let conteudo = doc.conteudo || '(sem conteúdo)';
 
-          // Limitar tamanho do conteúdo para evitar exceder tokens da OpenAI
-          if (conteudo.length > this.config.maxContentPerDoc) {
-            conteudo = conteudo.substring(0, this.config.maxContentPerDoc) + '\n\n[...conteúdo truncado por limite de tamanho...]';
-          }
+          // APENAS OS PRIMEIROS 150 CARACTERES
+          const preview = conteudo.substring(0, 150).replace(/\s+/g, ' ');
 
-          return `
-## DOCUMENTO ${idx + 1}: ${doc.nome}
-Tipo: ${doc.tipo}
-${conteudo}
----`;
-        }).join('\n\n');
+          return `${idx + 1}. ${doc.nome}: ${preview}...`;
+        }).join('\n');
 
-        const promptCompleto = `Analise o processo ${this.state.processNumber} com base nos documentos abaixo. Seja OBJETIVO e CONCISO.
+        // PROMPT ULTRA-CONCISO: apenas o essencial (3 linhas!)
+        const promptCompleto = `Processo ${this.state.processNumber}. Documentos:
 
 ${documentosTexto}
 
-Formate em Markdown seguindo EXATAMENTE esta estrutura:
-
-# 📋 ${this.state.processNumber}
-
-## 📝 Resumo
-[1 parágrafo curto: do que trata o processo e fase atual]
-
-## 👥 Partes
-**Autor:** [Nome]
-**Réu:** [Nome]
-
-## ⚖️ Pedidos
-[Apenas os 2-3 pedidos principais, 1 linha cada]
-
-## 📅 Última Movimentação
-[Data e evento mais recente]
-
-## 🎯 Pontos-Chave
-[Apenas 2-3 informações críticas em bullets]
-
----
-*Gerado automaticamente pela LEX*`;
+Responda em 3 linhas:
+1. Tipo de ação e partes
+2. Fase/status atual
+3. Próximo passo ou situação relevante`;
 
         const payload = {
           pergunta: promptCompleto,

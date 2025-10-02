@@ -544,43 +544,74 @@ class ProcessCrawler {
           }, 800);
         };
 
-        // Observer para detectar quando a aba carregar
-        const checkInterval = setInterval(() => {
+        // MutationObserver para detectar quando a aba carregar (mais eficiente que setInterval)
+        let observer = null;
+        let timeoutId = null;
+
+        const checkForDocuments = async () => {
           const docLinks = document.querySelectorAll('a[href*="paramIdProcessoDocumento"], a[href*="nomeArqProcDocBin"]');
 
           if (docLinks.length > 0) {
-            clearInterval(checkInterval);
+            // Limpar observer e timeout
+            if (observer) observer.disconnect();
+            if (timeoutId) clearTimeout(timeoutId);
+
             console.log(`✅ LEX: Aba de documentos carregada (${docLinks.length} links encontrados)`);
 
-            // Fazer scraping imediatamente
-            documents = this.parseDocumentLinks(docLinks);
+            // VERIFICAR SE TEM PAGINAÇÃO E COLETAR DE TODAS AS PÁGINAS
+            const allDocs = await this.collectFromAllPages();
 
-            console.log(`✅ LEX: ${documents.length} documentos extraídos da aba`);
+            if (allDocs.length > 0) {
+              documents = allDocs;
+              console.log(`✅ LEX: ${documents.length} documentos extraídos de múltiplas páginas`);
+            } else {
+              // Fallback: apenas página atual
+              documents = this.parseDocumentLinks(docLinks);
+              console.log(`✅ LEX: ${documents.length} documentos extraídos da página atual`);
+            }
 
             // Voltar para a aba "Autos"
             voltarParaAutos();
 
             resolve(documents);
+            return true;
           }
-        }, 500);
+          return false;
+        };
 
-        // Timeout de 10 segundos
-        setTimeout(() => {
-          clearInterval(checkInterval);
+        // Verificar imediatamente (pode já estar carregado)
+        checkForDocuments().then(found => {
+          if (found) return;
 
-          if (documents.length === 0) {
-            console.warn('⚠️ LEX: Timeout ao esperar aba de documentos carregar');
-          }
+          // MutationObserver para mudanças no DOM
+          observer = new MutationObserver((mutations) => {
+            checkForDocuments();
+          });
 
-          // Voltar para Autos MESMO em caso de timeout
-          voltarParaAutos();
+          // Observar mudanças no body
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true
+          });
 
-          resolve(documents);
-        }, 10000);
+          // Timeout de 10 segundos
+          timeoutId = setTimeout(() => {
+            if (observer) observer.disconnect();
 
-        // Clicar no link
-        console.log('🖱️ LEX: Clicando na aba Documentos...');
-        linkDocumentos.click();
+            if (documents.length === 0) {
+              console.warn('⚠️ LEX: Timeout ao esperar aba de documentos carregar');
+            }
+
+            // Voltar para Autos MESMO em caso de timeout
+            voltarParaAutos();
+
+            resolve(documents);
+          }, 10000);
+
+          // Clicar no link
+          console.log('🖱️ LEX: Clicando na aba Documentos...');
+          linkDocumentos.click();
+        });
       });
 
     } catch (error) {
@@ -848,6 +879,59 @@ class ProcessCrawler {
   }
 
   /**
+   * Coleta documentos de todas as páginas (se houver paginação com slider)
+   * @returns {Promise<Array>} Lista de todos os documentos de todas as páginas
+   */
+  async collectFromAllPages() {
+    console.log('🔍 LEX: Verificando paginação...');
+
+    // No PJe, todos os documentos JÁ ESTÃO NO DOM (slider apenas esconde/mostra via CSS)
+    // Não precisamos navegar entre páginas, apenas coletar TODOS os links de uma vez
+    const allDocLinks = document.querySelectorAll('a[href*="idProcessoDocumento"], a[href*="paramIdProcessoDocumento"], a[href*="nomeArqProcDocBin"]');
+
+    if (allDocLinks.length === 0) {
+      console.log('📄 LEX: Nenhum documento encontrado');
+      return [];
+    }
+
+    // Verificar se há slider (só para log)
+    const slider = document.querySelector('[id*="j_id"][id*="j_id"].rich-inslider, .rich-inslider.rich-slider');
+    if (slider) {
+      const container = slider.closest('table')?.parentElement;
+      const text = container?.textContent || '';
+      const match = text.match(/(\d+)\s*de\s*(\d+)/);
+      if (match) {
+        console.log(`📚 LEX: ${match[2]} páginas detectadas (slider encontrado)`);
+      }
+    }
+
+    console.log(`📊 LEX: ${allDocLinks.length} links de documentos encontrados no DOM`);
+
+    // Parsear todos os documentos de uma vez
+    const documents = this.parseDocumentLinks(allDocLinks);
+
+    // Remover duplicatas (usar Set com ID)
+    const uniqueDocs = [];
+    const seenIds = new Set();
+
+    documents.forEach(doc => {
+      if (!seenIds.has(doc.id)) {
+        seenIds.add(doc.id);
+        uniqueDocs.push(doc);
+      }
+    });
+
+    if (uniqueDocs.length !== documents.length) {
+      console.log(`🔄 LEX: ${documents.length - uniqueDocs.length} documentos duplicados removidos`);
+    }
+
+    console.log(`✅ LEX: ${uniqueDocs.length} documentos únicos coletados`);
+
+    return uniqueDocs;
+  }
+
+
+  /**
    * Descobre documentos fazendo scraping do DOM atual
    * @returns {Promise<Array>} Lista de documentos
    */
@@ -855,6 +939,16 @@ class ProcessCrawler {
     console.log('📋 LEX: Usando estratégia DOM Scraping...');
 
     try {
+      // VERIFICAR SE TEM PAGINAÇÃO COM SLIDER
+      const allDocuments = await this.collectFromAllPages();
+
+      if (allDocuments.length > 0) {
+        return allDocuments;
+      }
+
+      // FALLBACK: Coletar apenas da página atual
+      console.log('📄 LEX: Sem paginação detectada, coletando apenas página atual...');
+
       // 1. ESTRATÉGIA ESPECÍFICA PJE-TJPA: Buscar links com idProcessoDocumento e nomeArqProcDocBin
       console.log('🔍 LEX: Buscando documentos no painel de autos digitais...');
 

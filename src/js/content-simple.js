@@ -726,20 +726,177 @@ Use HTML simples, máximo 300 palavras.`
       chatContainer.classList.add('expanded');
     }
   }
-  
+
+  // Processar comandos especiais
+  function processarComando(texto) {
+    const textoLower = texto.toLowerCase().trim();
+
+    // Comando: /documentos ou "listar documentos"
+    if (textoLower.startsWith('/documentos') || textoLower.includes('listar documentos') || textoLower.includes('quais documentos')) {
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro para carregar os documentos.';
+      }
+
+      const docs = window.lexSession.listDocuments();
+      if (docs.length === 0) {
+        return '📄 Nenhum documento processado ainda.';
+      }
+
+      let html = `📚 <strong>Documentos Disponíveis (${docs.length})</strong><br><br>`;
+      docs.forEach((doc, i) => {
+        html += `${i + 1}. <strong>${doc.name}</strong><br>`;
+        html += `   ID: ${doc.id} | Páginas: ${doc.pages || 'N/A'}<br><br>`;
+      });
+
+      html += '<em>💡 Digite "/buscar [termo]" para procurar ou "/analisar [ID]" para análise específica</em>';
+
+      return html;
+    }
+
+    // Comando: /buscar [termo]
+    if (textoLower.startsWith('/buscar ')) {
+      const termo = texto.substring(8).trim();
+
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro.';
+      }
+
+      const resultados = window.lexSession.searchDocuments(termo);
+
+      if (resultados.length === 0) {
+        return `🔍 Nenhum documento encontrado com o termo "<strong>${termo}</strong>"`;
+      }
+
+      let html = `🔍 <strong>Resultados para "${termo}"</strong> (${resultados.length})<br><br>`;
+      resultados.forEach((doc, i) => {
+        html += `${i + 1}. <strong>${doc.name}</strong> (ID: ${doc.id})<br>`;
+      });
+
+      html += '<br><em>💡 Use "/analisar [ID]" para análise detalhada</em>';
+
+      return html;
+    }
+
+    // Comando: /sessao ou "status da sessão"
+    if (textoLower.startsWith('/sessao') || textoLower.includes('status') && textoLower.includes('sessao')) {
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ <strong>Nenhuma sessão ativa</strong><br><br>Execute a "análise completa" para iniciar uma sessão com documentos.';
+      }
+
+      const stats = window.lexSession.getStats();
+
+      return `📊 <strong>Status da Sessão</strong><br><br>
+        <strong>Processo:</strong> ${stats.processNumber}<br>
+        <strong>Documentos processados:</strong> ${stats.processedDocuments}/${stats.totalDocuments}<br>
+        <strong>Mensagens:</strong> ${stats.conversationMessages}<br>
+        <strong>Análise inicial:</strong> ${stats.hasAnalysis ? '✅ Concluída' : '⏳ Pendente'}<br><br>
+        <em>💡 Use "/documentos" para ver a lista completa</em>`;
+    }
+
+    // Comando: /processo ou "informações do processo"
+    if (textoLower.startsWith('/processo') || textoLower.includes('informações do processo') || textoLower.includes('dados do processo')) {
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro.';
+      }
+
+      const info = window.lexSession.processInfo;
+
+      if (!info) {
+        return '⚠️ Informações do processo não disponíveis.';
+      }
+
+      return `⚖️ <strong>Informações do Processo</strong><br><br>
+        <strong>Número:</strong> ${info.numeroProcesso || 'N/A'}<br>
+        <strong>Tribunal:</strong> ${info.tribunal || 'N/A'}<br>
+        <strong>Classe Processual:</strong> ${info.classeProcessual || 'N/A'}<br>
+        <strong>Assunto:</strong> ${info.assunto || 'N/A'}<br><br>
+        <strong>Partes:</strong><br>
+        • Autor/Requerente: ${info.autor || 'N/A'}<br>
+        • Réu/Requerido: ${info.reu || 'N/A'}<br><br>
+        ${info.documentoId ? `<strong>Documento Atual:</strong> ${info.documentoId}<br><br>` : ''}
+        <em>💡 Use "/documentos" para ver os documentos processados</em>`;
+    }
+
+    // Comando: /ajuda ou /comandos
+    if (textoLower.startsWith('/ajuda') || textoLower.startsWith('/comandos') || textoLower === 'ajuda') {
+      return `💡 <strong>Comandos Disponíveis</strong><br><br>
+        <strong>/processo</strong> - Informações do processo (partes, classe, assunto)<br>
+        <strong>/documentos</strong> - Lista todos os documentos processados<br>
+        <strong>/buscar [termo]</strong> - Busca documentos por nome ou ID<br>
+        <strong>/sessao</strong> - Mostra status da sessão atual<br>
+        <strong>/ajuda</strong> - Mostra esta mensagem<br><br>
+        <strong>Perguntas em linguagem natural:</strong><br>
+        • "Quem são as partes do processo?"<br>
+        • "Qual a classe processual?"<br>
+        • "Me mostre a petição inicial"<br>
+        • "O que diz o documento X sobre Y?"<br><br>
+        <em>🤖 Faça perguntas sobre o processo e documentos!</em>`;
+    }
+
+    // Não é um comando, retornar null para processar normalmente
+    return null;
+  }
+
+  // Gerar resposta com contexto da sessão (se disponível)
+  async function gerarRespostaComContexto(pergunta) {
+    // Se há sessão ativa, incluir contexto dos documentos
+    if (window.lexSession && window.lexSession.isActive()) {
+      console.log('💬 LEX: Gerando resposta com contexto da sessão');
+
+      // Adicionar pergunta ao histórico
+      window.lexSession.addToHistory('user', pergunta);
+
+      // Verificar se a pergunta menciona documentos específicos
+      const perguntaLower = pergunta.toLowerCase();
+
+      // Buscar documentos mencionados na pergunta
+      const docsEncontrados = window.lexSession.searchDocuments(pergunta);
+
+      if (docsEncontrados.length > 0) {
+        console.log(`📄 LEX: ${docsEncontrados.length} documentos relevantes encontrados`);
+      }
+
+      // Gerar contexto resumido ENRIQUECIDO para enviar à IA
+      const contextoConciso = window.lexSession.generateContextSummary({
+        maxDocuments: 5,
+        includeHistory: true, // Incluir últimas 3 mensagens
+        includeLastAnalysis: false // Não incluir análise completa (muito grande)
+      });
+
+      // Montar prompt com contexto ESTRUTURADO
+      const promptComContexto = `${contextoConciso}
+
+---
+
+**Pergunta do usuário:** ${pergunta}
+
+**Instruções:**
+- Responda de forma objetiva e direta
+- Cite os documentos relevantes (nome e ID)
+- Use as informações do processo (partes, classe, etc) quando pertinente
+- Se a pergunta for sobre um documento específico, foque nele`;
+
+      // Enviar para IA com contexto
+      return await gerarRespostaIA(promptComContexto);
+    }
+
+    // Sem sessão, processar normalmente
+    return await gerarRespostaIA(pergunta);
+  }
+
   // Enviar mensagem
   function enviarMensagem(texto, isAutomatico = false) {
     texto = texto.trim();
     if (!texto) return;
-    
+
     // Expandir chat na primeira mensagem
     expandirChat();
-    
+
     const messagesContainer = chatContainer.querySelector('.lex-messages');
     const input = chatContainer.querySelector('.lex-input');
-    
+
     if (!messagesContainer || !input) return;
-    
+
     // Adicionar mensagem do usuário (apenas se não for automático)
     if (!isAutomatico) {
       const userMessage = document.createElement('div');
@@ -748,14 +905,28 @@ Use HTML simples, máximo 300 palavras.`
         <div class="lex-bubble">${texto}</div>
         <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
       `;
-      
+
       messagesContainer.appendChild(userMessage);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-    
+
     // Limpar input
     input.value = '';
-    
+
+    // DETECTAR COMANDOS ESPECIAIS
+    const comandoResult = processarComando(texto);
+    if (comandoResult) {
+      const comandoMessage = document.createElement('div');
+      comandoMessage.className = 'lex-message assistant';
+      comandoMessage.innerHTML = `
+        <div class="lex-bubble">${comandoResult}</div>
+        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+      `;
+      messagesContainer.appendChild(comandoMessage);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      return;
+    }
+
     // Mostrar indicador de "pensando"
     const thinkingMessage = document.createElement('div');
     thinkingMessage.className = 'lex-message assistant';
@@ -764,9 +935,9 @@ Use HTML simples, máximo 300 palavras.`
     `;
     messagesContainer.appendChild(thinkingMessage);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    
-    // Gerar resposta com IA
-    gerarRespostaIA(texto).then(resposta => {
+
+    // Gerar resposta com IA (com contexto da sessão se disponível)
+    gerarRespostaComContexto(texto).then(resposta => {
       // Remover indicador de "pensando"
       messagesContainer.removeChild(thinkingMessage);
       
@@ -1312,8 +1483,14 @@ Use HTML simples, máximo 300 palavras.`
         throw new Error('ProcessAnalyzer não carregado');
       }
 
+      // Extrair informações do processo do DOM
+      const processInfo = extrairInformacoesCompletas();
+
       // Criar analyzer
       const analyzer = new window.ProcessAnalyzer();
+
+      // Passar informações do processo para o analyzer (será usado no SessionContext)
+      analyzer.processInfo = processInfo;
 
       // Registrar callbacks de progresso
       analyzer.on('progress', (progress) => {
