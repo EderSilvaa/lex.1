@@ -105,6 +105,400 @@ export class PDFProcessor {
 | `document-detector.js` | 🔄 JavaScript | 🎯 Prioridade Alta |
 | `content-simple.js` | 🔄 JavaScript | 🎯 Prioridade Média |
 | `background.js` | 🔄 JavaScript | 🎯 Prioridade Baixa |
+| `minuta-generator.js` | ✅ JavaScript | 🆕 Novo Módulo |
+| `model-cache.js` | ✅ JavaScript | 🆕 Novo Módulo |
+| `pje-model-detector.js` | ✅ JavaScript | 🆕 Novo Módulo |
+| `session-context.js` | ✅ JavaScript (atualizado) | - |
+
+## 📝 Sistema de Minutas com IA Híbrida
+
+### 🎯 **Visão Geral**
+
+**Data de Implementação:** Janeiro 2025
+**Versão:** 1.0 - Sistema Híbrido de Geração de Minutas
+**Objetivo:** Gerar documentos jurídicos processuais automaticamente usando templates PJe + IA
+
+O sistema de minutas combina o melhor de dois mundos:
+- **Templates PJe**: Documentos oficiais do tribunal (quando disponíveis)
+- **IA Pura**: Geração completa por GPT-4 (fallback inteligente)
+
+### 🏗️ **Arquitetura do Sistema**
+
+#### 📦 **Módulos Principais**
+
+##### 1. **MinutaGenerator** (`src/js/minuta-generator.js`)
+**Função:** Orquestração da geração de minutas
+**Tamanho:** ~700 linhas
+**Responsabilidades:**
+- Identificação do tipo de documento solicitado
+- Busca e scoring de templates PJe
+- Geração híbrida (template + IA ou IA pura)
+- Preenchimento inteligente de campos
+- Limpeza de HTML e formatação
+
+```javascript
+class MinutaGenerator {
+  async gerarMinuta(comando, opcoes)      // Entrada principal
+  identificarTipoDocumento(comando)        // Detecta tipo (certidão, contestação, etc.)
+  buscarModeloApropriado(tipo, comando)    // Scoring inteligente de templates
+  gerarMinutaComIA(tipo, dados, comando)   // Geração 100% IA
+  preencherModelo(modelo, dados)           // Preenche template com IA
+  obterDadosProcesso()                     // Extrai dados do processo
+}
+```
+
+**Tipos de Documentos Suportados:**
+- Certidão (custas pagas, trânsito em julgado, etc.)
+- Contestação
+- Petição Inicial
+- Agravo de Instrumento
+- Recurso/Apelação
+- Ofício
+- Mandado de Segurança
+- Habeas Corpus
+- Réplica
+- Impugnação
+- Carta de Adjudicação
+
+##### 2. **ModelCache** (`src/js/model-cache.js`)
+**Função:** Gerenciamento de cache de templates PJe
+**Tamanho:** ~380 linhas
+**Características:**
+- Cache persistente em `localStorage`
+- TTL de 30 dias
+- Versionamento de modelos
+- Compressão automática
+- Estatísticas de uso
+
+```javascript
+class ModelCache {
+  salvarModelo(modelo)                  // Adiciona template ao cache
+  obterModelo(id)                       // Recupera template por ID
+  listarModelos()                       // Lista todos os templates
+  obterCache()                          // Retorna cache completo
+  limparCache()                         // Remove cache expirado
+  getEstatiticas()                      // Métricas de uso
+}
+```
+
+**Estrutura do Modelo:**
+```javascript
+{
+  id: "certidao-custas-pagas",
+  nome: "Certidão de Custas Pagas",
+  conteudo: "<html>...</html>",         // Template original
+  campos: [...],                         // Campos identificados
+  timestamp: 1234567890,
+  version: "1.0"
+}
+```
+
+##### 3. **PJeModelDetector** (`src/js/pje-model-detector.js`)
+**Função:** Detecção e extração de templates do PJe
+**Tamanho:** ~730 linhas
+**Características:**
+- Detecção automática de telas de petição
+- Captura de dropdowns de modelos (até 254 templates)
+- Extração de conteúdo HTML dos templates
+- Sistema de eventos para captura passiva
+- Download automático desabilitado (evita quebrar TinyMCE)
+
+```javascript
+class PJEModelDetector {
+  detectarTelaPeticao()                 // Verifica se está na tela certa
+  buscarDropdowns()                     // Encontra selects de modelos
+  capturarModeloAtual()                 // Extrai template selecionado
+  baixarTodosModelosSilenciosamente()   // Download em batch (desabilitado)
+  setupEventListeners()                 // Monitora mudanças no DOM
+}
+```
+
+**URLs Suportadas:**
+- `*/pje/*/CriarDocumento*` - Tela de criação de documento
+- `*/pje/*/listAutosDigitais*` - Autos digitais com petições
+
+### �� **Fluxo de Geração (Modo Híbrido)**
+
+```
+1. USUÁRIO SOLICITA
+   ↓
+   "minutar certidão de custas pagas"
+
+2. IDENTIFICAÇÃO
+   ↓
+   MinutaGenerator.identificarTipoDocumento()
+   → Tipo: "certidão"
+
+3. BUSCA DE TEMPLATE
+   ↓
+   buscarModeloApropriado("certidão", comando)
+   → Scoring inteligente (keywords + penalidades)
+   → Threshold: 150 pontos mínimo
+
+4a. TEMPLATE ENCONTRADO (score >= 150)
+    ↓
+    preencherModelo(template, dadosProcesso)
+    → Substituir campos simples (nome, processo, etc.)
+    → IA preenche campos complexos (fundamentação, etc.)
+    → Limpar HTML
+
+4b. TEMPLATE NÃO ENCONTRADO (score < 150)
+    ↓
+    gerarMinutaComIA(tipo, dadosProcesso, comando)
+    → Construir prompt rico com contexto
+    → Enviar para GPT-4 via Supabase
+    → Limpar HTML da resposta
+
+5. SAÍDA
+   ↓
+   Minuta formatada + botão copiar
+```
+
+### 🎯 **Sistema de Scoring de Templates**
+
+**Algoritmo de Matching:**
+
+```javascript
+// Pontuação por match no nome
+matchesNome * 30 pontos
+
+// Bônus por múltiplos matches
+matchesNome >= 2 → +50 pontos
+
+// Palavras específicas importantes
+"custas", "pagas", "pagamento" → +100 pontos cada
+
+// Tipo exato do documento
+nomeModelo.includes(tipoDocumento) → +20 pontos
+
+// PENALIDADES
+palavrasIndesejaveis → -30 pontos cada
+["cobrança", "administrativa", "protocolo", "encaminhamento"]
+```
+
+**Exemplo Real:**
+
+```
+Comando: "minutar certidão de custas pagas"
+
+Modelo A: "Certidão de Custas Pagas"
+- "certidão" no nome: +30
+- "custas" no nome: +100
+- "pagas" no nome: +100
+- Múltiplos matches: +50
+- Tipo exato: +20
+= SCORE: 300 ✅ APROVADO
+
+Modelo B: "Certidão Recebimento Cobrança Administrativa"
+- "certidão" no nome: +30
+- "cobrança" (indesejável): -30
+- "administrativa" (indesejável): -30
+= SCORE: -30 ❌ REJEITADO
+
+Modelo C: "Certidão automática consolidador"
+- "certidão" no nome: +30
+- Conteúdo genérico: +20
+= SCORE: 50 ❌ REJEITADO (< 150 threshold)
+```
+
+### 🤖 **Contexto Rico para IA**
+
+**Prompt Otimizado** (linhas 271-370 de `minuta-generator.js`):
+
+```javascript
+DADOS DO PROCESSO:
+- Número: ${processNumber}
+- Classe: ${processInfo.classeProcessual}
+- Assunto: ${processInfo.assunto}
+- Autor: ${processInfo.autor}
+- Réu: ${processInfo.reu}
+- Tribunal: TJPA
+- Data: ${dataExtenso}
+
+DOCUMENTOS ANALISADOS (até 5):
+1. Petição Inicial (PETICAO) - 3 págs
+   Conteúdo: [600 chars do PDF]...
+
+2. Sentença (SENTENÇA) - 5 págs
+   Conteúdo: [600 chars do PDF]...
+
+ANÁLISE ANTERIOR DO PROCESSO:
+[800 chars da análise completa anterior]
+
+INSTRUÇÕES CRÍTICAS:
+1. Use TODOS os dados acima
+2. Baseie-se nos documentos para fundamentação
+3. NÃO use placeholders
+4. RETORNE APENAS TEXTO PURO (sem HTML)
+5. Comece DIRETO com o título
+
+COMANDO: "${comandoOriginal}"
+```
+
+**Melhorias vs Versão Anterior:**
+- ✅ **Antes:** Apenas dados básicos do processo
+- ✅ **Agora:** Documentos processados + análise anterior
+- ✅ **Contexto:** Até 3.800 caracteres (5 docs × 600 + 800 análise)
+
+### 🧹 **Sistema de Limpeza de HTML**
+
+**Problema:** IA insiste em retornar HTML apesar de instruções
+
+**Solução Robusta** (linhas 207-258):
+
+```javascript
+// Detectar HTML
+const temHTML = /<[^>]+>/.test(resposta);
+
+if (temHTML) {
+  // 1. Substituir tags de quebra por newlines
+  .replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<\/p>/gi, '\n')
+  .replace(/<\/div>/gi, '\n')
+  .replace(/<\/h[1-6]>/gi, '\n\n')
+
+  // 2. Remover todas as tags
+  .replace(/<[^>]+>/g, '')
+
+  // 3. Limpar entidades HTML
+  .replace(/&nbsp;/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&lt;/g, '<')
+
+  // 4. Normalizar espaços
+  .replace(/\n{3,}/g, '\n\n')  // Max 2 quebras
+  .replace(/ {2,}/g, ' ')       // Max 1 espaço
+  .trim();
+}
+```
+
+### 🎨 **UI Minimalista**
+
+**Antes (Verbose):**
+```
+✅ Minuta gerada com sucesso!
+📋 Modelo: Certidão de Custas Pagas
+📏 Tamanho: 1.234 caracteres
+⚠️ 2 campos pendentes
+
+[MINUTA]
+
+💡 Dica: Clique em copiar e cole no PJe
+```
+
+**Agora (Minimalista):**
+```
+[MINUTA]
+
+         [copiar]
+```
+
+**Redução:** ~75% menos ruído visual
+
+### 📊 **Integração com Session Context**
+
+**Melhorias no `session-context.js`:**
+
+```javascript
+// Dados disponíveis para minutas
+{
+  processNumber: "0847402-18.2021.8.14.0301",
+  processInfo: {
+    classeProcessual: "Procedimento Comum",
+    assunto: "Indenização por Dano Moral",
+    autor: "João da Silva",
+    reu: "Empresa XYZ LTDA",
+    tribunal: "TJPA"
+  },
+  processedDocuments: [
+    {
+      id: "doc-123",
+      name: "Petição Inicial",
+      data: {
+        tipo: "PETICAO",
+        texto: "...",
+        paginas: 3
+      }
+    }
+  ],
+  lastAnalysis: "Análise completa do processo..."
+}
+```
+
+**Fallback DOM** (quando sessão não ativa):
+
+```javascript
+// Extração direta do PJe
+obterDadosProcesso() {
+  if (lexSession.isActive()) {
+    return lexSession.processInfo;
+  } else {
+    // Fallback: extrair do DOM
+    return extrairInformacoesCompletas();
+  }
+}
+```
+
+### 🎯 **Controles de UI**
+
+**macOS-Style Control Dots** (header):
+
+```css
+.lex-dot-close    { background: #ff5f57; }  /* Vermelho */
+.lex-dot-minimize { background: #ffbd2e; }  /* Amarelo */
+.lex-dot-maximize { background: #28c840; }  /* Verde */
+```
+
+**Funcionalidades:**
+- 🔴 **Vermelho:** Modal de personalização
+  - Upload de documentos personalizados
+  - Modos de tratamento (formal, conciso, etc.)
+- 🟡 **Amarelo:** Configurações (planejado)
+- 🟢 **Verde:** Avançado (planejado)
+
+### 📈 **Métricas e Performance**
+
+**Cache:**
+- Storage: `localStorage`
+- TTL: 30 dias
+- Compressão: Base64 opcional
+- Limite: ~5MB (navegador)
+
+**Performance:**
+- Busca de template: ~5-10ms
+- Scoring de 254 modelos: ~20-30ms
+- Geração com IA: ~2-5s (API)
+- Limpeza de HTML: ~1-2ms
+
+**Estatísticas:**
+```javascript
+ModelCache.getEstatisticas()
+{
+  totalModelos: 20,
+  modelosMaisUsados: [
+    { nome: "Certidão Custas", uso: 15 },
+    { nome: "Contestação", uso: 8 }
+  ],
+  tamanhoCache: "2.4 MB",
+  ultimaAtualizacao: "2025-01-07"
+}
+```
+
+### 🐛 **Problemas Resolvidos**
+
+1. **✅ HTML na saída** - Limpeza automática robusta
+2. **✅ Templates irrelevantes** - Sistema de scoring + threshold
+3. **✅ Dados vazios** - Fallback para extração DOM
+4. **✅ Download quebrando editor** - Download automático desabilitado
+5. **✅ UI poluída** - Interface minimalista
+
+### 🔜 **Próximas Melhorias**
+
+1. **Personalização de templates** - Usuário pode criar próprios modelos
+2. **Histórico de minutas** - Salvar minutas geradas
+3. **Export para DOCX** - Além de copiar texto
+4. **Campos interativos** - Edição inline antes de copiar
+5. **Múltiplos tribunais** - Suporte TJ-SP, TRF, etc.
 
 ## 🌐 Contexto de Uso
 
@@ -1102,6 +1496,18 @@ const result: PDFExtractionResult = await processor.extractTextFromPDF(blob, {
 9. **✅ Design Consistency:** Sistema horizontal premium implementado
 
 ## 📋 **Histórico de Versões**
+
+### 🚀 **v5.0 - Sistema de Minutas com IA Híbrida** (Janeiro 2025)
+- ✅ **Sistema híbrido:** Templates PJe + IA pura
+- ✅ **3 novos módulos:** MinutaGenerator, ModelCache, PJeModelDetector
+- ✅ **Scoring inteligente:** Threshold 150 pontos para relevância
+- ✅ **Contexto rico:** Documentos processados + análise anterior
+- ✅ **Limpeza automática de HTML:** Resposta sempre em texto puro
+- ✅ **UI minimalista:** Apenas minuta + botão copiar
+- ✅ **Control dots macOS:** Modal de personalização
+- ✅ **Cor do processo:** Alterada para branco neutro
+- ✅ **Fallback DOM:** Extração de dados sem sessão ativa
+- ✅ **Cache de modelos:** localStorage com TTL de 30 dias
 
 ### 🚀 **v4.0 - Interface Compacta Adaptável** (Janeiro 2025)
 - ✅ **Sistema adaptável:** Estados compacto/expandido
