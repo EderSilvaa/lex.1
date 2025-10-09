@@ -56,6 +56,11 @@
   --lex-toast-error: #ef4444;
   --lex-toast-info: #3b82f6;
   --lex-radius-xl: 12px;
+
+  /* macOS Dots Colors */
+  --lex-dot-close: #ff5f57;
+  --lex-dot-minimize: #ffbd2e;
+  --lex-dot-maximize: #28c840;
 }
 
 /* Reset básico para evitar conflitos */
@@ -228,32 +233,26 @@
 
 .lex-compact-process {
   font-size: 11px;
-  color: rgba(0, 255, 65, 0.6);
+  color: rgba(255, 255, 255, 0.9);
   font-family: 'Courier New', monospace;
   text-align: center;
   margin-bottom: 2px;
 }
 
 .lex-compact-doc {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.4);
-  font-family: 'Courier New', monospace;
-  text-align: center;
+  display: none;
 }
 
 .lex-context-process {
   font-size: 12px;
-  color: rgba(0, 255, 65, 0.6);
+  color: rgba(255, 255, 255, 0.9);
   font-family: 'Courier New', monospace;
   letter-spacing: 0.5px;
   font-weight: 500;
 }
 
 .lex-context-doc {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.3);
-  font-family: 'Courier New', monospace;
-  letter-spacing: 0.3px;
+  display: none;
 }
 
 .lex-close {
@@ -806,4 +805,368 @@
     min-width: auto;
     width: 100%;
   }
+}
+.lex-doc-action {
+  background: var(--lex-gradient-blue-lex);
+  color: var(--lex-text-primary);
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--lex-radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: 8px;
+}
+
+.lex-doc-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--lex-glow-blue);
+}
+
+.lex-doc-action:active {
+  transform: translateY(0);
+}
+
+/* macOS Control Dots */
+.lex-control-dots {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.lex-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  padding: 0;
+  outline: none;
+}
+
+.lex-dot:hover {
+  transform: scale(1.1);
+  filter: brightness(1.2);
+}
+
+.lex-dot:active {
+  transform: scale(0.95);
+}
+
+.lex-dot-close {
+  background-color: var(--lex-dot-close);
+}
+
+.lex-dot-minimize {
+  background-color: var(--lex-dot-minimize);
+}
+
+.lex-dot-maximize {
+  background-color: var(--lex-dot-maximize);
+}
+
+/* Modal Styles */
+.lex-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000000;
+  font-family: var(--lex-font-system);
+}
+
+.lex-modal-content {
+  background: var(--lex-black-premium);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-lg);
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.lex-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--lex-space-xl);
+  border-bottom: 1px solid var(--lex-gray-border);
+}
+
+.lex-modal-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+  margin: 0;
+}
+
+.lex-modal-close {
+  background: none;
+  border: none;
+  color: var(--lex-text-secondary);
+  font-size: 28px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lex-radius-sm);
+  transition: all 0.2s ease;
+}
+
+.lex-modal-close:hover {
+  background: var(--lex-gray-subtle);
+  color: var(--lex-text-primary);
+}
+
+.lex-modal-body {
+  padding: var(--lex-space-xl);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.lex-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--lex-space-lg);
+  padding: var(--lex-space-xl);
+  border-top: 1px solid var(--lex-gray-border);
+}
+
+.lex-personalization-section {
+  margin-bottom: 24px;
+}
+
+.lex-personalization-section:last-child {
+  margin-bottom: 0;
+}
+
+.lex-personalization-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+  margin-bottom: var(--lex-space-md);
+}
+
+.lex-help-text {
+  font-size: 13px;
+  color: var(--lex-text-tertiary);
+  margin-bottom: var(--lex-space-lg);
+}
+
+.lex-file-upload-area {
+  background: var(--lex-black-secondary);
+  border: 2px dashed var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  padding: var(--lex-space-xl);
+  text-align: center;
+}
+
+.lex-upload-btn {
+  background: var(--lex-gradient-primary);
+  border: none;
+  color: var(--lex-text-primary);
+  padding: 10px 20px;
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.lex-upload-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--lex-glow-purple);
+}
+
+.lex-uploaded-files {
+  margin-top: var(--lex-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lex-space-md);
+}
+
+.lex-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--lex-black-tertiary);
+  padding: var(--lex-space-md) var(--lex-space-lg);
+  border-radius: var(--lex-radius-sm);
+  font-size: 13px;
+}
+
+.lex-file-name {
+  color: var(--lex-text-primary);
+  flex: 1;
+}
+
+.lex-file-size {
+  color: var(--lex-text-tertiary);
+  margin-left: var(--lex-space-md);
+  font-size: 12px;
+}
+
+.lex-file-remove {
+  background: none;
+  border: none;
+  color: var(--lex-text-tertiary);
+  cursor: pointer;
+  font-size: 20px;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lex-radius-sm);
+  margin-left: var(--lex-space-md);
+  transition: all 0.2s ease;
+}
+
+.lex-file-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.lex-treatment-modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lex-space-md);
+}
+
+.lex-radio-option {
+  display: flex;
+  align-items: center;
+  padding: var(--lex-space-lg);
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lex-radio-option:hover {
+  background: var(--lex-black-tertiary);
+  border-color: var(--lex-accent-border);
+}
+
+.lex-radio-option input[type="radio"] {
+  margin-right: var(--lex-space-lg);
+  cursor: pointer;
+}
+
+.lex-radio-option span {
+  color: var(--lex-text-secondary);
+  font-size: 14px;
+}
+
+.lex-radio-option input[type="radio"]:checked + span {
+  color: var(--lex-text-primary);
+  font-weight: 500;
+}
+
+.lex-btn-primary {
+  background: var(--lex-gradient-primary);
+  border: none;
+  color: var(--lex-text-primary);
+  padding: 10px 24px;
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.lex-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--lex-glow-purple);
+}
+
+.lex-btn-secondary {
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  color: var(--lex-text-secondary);
+  padding: 10px 24px;
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.lex-btn-secondary:hover {
+  background: var(--lex-black-tertiary);
+  color: var(--lex-text-primary);
+}
+
+/* Botão Copiar Minuta - Discreto */
+.lex-btn-copiar-minuta {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+  text-transform: lowercase;
+}
+
+.lex-btn-copiar-minuta:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.lex-btn-copiar-minuta:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Conteúdo da Minuta */
+.lex-minuta-content {
+  background: #1a1a1a;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: #e0e0e0;
+}
+
+.lex-minuta-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lex-minuta-content::-webkit-scrollbar-track {
+  background: #0f0f0f;
+  border-radius: 4px;
+}
+
+.lex-minuta-content::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+.lex-minuta-content::-webkit-scrollbar-thumb:hover {
+  background: #444;
 }

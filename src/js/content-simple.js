@@ -582,6 +582,11 @@ Use HTML simples, máximo 300 palavras.`
     chatContainer.innerHTML = `
       <div class="lex-header">
         <div class="lex-header-top">
+          <div class="lex-control-dots">
+            <button class="lex-dot lex-dot-close" title="Personalização" data-action="personalization"></button>
+            <button class="lex-dot lex-dot-minimize" title="Configurações" data-action="settings"></button>
+            <button class="lex-dot lex-dot-maximize" title="Avançado" data-action="advanced"></button>
+          </div>
           <div class="lex-title-area">
             <div class="lex-title">
               <span class="lex-name" style="font-family: 'Michroma', 'Courier New', monospace !important; letter-spacing: 0.5px !important;">Lex.</span>
@@ -649,6 +654,16 @@ Use HTML simples, máximo 300 palavras.`
       });
     }
 
+    // Control dots
+    const controlDots = chatContainer.querySelectorAll('.lex-dot');
+    controlDots.forEach(dot => {
+      dot.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const action = this.dataset.action;
+        handleDotAction(action);
+      });
+    });
+
     // Botão análise completa
     const analyzeButton = chatContainer.querySelector('.lex-analyze-full');
     if (analyzeButton) {
@@ -674,6 +689,186 @@ Use HTML simples, máximo 300 palavras.`
         }
       });
     }
+  }
+
+  // Handle dot actions
+  function handleDotAction(action) {
+    switch(action) {
+      case 'personalization':
+        openPersonalizationModal();
+        break;
+      case 'settings':
+        adicionarMensagemAssistente('⚙️ Configurações em desenvolvimento...');
+        break;
+      case 'advanced':
+        adicionarMensagemAssistente('🔧 Configurações avançadas em desenvolvimento...');
+        break;
+    }
+  }
+
+  // Open personalization modal
+  function openPersonalizationModal() {
+    console.log('🔴 LEX: Abrindo modal de personalização...');
+    const startTime = performance.now();
+
+    // Check if modal already exists
+    let modal = document.getElementById('lex-personalization-modal');
+    if (modal) {
+      console.log('✅ LEX: Modal já existe, apenas mostrando');
+      modal.style.display = 'flex';
+      return;
+    }
+
+    console.log('🔨 LEX: Criando modal pela primeira vez...');
+
+    // Create modal
+    modal = document.createElement('div');
+    modal.id = 'lex-personalization-modal';
+    modal.className = 'lex-modal';
+
+    // Show modal immediately (even before content is ready)
+    modal.style.display = 'flex';
+    document.body.appendChild(modal);
+
+    modal.innerHTML = `
+      <div class="lex-modal-content">
+        <div class="lex-modal-header">
+          <h3>Personalização</h3>
+          <button class="lex-modal-close">×</button>
+        </div>
+        <div class="lex-modal-body">
+          <div class="lex-personalization-section">
+            <h4>Documentos de Exemplo</h4>
+            <p class="lex-help-text">Adicione documentos para o Lex aprender com seus exemplos</p>
+            <div class="lex-file-upload-area">
+              <input type="file" id="lex-example-docs" multiple accept=".pdf,.doc,.docx,.txt" style="display: none;">
+              <button class="lex-upload-btn" onclick="document.getElementById('lex-example-docs').click()">
+                📄 Adicionar Documentos
+              </button>
+              <div id="lex-uploaded-files" class="lex-uploaded-files"></div>
+            </div>
+          </div>
+
+          <div class="lex-personalization-section">
+            <h4>Modo de Tratamento</h4>
+            <p class="lex-help-text">Escolha como o Lex deve se comunicar com você</p>
+            <div class="lex-treatment-modes">
+              <label class="lex-radio-option">
+                <input type="radio" name="treatment-mode" value="formal" checked>
+                <span>Formal (você)</span>
+              </label>
+              <label class="lex-radio-option">
+                <input type="radio" name="treatment-mode" value="informal">
+                <span>Informal (tu/você amigável)</span>
+              </label>
+              <label class="lex-radio-option">
+                <input type="radio" name="treatment-mode" value="technical">
+                <span>Técnico (linguagem jurídica)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="lex-modal-footer">
+          <button class="lex-btn-secondary lex-modal-cancel">Cancelar</button>
+          <button class="lex-btn-primary lex-modal-save">Salvar</button>
+        </div>
+      </div>
+    `;
+
+    // Event listeners
+    const closeBtn = modal.querySelector('.lex-modal-close');
+    const cancelBtn = modal.querySelector('.lex-modal-cancel');
+    const saveBtn = modal.querySelector('.lex-modal-save');
+    const fileInput = modal.querySelector('#lex-example-docs');
+
+    closeBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    saveBtn.addEventListener('click', () => {
+      savePersonalizationSettings();
+      modal.style.display = 'none';
+      adicionarMensagemAssistente('✅ Configurações de personalização salvas!');
+    });
+
+    // File upload handling
+    fileInput.addEventListener('change', (e) => {
+      handleFileUpload(e.target.files);
+    });
+
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
+    // Load saved settings
+    loadPersonalizationSettings();
+
+    const endTime = performance.now();
+    console.log(`✅ LEX: Modal criado em ${(endTime - startTime).toFixed(2)}ms`);
+  }
+
+  // Save personalization settings
+  function savePersonalizationSettings() {
+    const treatmentMode = document.querySelector('input[name="treatment-mode"]:checked')?.value || 'formal';
+
+    const settings = {
+      treatmentMode,
+      savedAt: new Date().toISOString()
+    };
+
+    localStorage.setItem('lex_personalization', JSON.stringify(settings));
+    console.log('✅ LEX: Configurações salvas:', settings);
+  }
+
+  // Load personalization settings
+  function loadPersonalizationSettings() {
+    const saved = localStorage.getItem('lex_personalization');
+    if (!saved) return;
+
+    try {
+      const settings = JSON.parse(saved);
+
+      // Load treatment mode
+      if (settings.treatmentMode) {
+        const radio = document.querySelector(`input[name="treatment-mode"][value="${settings.treatmentMode}"]`);
+        if (radio) radio.checked = true;
+      }
+    } catch (e) {
+      console.error('❌ LEX: Erro ao carregar configurações:', e);
+    }
+  }
+
+  // Handle file upload
+  function handleFileUpload(files) {
+    const filesContainer = document.getElementById('lex-uploaded-files');
+    if (!filesContainer) return;
+
+    Array.from(files).forEach(file => {
+      const fileItem = document.createElement('div');
+      fileItem.className = 'lex-file-item';
+      fileItem.innerHTML = `
+        <span class="lex-file-name">📄 ${file.name}</span>
+        <span class="lex-file-size">(${(file.size / 1024).toFixed(1)} KB)</span>
+        <button class="lex-file-remove" data-filename="${file.name}">×</button>
+      `;
+
+      filesContainer.appendChild(fileItem);
+
+      // Remove button
+      fileItem.querySelector('.lex-file-remove').addEventListener('click', (e) => {
+        fileItem.remove();
+      });
+    });
+
+    // TODO: Actually process and store the files
+    console.log('📄 LEX: Arquivos adicionados:', Array.from(files).map(f => f.name));
   }
 
   // Adicionar informações do processo de forma discreta
@@ -727,9 +922,222 @@ Use HTML simples, máximo 300 palavras.`
     }
   }
 
+  // Analisar documento detalhado com IA
+  async function analisarDocumentoDetalhado(documento) {
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
+
+    try {
+      // Obter texto completo do documento
+      const textoCompleto = await window.lexSession.getDocumentText(documento.id);
+
+      if (!textoCompleto || textoCompleto.length < 50) {
+        adicionarMensagemAssistente('⚠️ Documento sem conteúdo extraído ou muito curto para análise.');
+        return;
+      }
+
+      // Criar prompt para análise detalhada
+      const promptDetalhado = `Analise detalhadamente este documento:
+
+**Nome:** ${documento.name}
+**ID:** ${documento.id}
+**Tipo:** ${documento.type}
+
+**Conteúdo:**
+${textoCompleto.substring(0, 10000)} ${textoCompleto.length > 10000 ? '...[truncado]' : ''}
+
+Forneça uma análise estruturada:
+1. **Tipo de documento** (petição, decisão, despacho, etc)
+2. **Resumo** (2-3 frases do conteúdo principal)
+3. **Pontos-chave** (bullets com informações importantes)
+4. **Datas mencionadas** (se houver)
+5. **Valores monetários** (se houver)
+6. **Conclusão ou pedido** (1 frase)`;
+
+      // Enviar para IA
+      const resposta = await gerarRespostaIA(promptDetalhado);
+
+      // Adicionar resposta formatada
+      adicionarMensagemAssistente(`📄 <strong>Análise Detalhada: ${documento.name}</strong><br><br>${resposta}`);
+
+    } catch (error) {
+      console.error('❌ Erro ao analisar documento:', error);
+      adicionarMensagemAssistente('❌ Erro ao analisar documento. Tente novamente.');
+    }
+  }
+
+  // Adicionar mensagem do assistente ao chat
+  function adicionarMensagemAssistente(html) {
+    const messagesContainer = chatContainer.querySelector('.lex-messages');
+
+    const assistantMessage = document.createElement('div');
+    assistantMessage.className = 'lex-message assistant';
+    assistantMessage.innerHTML = `
+      <div class="lex-bubble">${html}</div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+    `;
+
+    messagesContainer.appendChild(assistantMessage);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  // Anexar event listeners aos botões de ação dos documentos
+  function anexarEventListenersDocumentos() {
+    const botoes = document.querySelectorAll('.lex-doc-action');
+
+    botoes.forEach(botao => {
+      // Evitar múltiplos listeners
+      if (botao.dataset.listenerAdded) return;
+      botao.dataset.listenerAdded = 'true';
+
+      botao.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const action = botao.dataset.action;
+        const docId = botao.dataset.id;
+
+        console.log(`🔘 LEX: Ação ${action} no documento ${docId}`);
+
+        if (action === 'analisar') {
+          // Buscar documento
+          const documento = window.lexSession.getDocument(docId);
+
+          if (documento) {
+            // Mostrar mensagem de "analisando"
+            adicionarMensagemAssistente(`🔍 <strong>Analisando documento...</strong><br><br>📄 ${documento.name}<br><br><em>Aguarde, consultando IA...</em>`);
+
+            // Executar análise
+            await analisarDocumentoDetalhado(documento);
+          } else {
+            adicionarMensagemAssistente(`❌ Documento ${docId} não encontrado na sessão.`);
+          }
+        }
+      });
+    });
+  }
+
   // Processar comandos especiais
   function processarComando(texto) {
     const textoLower = texto.toLowerCase().trim();
+
+    // Comando: /capturar ou "capturar modelo"
+    if (textoLower.startsWith('/capturar')) {
+      if (!window.PjeModelDetector) {
+        return '⚠️ Detector de modelos não carregado. Recarregue a página.';
+      }
+
+      // Verificar se é comando específico: /capturar [número]
+      const partes = texto.trim().split(' ');
+      if (partes.length > 1) {
+        const indice = parseInt(partes[1]) - 1; // -1 porque usuário vê 1-indexed
+
+        const todosSelects = document.querySelectorAll('select');
+        if (indice >= 0 && indice < todosSelects.length) {
+          const selectEscolhido = todosSelects[indice];
+
+          // Forçar monitoramento desse select específico
+          window.PjeModelDetector.monitorarSelecaoModelo(selectEscolhido);
+
+          return `✅ <strong>Monitorando select #${indice + 1}</strong><br><br>
+📋 <strong>Select:</strong> ${selectEscolhido.name || selectEscolhido.id || 'sem nome'}<br>
+📊 <strong>Opções:</strong> ${selectEscolhido.options.length}<br><br>
+<strong>Próximo passo:</strong><br>
+Selecione uma opção nesse dropdown que eu vou capturar automaticamente!<br><br>
+💡 Aguarde 2 segundos após selecionar.`;
+        } else {
+          return `⚠️ Índice inválido. Use <code>/capturar [1-${todosSelects.length}]</code>`;
+        }
+      }
+
+      // Forçar detecção automática
+      const detectado = window.PjeModelDetector.verificarTelaPeticao();
+
+      if (detectado) {
+        return `✅ <strong>Tela de petição detectada!</strong><br><br>
+Agora selecione um modelo no dropdown para que eu capture automaticamente.<br><br>
+💡 Aguarde 2 segundos após selecionar.`;
+      } else {
+        // Debug manual - mostrar selects disponíveis
+        const todosSelects = document.querySelectorAll('select');
+
+        let debugHTML = `⚠️ <strong>Não detectei automaticamente</strong><br><br>`;
+        debugHTML += `📋 <strong>Selects encontrados:</strong> ${todosSelects.length}<br><br>`;
+
+        if (todosSelects.length > 0) {
+          debugHTML += `<strong>Qual é o dropdown de modelos/tipos de documento?</strong><br><br>`;
+
+          Array.from(todosSelects).forEach((select, i) => {
+            if (select.options.length > 1) {
+              const nome = select.name || select.id || 'sem nome';
+              debugHTML += `${i+1}. <strong>${nome}</strong> (${select.options.length} opções)<br>`;
+            }
+          });
+
+          debugHTML += `<br>💡 Digite <code>/capturar [número]</code> para monitorar um específico.<br>`;
+          debugHTML += `Exemplo: <code>/capturar 1</code> para monitorar o primeiro.`;
+        } else {
+          debugHTML += `<em>Nenhum dropdown encontrado.<br>Navegue até "Minutar" ou "Peticionar" e tente novamente.</em>`;
+        }
+
+        return debugHTML;
+      }
+    }
+
+    // Comando: /modelos ou "listar modelos"
+    if (textoLower.startsWith('/modelos') || textoLower.includes('listar modelos')) {
+      if (!window.ModelCache) {
+        return '⚠️ Cache de modelos não carregado.';
+      }
+
+      const modelos = window.ModelCache.listarModelos();
+
+      if (modelos.length === 0) {
+        return `📋 <strong>Nenhum modelo capturado ainda</strong><br><br>
+Para capturar modelos:<br><br>
+1. Vá até "Nova Petição" no PJe<br>
+2. Digite <code>/capturar</code> para verificar se estou detectando<br>
+3. Selecione um modelo no dropdown<br>
+4. Aguarde 2 segundos<br><br>
+💡 Vou capturar automaticamente!`;
+      }
+
+      let html = `📚 <strong>Modelos Capturados (${modelos.length})</strong><br><br>`;
+
+      modelos.forEach((modelo, i) => {
+        html += `${i+1}. <strong>${modelo.nome}</strong><br>`;
+        html += `   ID: ${modelo.id}<br>`;
+        html += `   Tribunal: ${modelo.tribunal || 'N/A'}<br>`;
+        html += `   Campos: ${modelo.campos?.length || 0}<br>`;
+        html += `   Capturado: ${new Date(modelo.extraidoEm).toLocaleDateString()}<br><br>`;
+      });
+
+      html += `<em>💡 Use "Minuta [tipo]" para gerar uma minuta com esses modelos</em>`;
+
+      return html;
+    }
+
+    // Comando: Minuta ou "minuta uma/de..."
+    if (textoLower.startsWith('minuta') || textoLower.includes('gerar minuta') || textoLower.includes('minutar')) {
+      if (!window.MinutaGenerator) {
+        return '⚠️ Módulo de minutas não carregado. Recarregue a página e tente novamente.';
+      }
+
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return `⚠️ <strong>Nenhum processo em contexto</strong><br><br>
+Para gerar uma minuta, você precisa:<br><br>
+1. <strong>Analisar um processo primeiro</strong> (Ctrl+; ou "Análise Completa")<br>
+2. Depois peça: "Minuta uma contestação"<br><br>
+💡 Preciso dos dados do processo para preencher a minuta!`;
+      }
+
+      // Iniciar geração assíncrona
+      gerarMinutaAssistente(texto);
+
+      return `✍️ <strong>Gerando minuta...</strong><br><br>
+📋 Comando: "${texto}"<br>
+🔍 Buscando modelo apropriado...<br><br>
+<em>Aguarde alguns instantes...</em>`;
+    }
 
     // Comando: /documentos ou "listar documentos"
     if (textoLower.startsWith('/documentos') || textoLower.includes('listar documentos') || textoLower.includes('quais documentos')) {
@@ -737,7 +1145,7 @@ Use HTML simples, máximo 300 palavras.`
         return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro para carregar os documentos.';
       }
 
-      const docs = window.lexSession.listDocuments();
+      const docs = window.lexSession.processedDocuments;
       if (docs.length === 0) {
         return '📄 Nenhum documento processado ainda.';
       }
@@ -745,15 +1153,54 @@ Use HTML simples, máximo 300 palavras.`
       let html = `📚 <strong>Documentos Disponíveis (${docs.length})</strong><br><br>`;
       docs.forEach((doc, i) => {
         html += `${i + 1}. <strong>${doc.name}</strong><br>`;
-        html += `   ID: ${doc.id} | Páginas: ${doc.pages || 'N/A'}<br><br>`;
+        html += `   ID: ${doc.id} | Páginas: ${doc.data.paginas || 'N/A'}<br>`;
+        html += `   <button class="lex-doc-action" data-action="analisar" data-id="${doc.id}">🔍 Analisar</button>`;
+        html += `<br><br>`;
       });
 
-      html += '<em>💡 Digite "/buscar [termo]" para procurar ou "/analisar [ID]" para análise específica</em>';
+      html += '<em>💡 Clique em "🔍 Analisar" ou use /buscar [termo]</em>';
+
+      // Adicionar event listeners após renderização
+      setTimeout(() => anexarEventListenersDocumentos(), 100);
 
       return html;
     }
 
-    // Comando: /buscar [termo]
+    // Comando: /analisar [ID ou nome]
+    if (textoLower.startsWith('/analisar ')) {
+      const identificador = texto.substring(10).trim();
+
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro.';
+      }
+
+      // Buscar documento por ID ou nome
+      let documento = window.lexSession.getDocument(identificador);
+
+      if (!documento) {
+        // Tentar buscar por nome parcial
+        const resultados = window.lexSession.searchDocuments(identificador);
+        if (resultados.length === 1) {
+          documento = resultados[0];
+        } else if (resultados.length > 1) {
+          let html = `🔍 Encontrados ${resultados.length} documentos com "${identificador}":<br><br>`;
+          resultados.forEach((doc, i) => {
+            html += `${i + 1}. ${doc.name} (ID: ${doc.id})<br>`;
+          });
+          html += '<br><em>Use /analisar [ID] para especificar qual analisar</em>';
+          return html;
+        } else {
+          return `❌ Documento não encontrado: "${identificador}"<br><br><em>Use /documentos para ver a lista completa</em>`;
+        }
+      }
+
+      // Iniciar análise detalhada (assíncrona)
+      analisarDocumentoDetalhado(documento);
+
+      return `🔍 <strong>Analisando documento...</strong><br><br>📄 ${documento.name}<br>ID: ${documento.id}<br><br><em>Aguarde, consultando IA...</em>`;
+    }
+
+    // Comando: /buscar [termo] ou /buscar conteudo:"termo"
     if (textoLower.startsWith('/buscar ')) {
       const termo = texto.substring(8).trim();
 
@@ -761,20 +1208,68 @@ Use HTML simples, máximo 300 palavras.`
         return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro.';
       }
 
-      const resultados = window.lexSession.searchDocuments(termo);
+      // Verificar se é busca no conteúdo: conteudo:"termo" ou content:"term"
+      const conteudoMatch = termo.match(/(?:conteudo|content):"([^"]+)"/i);
 
-      if (resultados.length === 0) {
-        return `🔍 Nenhum documento encontrado com o termo "<strong>${termo}</strong>"`;
+      if (conteudoMatch) {
+        // BUSCA SEMÂNTICA NO CONTEÚDO
+        const termoBusca = conteudoMatch[1].toLowerCase();
+        const resultados = [];
+
+        window.lexSession.processedDocuments.forEach(doc => {
+          if (doc.data.texto && doc.data.texto.toLowerCase().includes(termoBusca)) {
+            // Encontrar contexto ao redor do termo
+            const texto = doc.data.texto.toLowerCase();
+            const index = texto.indexOf(termoBusca);
+            const inicio = Math.max(0, index - 100);
+            const fim = Math.min(texto.length, index + termoBusca.length + 100);
+            const contexto = doc.data.texto.substring(inicio, fim);
+
+            resultados.push({
+              id: doc.id,
+              name: doc.name,
+              contexto: contexto,
+              posicao: index
+            });
+          }
+        });
+
+        if (resultados.length === 0) {
+          return `🔍 Nenhum documento contém "<strong>${termoBusca}</strong>" no conteúdo<br><br><em>💡 Tente termos mais simples ou use /buscar [nome] para buscar por nome de arquivo</em>`;
+        }
+
+        let html = `🔍 <strong>Busca no conteúdo: "${termoBusca}"</strong><br><br>`;
+        html += `📄 Encontrado em ${resultados.length} documento(s):<br><br>`;
+
+        resultados.forEach((resultado, i) => {
+          html += `${i + 1}. <strong>${resultado.name}</strong><br>`;
+          html += `   <em>...${resultado.contexto}...</em><br>`;
+          html += `   <button class="lex-doc-action" data-action="analisar" data-id="${resultado.id}">🔍 Analisar</button><br><br>`;
+        });
+
+        html += '<em>💡 Clique em "🔍 Analisar" para ver documento completo</em>';
+
+        // Anexar event listeners
+        setTimeout(() => anexarEventListenersDocumentos(), 100);
+
+        return html;
+      } else {
+        // BUSCA POR NOME (comportamento padrão)
+        const resultados = window.lexSession.searchDocuments(termo);
+
+        if (resultados.length === 0) {
+          return `🔍 Nenhum documento encontrado com o termo "<strong>${termo}</strong>"<br><br><em>💡 Use /buscar conteudo:"termo" para buscar no conteúdo dos documentos</em>`;
+        }
+
+        let html = `🔍 <strong>Resultados para "${termo}"</strong> (${resultados.length})<br><br>`;
+        resultados.forEach((doc, i) => {
+          html += `${i + 1}. <strong>${doc.name}</strong> (ID: ${doc.id})<br>`;
+        });
+
+        html += '<br><em>💡 Use "/analisar [ID]" para análise detalhada ou /buscar conteudo:"termo" para buscar no conteúdo</em>';
+
+        return html;
       }
-
-      let html = `🔍 <strong>Resultados para "${termo}"</strong> (${resultados.length})<br><br>`;
-      resultados.forEach((doc, i) => {
-        html += `${i + 1}. <strong>${doc.name}</strong> (ID: ${doc.id})<br>`;
-      });
-
-      html += '<br><em>💡 Use "/analisar [ID]" para análise detalhada</em>';
-
-      return html;
     }
 
     // Comando: /sessao ou "status da sessão"
@@ -817,12 +1312,73 @@ Use HTML simples, máximo 300 palavras.`
         <em>💡 Use "/documentos" para ver os documentos processados</em>`;
     }
 
+    // Comando: /timeline - Visualização cronológica dos documentos
+    if (textoLower.startsWith('/timeline') || textoLower.includes('linha do tempo')) {
+      if (!window.lexSession || !window.lexSession.isActive()) {
+        return '⚠️ Nenhuma sessão ativa. Execute a "análise completa" primeiro.';
+      }
+
+      const docs = window.lexSession.processedDocuments;
+
+      if (docs.length === 0) {
+        return '⚠️ Nenhum documento processado ainda.';
+      }
+
+      // Ordenar por data de processamento (proxy para data do documento)
+      const docsSorted = [...docs].sort((a, b) => {
+        return new Date(a.processedAt) - new Date(b.processedAt);
+      });
+
+      let html = `📅 <strong>Timeline dos Documentos</strong> (${docs.length} total)<br><br>`;
+
+      docsSorted.forEach((doc, i) => {
+        const dataProcessamento = new Date(doc.processedAt).toLocaleDateString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+
+        const horaProcessamento = new Date(doc.processedAt).toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        // Ícone baseado no tipo de documento
+        let icone = '📄';
+        const nameLower = doc.name.toLowerCase();
+        if (nameLower.includes('petição') || nameLower.includes('inicial')) icone = '📝';
+        else if (nameLower.includes('sentença') || nameLower.includes('decisão')) icone = '⚖️';
+        else if (nameLower.includes('despacho')) icone = '📋';
+        else if (nameLower.includes('recurso') || nameLower.includes('apelação')) icone = '📑';
+        else if (nameLower.includes('contestação')) icone = '🛡️';
+
+        html += `<div style="border-left: 3px solid #00d4ff; padding-left: 12px; margin-bottom: 16px;">`;
+        html += `  <div style="color: #888; font-size: 11px;">${dataProcessamento} ${horaProcessamento}</div>`;
+        html += `  <div style="margin-top: 4px;">${icone} <strong>${doc.name}</strong></div>`;
+        html += `  <div style="font-size: 11px; color: #aaa; margin-top: 4px;">`;
+        html += `    ${doc.data.paginas ? doc.data.paginas + ' págs' : ''} ${doc.data.tamanho || ''}`;
+        html += `  </div>`;
+        html += `  <button class="lex-doc-action" data-action="analisar" data-id="${doc.id}" style="margin-top: 8px;">🔍 Analisar</button>`;
+        html += `</div>`;
+      });
+
+      html += '<br><em>💡 Clique em "🔍 Analisar" para análise detalhada de cada documento</em>';
+
+      // Anexar event listeners
+      setTimeout(() => anexarEventListenersDocumentos(), 100);
+
+      return html;
+    }
+
     // Comando: /ajuda ou /comandos
     if (textoLower.startsWith('/ajuda') || textoLower.startsWith('/comandos') || textoLower === 'ajuda') {
       return `💡 <strong>Comandos Disponíveis</strong><br><br>
         <strong>/processo</strong> - Informações do processo (partes, classe, assunto)<br>
         <strong>/documentos</strong> - Lista todos os documentos processados<br>
+        <strong>/analisar [ID]</strong> - Análise detalhada de um documento específico<br>
         <strong>/buscar [termo]</strong> - Busca documentos por nome ou ID<br>
+        <strong>/buscar conteudo:"termo"</strong> - Busca no conteúdo dos documentos<br>
+        <strong>/timeline</strong> - Visualização cronológica dos documentos<br>
         <strong>/sessao</strong> - Mostra status da sessão atual<br>
         <strong>/ajuda</strong> - Mostra esta mensagem<br><br>
         <strong>Perguntas em linguagem natural:</strong><br>
@@ -1648,6 +2204,97 @@ Use HTML simples, máximo 300 palavras.`
     setTimeout(() => {
       modal.remove();
     }, 5000);
+  }
+
+  /**
+   * Gera minuta usando MinutaGenerator
+   */
+  async function gerarMinutaAssistente(comando) {
+    try {
+      console.log('✍️ LEX: Gerando minuta para:', comando);
+
+      // Chamar MinutaGenerator
+      const resultado = await window.MinutaGenerator.gerarMinuta(comando);
+
+      if (!resultado.sucesso) {
+        // Erro ou modelo não encontrado
+        adicionarMensagemAssistente(resultado.mensagem);
+        return;
+      }
+
+      // Sucesso - mostrar minuta
+      const { minuta, modelo, metadados } = resultado;
+
+      // Debug: Verificar se ainda tem HTML
+      const temHTML = /<[^>]+>/.test(minuta);
+      if (temHTML) {
+        console.warn('⚠️ LEX: Minuta ainda contém HTML! Primeiros 200 chars:', minuta.substring(0, 200));
+      } else {
+        console.log('✅ LEX: Minuta limpa, sem HTML');
+      }
+
+      // ID único para esta minuta
+      const minutaId = `minuta-${Date.now()}`;
+
+      // Minuta minimalista
+      let mensagemHTML = `<div id="${minutaId}" class="lex-minuta-content" style="background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; line-height: 1.6; color: #e0e0e0;">`;
+      mensagemHTML += minuta.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      mensagemHTML += `</div>`;
+
+      // Botão copiar minimalista
+      mensagemHTML += `<div style="display: flex; justify-content: flex-end; margin-top: 8px;">`;
+      mensagemHTML += `  <button class="lex-btn-copiar-minuta" data-minuta-id="${minutaId}">
+        <span class="btn-text">copiar</span>
+      </button>`;
+      mensagemHTML += `</div>`;
+
+      console.log('📝 LEX: Adicionando minuta com ID:', minutaId);
+
+      adicionarMensagemAssistente(mensagemHTML);
+
+      // Adicionar event listener ao botão após renderização
+      setTimeout(() => {
+        console.log('🔍 LEX: Procurando botão copiar...');
+        const btnCopiar = document.querySelector(`[data-minuta-id="${minutaId}"]`);
+        console.log('🔍 LEX: Botão encontrado?', !!btnCopiar);
+
+        if (btnCopiar) {
+          console.log('✅ LEX: Event listener adicionado ao botão copiar');
+          btnCopiar.addEventListener('click', async function() {
+            const minutaElement = document.getElementById(minutaId);
+            const textoMinuta = minutaElement.innerText;
+
+            try {
+              await navigator.clipboard.writeText(textoMinuta);
+
+              // Feedback visual discreto
+              const btnText = this.querySelector('.btn-text');
+              const originalText = btnText.textContent;
+              btnText.textContent = 'copiado';
+              this.style.color = 'rgba(16, 185, 129, 0.9)';
+              this.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+
+              setTimeout(() => {
+                btnText.textContent = originalText;
+                this.style.color = '';
+                this.style.borderColor = '';
+              }, 1500);
+
+              console.log('✅ Minuta copiada para área de transferência');
+            } catch (erro) {
+              console.error('❌ Erro ao copiar:', erro);
+              alert('❌ Erro ao copiar. Tente selecionar e copiar manualmente (Ctrl+C)');
+            }
+          });
+        }
+      }, 100);
+
+      console.log('✅ LEX: Minuta exibida com sucesso');
+
+    } catch (erro) {
+      console.error('❌ LEX: Erro ao gerar minuta:', erro);
+      adicionarMensagemAssistente(`❌ <strong>Erro ao gerar minuta</strong><br><br>${erro.message || erro}`);
+    }
   }
 
 

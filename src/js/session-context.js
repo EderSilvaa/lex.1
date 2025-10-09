@@ -58,6 +58,9 @@ class SessionContext {
       });
 
       console.log(`📌 LEX: Documento ${document.id} adicionado ao contexto da sessão`);
+
+      // AUTO-SAVE após adicionar documento
+      this.save();
     }
   }
 
@@ -85,6 +88,20 @@ class SessionContext {
       content: content,
       timestamp: new Date()
     });
+
+    // AUTO-SAVE após adicionar ao histórico (mas com throttle)
+    this.scheduleAutoSave();
+  }
+
+  /**
+   * Agenda auto-save com throttle (evita salvar a cada mensagem)
+   */
+  scheduleAutoSave() {
+    if (this._saveTimeout) clearTimeout(this._saveTimeout);
+
+    this._saveTimeout = setTimeout(() => {
+      this.save();
+    }, 2000); // Salva 2 segundos após última mudança
   }
 
   /**
@@ -110,19 +127,6 @@ class SessionContext {
     );
   }
 
-  /**
-   * Lista todos os documentos processados
-   * @returns {Array} Lista de documentos com metadados resumidos
-   */
-  listDocuments() {
-    return this.processedDocuments.map(doc => ({
-      id: doc.id,
-      name: doc.name,
-      type: doc.type,
-      pages: doc.data.paginas,
-      size: doc.data.tamanho
-    }));
-  }
 
   /**
    * Obtém texto completo de um documento (do cache se disponível)
@@ -233,14 +237,89 @@ class SessionContext {
   }
 
   /**
+   * Salva sessão no localStorage
+   * @param {number} ttl - Time to live em horas (padrão: 24h)
+   */
+  save(ttl = 24) {
+    try {
+      const sessionData = {
+        processNumber: this.processNumber,
+        processInfo: this.processInfo,
+        documents: this.documents,
+        processedDocuments: this.processedDocuments,
+        conversationHistory: this.conversationHistory.slice(-20), // Últimas 20 mensagens
+        lastAnalysis: this.lastAnalysis,
+        createdAt: this.createdAt,
+        expiresAt: Date.now() + (ttl * 60 * 60 * 1000),
+        version: '1.0'
+      };
+
+      localStorage.setItem('lex_session', JSON.stringify(sessionData));
+      console.log(`💾 LEX: Sessão salva (expira em ${ttl}h)`);
+
+      return true;
+    } catch (error) {
+      console.error('❌ LEX: Erro ao salvar sessão:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Restaura sessão do localStorage
+   * @returns {boolean} True se restaurou com sucesso
+   */
+  restore() {
+    try {
+      const saved = localStorage.getItem('lex_session');
+
+      if (!saved) {
+        console.log('📭 LEX: Nenhuma sessão salva encontrada');
+        return false;
+      }
+
+      const sessionData = JSON.parse(saved);
+
+      // Verificar expiração
+      if (Date.now() > sessionData.expiresAt) {
+        console.log('⏰ LEX: Sessão expirada, removendo...');
+        localStorage.removeItem('lex_session');
+        return false;
+      }
+
+      // Restaurar dados
+      this.processNumber = sessionData.processNumber;
+      this.processInfo = sessionData.processInfo;
+      this.documents = sessionData.documents || [];
+      this.processedDocuments = sessionData.processedDocuments || [];
+      this.conversationHistory = sessionData.conversationHistory || [];
+      this.lastAnalysis = sessionData.lastAnalysis;
+      this.createdAt = new Date(sessionData.createdAt);
+
+      const horasRestantes = Math.round((sessionData.expiresAt - Date.now()) / (60 * 60 * 1000));
+
+      console.log(`✅ LEX: Sessão restaurada (${this.processedDocuments.length} docs, expira em ${horasRestantes}h)`);
+
+      return true;
+    } catch (error) {
+      console.error('❌ LEX: Erro ao restaurar sessão:', error);
+      localStorage.removeItem('lex_session');
+      return false;
+    }
+  }
+
+  /**
    * Limpa contexto da sessão
    */
   clear() {
     this.processNumber = null;
+    this.processInfo = null;
     this.documents = [];
     this.processedDocuments = [];
     this.conversationHistory = [];
     this.lastAnalysis = null;
+
+    // Limpar localStorage também
+    localStorage.removeItem('lex_session');
 
     console.log('🗑️ LEX: Contexto da sessão limpo');
   }
@@ -261,6 +340,13 @@ if (typeof window !== 'undefined') {
   // Criar instância global
   if (!window.lexSession) {
     window.lexSession = new SessionContext();
+
+    // AUTO-RESTORE: Tentar restaurar sessão salva
+    const restored = window.lexSession.restore();
+
+    if (restored) {
+      console.log('🔄 LEX: Sessão anterior restaurada automaticamente');
+    }
   }
 
   console.log('✅ LEX: SessionContext carregado com sucesso');
