@@ -584,7 +584,7 @@ Use HTML simples, máximo 300 palavras.`
         <div class="lex-header-top">
           <div class="lex-control-dots">
             <button class="lex-dot lex-dot-close" title="Personalização" data-action="personalization"></button>
-            <button class="lex-dot lex-dot-minimize" title="Configurações" data-action="settings"></button>
+            <button class="lex-dot lex-dot-minimize" title="Dashboard de Métricas" data-action="dashboard"></button>
             <button class="lex-dot lex-dot-maximize" title="Avançado" data-action="advanced"></button>
           </div>
           <div class="lex-title-area">
@@ -696,6 +696,9 @@ Use HTML simples, máximo 300 palavras.`
     switch(action) {
       case 'personalization':
         openPersonalizationModal();
+        break;
+      case 'dashboard':
+        openDashboardModal();
         break;
       case 'settings':
         adicionarMensagemAssistente('⚙️ Configurações em desenvolvimento...');
@@ -842,6 +845,240 @@ Use HTML simples, máximo 300 palavras.`
       }
     } catch (e) {
       console.error('❌ LEX: Erro ao carregar configurações:', e);
+    }
+  }
+
+  // Open dashboard modal
+  function openDashboardModal() {
+    console.log('📊 LEX: Abrindo dashboard de métricas...');
+
+    // Check if modal already exists
+    let modal = document.getElementById('lex-dashboard-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      atualizarDashboard(); // Atualizar dados
+      return;
+    }
+
+    // Create modal
+    modal = document.createElement('div');
+    modal.id = 'lex-dashboard-modal';
+    modal.className = 'lex-modal';
+    modal.style.display = 'flex';
+    document.body.appendChild(modal);
+
+    // Coletar estatísticas
+    const stats = coletarEstatisticas();
+
+    modal.innerHTML = `
+      <div class="lex-modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+        <div class="lex-modal-header">
+          <h3>📊 Dashboard de Métricas</h3>
+          <button class="lex-modal-close">×</button>
+        </div>
+        <div class="lex-modal-body" id="lex-dashboard-body">
+          ${gerarHTMLDashboard(stats)}
+        </div>
+      </div>
+    `;
+
+    // Close button
+    const closeBtn = modal.querySelector('.lex-modal-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+    }
+
+    // Click outside to close
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+  }
+
+  // Coletar estatísticas do sistema
+  function coletarEstatisticas() {
+    const session = window.lexSession;
+    const stats = {
+      // Sessão
+      sessionActive: session && session.isActive(),
+      processNumber: session?.processNumber || 'N/A',
+      sessionAge: session?.createdAt ? Math.round((Date.now() - new Date(session.createdAt).getTime()) / 1000 / 60) : 0,
+
+      // Documentos
+      totalDocs: session?.documents?.length || 0,
+      processedDocs: session?.processedDocuments?.length || 0,
+
+      // Contexto
+      hasAnalysis: !!session?.lastAnalysis,
+      conversationLength: session?.conversationHistory?.length || 0,
+
+      // Memória
+      cacheSize: 0,
+      modelCacheSize: 0
+    };
+
+    // Calcular tamanho do contexto
+    if (session && session.processedDocuments) {
+      let totalChars = 0;
+      session.processedDocuments.forEach(doc => {
+        if (doc.data && doc.data.texto) {
+          totalChars += doc.data.texto.length;
+        }
+      });
+      stats.totalContextChars = totalChars;
+      stats.totalContextTokens = Math.ceil(totalChars / 4);
+    } else {
+      stats.totalContextChars = 0;
+      stats.totalContextTokens = 0;
+    }
+
+    // Calcular tamanho do localStorage
+    try {
+      const lexSession = localStorage.getItem('lex_session');
+      stats.cacheSize = lexSession ? (lexSession.length / 1024).toFixed(2) : 0;
+
+      const modelCache = localStorage.getItem('lex_pje_models');
+      stats.modelCacheSize = modelCache ? (modelCache.length / 1024).toFixed(2) : 0;
+    } catch (e) {
+      console.error('Erro ao calcular cache:', e);
+    }
+
+    return stats;
+  }
+
+  // Gerar HTML do dashboard
+  function gerarHTMLDashboard(stats) {
+    const percentTokens = ((stats.totalContextTokens / 128000) * 100).toFixed(1);
+    const statusColor = stats.sessionActive ? '#4ade80' : '#ef4444';
+    const statusText = stats.sessionActive ? 'Ativa' : 'Inativa';
+
+    return `
+      <div class="lex-dashboard">
+        <!-- Status Geral -->
+        <div class="lex-dash-section">
+          <h4>🎯 Status da Sessão</h4>
+          <div class="lex-dash-cards">
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Status</div>
+              <div class="lex-dash-value" style="color: ${statusColor};">${statusText}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Processo</div>
+              <div class="lex-dash-value" style="font-size: 12px;">${stats.processNumber}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Tempo Ativo</div>
+              <div class="lex-dash-value">${stats.sessionAge} min</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Documentos -->
+        <div class="lex-dash-section">
+          <h4>📄 Documentos</h4>
+          <div class="lex-dash-cards">
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Descobertos</div>
+              <div class="lex-dash-value">${stats.totalDocs}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Processados</div>
+              <div class="lex-dash-value" style="color: #4ade80;">${stats.processedDocs}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Taxa de Processamento</div>
+              <div class="lex-dash-value">${stats.totalDocs > 0 ? Math.round((stats.processedDocs / stats.totalDocs) * 100) : 0}%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contexto & IA -->
+        <div class="lex-dash-section">
+          <h4>🧠 Contexto & Inteligência</h4>
+          <div class="lex-dash-cards">
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Caracteres Armazenados</div>
+              <div class="lex-dash-value">${stats.totalContextChars.toLocaleString()}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Tokens Estimados</div>
+              <div class="lex-dash-value">${stats.totalContextTokens.toLocaleString()}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Uso GPT-4o (128K)</div>
+              <div class="lex-dash-value">${percentTokens}%</div>
+            </div>
+          </div>
+
+          <div class="lex-dash-progress">
+            <div class="lex-dash-progress-bar" style="width: ${Math.min(percentTokens, 100)}%; background: ${percentTokens > 80 ? '#fbbf24' : '#4ade80'};"></div>
+          </div>
+          <div class="lex-dash-hint">Capacidade: ${stats.totalContextTokens.toLocaleString()} / 128.000 tokens</div>
+        </div>
+
+        <!-- Conversação -->
+        <div class="lex-dash-section">
+          <h4>💬 Histórico de Conversação</h4>
+          <div class="lex-dash-cards">
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Mensagens</div>
+              <div class="lex-dash-value">${stats.conversationLength}</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Análise Completa</div>
+              <div class="lex-dash-value" style="color: ${stats.hasAnalysis ? '#4ade80' : '#ef4444'};">${stats.hasAnalysis ? 'Sim' : 'Não'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Armazenamento -->
+        <div class="lex-dash-section">
+          <h4>💾 Armazenamento Local</h4>
+          <div class="lex-dash-cards">
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Sessão (lex_session)</div>
+              <div class="lex-dash-value">${stats.cacheSize} KB</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Modelos (lex_pje_models)</div>
+              <div class="lex-dash-value">${stats.modelCacheSize} KB</div>
+            </div>
+            <div class="lex-dash-card">
+              <div class="lex-dash-label">Total</div>
+              <div class="lex-dash-value">${(parseFloat(stats.cacheSize) + parseFloat(stats.modelCacheSize)).toFixed(2)} KB</div>
+            </div>
+          </div>
+          <div class="lex-dash-hint">Limite do localStorage: ~5-10 MB por domínio</div>
+        </div>
+
+        <!-- Ações -->
+        <div class="lex-dash-section">
+          <h4>⚙️ Ações Rápidas</h4>
+          <div class="lex-dash-actions">
+            <button class="lex-dash-btn" onclick="window.lexSession && window.lexSession.clear(); location.reload();">
+              🗑️ Limpar Sessão
+            </button>
+            <button class="lex-dash-btn" onclick="window.ModelCache && window.ModelCache.limparTudo(); location.reload();">
+              🗑️ Limpar Modelos
+            </button>
+            <button class="lex-dash-btn" onclick="console.log('Sessão:', window.lexSession); console.log('Stats:', window.lexSession?.getStats());">
+              🔍 Debug Console
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Atualizar dashboard
+  function atualizarDashboard() {
+    const dashBody = document.getElementById('lex-dashboard-body');
+    if (dashBody) {
+      const stats = coletarEstatisticas();
+      dashBody.innerHTML = gerarHTMLDashboard(stats);
     }
   }
 
@@ -1412,12 +1649,21 @@ Para gerar uma minuta, você precisa:<br><br>
         console.log(`📄 LEX: ${docsEncontrados.length} documentos relevantes encontrados`);
       }
 
-      // Gerar contexto resumido ENRIQUECIDO para enviar à IA
+      // Gerar contexto EXPANDIDO para enviar à IA (aproveitando GPT-4o 128K tokens)
       const contextoConciso = window.lexSession.generateContextSummary({
-        maxDocuments: 5,
-        includeHistory: true, // Incluir últimas 3 mensagens
-        includeLastAnalysis: false // Não incluir análise completa (muito grande)
+        maxDocuments: 10,           // ✅ Dobrar documentos (vs 5 anterior)
+        includeFullText: true,      // ✅ TEXTO COMPLETO dos documentos
+        maxCharsPerDoc: 10000,      // ✅ 10K chars por doc (vs 500 preview)
+        includeHistory: true,       // Incluir últimas 3 mensagens
+        includeLastAnalysis: true,  // ✅ AGORA SIM incluir análise (5K chars)
+        maxAnalysisChars: 5000      // ✅ 5K chars da análise (vs 500 anterior)
       });
+
+      // 📊 Log de métricas de contexto
+      const contextoChars = contextoConciso.length;
+      const contextoTokensEstimado = Math.ceil(contextoChars / 4); // ~4 chars por token
+      console.log(`📊 LEX: Contexto gerado - ${contextoChars} chars (~${contextoTokensEstimado} tokens)`);
+      console.log(`📊 LEX: Uso estimado: ${(contextoTokensEstimado / 128000 * 100).toFixed(1)}% da janela GPT-4o`);
 
       // Montar prompt com contexto ESTRUTURADO
       const promptComContexto = `${contextoConciso}
@@ -2062,6 +2308,7 @@ Para gerar uma minuta, você precisa:<br><br>
       });
 
       // Iniciar análise
+      console.log('🔍 DEBUG iniciarAnaliseCompleta: Chamando analyzer.analyze()...');
       const result = await analyzer.analyze({
         useCache: true,
         processPDFs: true,
@@ -2070,6 +2317,7 @@ Para gerar uma minuta, você precisa:<br><br>
         batchSize: 5
       });
 
+      console.log('🔍 DEBUG iniciarAnaliseCompleta: result recebido:', result);
       console.log('✅ LEX: Análise completa finalizada:', result);
 
     } catch (error) {
@@ -2127,6 +2375,8 @@ Para gerar uma minuta, você precisa:<br><br>
    * @param {Object} result - Resultado da análise
    */
   function finalizarModalProgresso(modal, result) {
+    console.log('🔍 DEBUG finalizarModalProgresso: Recebeu result:', result);
+
     const iconEl = modal.querySelector('.lex-progress-icon');
     const messageEl = modal.querySelector('.lex-progress-message');
     const barEl = modal.querySelector('.lex-progress-bar');
@@ -2143,11 +2393,13 @@ Para gerar uma minuta, você precisa:<br><br>
       const messagesContainer = chatContainer.querySelector('.lex-messages');
 
       // Extrair o texto da análise (pode vir em diferentes formatos)
+      console.log('🔍 DEBUG finalizarModalProgresso: result.analysis:', result.analysis);
       let analiseTexto = '';
       if (result.analysis) {
         analiseTexto = result.analysis.resumo || result.analysis.analise ||
                        result.analysis.resposta || JSON.stringify(result.analysis);
       }
+      console.log('🔍 DEBUG finalizarModalProgresso: analiseTexto extraído:', analiseTexto);
 
       if (analiseTexto) {
         const resultMessage = document.createElement('div');

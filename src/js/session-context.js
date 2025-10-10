@@ -163,6 +163,8 @@ class SessionContext {
   generateContextSummary(options = {}) {
     const includeFullText = options.includeFullText || false;
     const maxDocuments = options.maxDocuments || 10;
+    const maxCharsPerDoc = options.maxCharsPerDoc || 10000; // ✅ 10K chars default (vs 500)
+    const maxAnalysisChars = options.maxAnalysisChars || 5000; // ✅ 5K chars para análise
 
     let context = `# CONTEXTO DO PROCESSO\n\n`;
 
@@ -179,14 +181,18 @@ class SessionContext {
       context += `## Processo: ${this.processNumber}\n\n`;
     }
 
-    // ANÁLISE ANTERIOR (SE HOUVER)
+    // ANÁLISE ANTERIOR (SE HOUVER) - ✅ EXPANDIDO
     if (this.lastAnalysis && options.includeLastAnalysis) {
       context += `## Análise Anterior\n\n`;
-      const analisePreview = JSON.stringify(this.lastAnalysis.content).substring(0, 500);
-      context += `${analisePreview}...\n\n`;
+      const analiseContent = typeof this.lastAnalysis.content === 'string'
+        ? this.lastAnalysis.content
+        : JSON.stringify(this.lastAnalysis.content);
+
+      const analisePreview = analiseContent.substring(0, maxAnalysisChars);
+      context += `${analisePreview}${analiseContent.length > maxAnalysisChars ? '...' : ''}\n\n`;
     }
 
-    // DOCUMENTOS PROCESSADOS
+    // DOCUMENTOS PROCESSADOS - ✅ TEXTO COMPLETO OU EXPANDIDO
     context += `## Documentos Processados (${this.processedDocuments.length} total)\n\n`;
 
     const docs = this.processedDocuments.slice(0, maxDocuments);
@@ -196,9 +202,19 @@ class SessionContext {
       context += `   - Tipo: ${doc.data.tipo}\n`;
       context += `   - Páginas: ${doc.data.paginas || 'N/A'}\n`;
 
-      if (includeFullText && doc.data.texto) {
-        const preview = doc.data.texto.substring(0, 500);
-        context += `   - Preview: ${preview}...\n`;
+      if (doc.data.texto) {
+        if (includeFullText) {
+          // ✅ TEXTO COMPLETO quando solicitado
+          const textoCompleto = doc.data.texto.substring(0, maxCharsPerDoc);
+          context += `   - Conteúdo (${textoCompleto.length} caracteres):\n`;
+          context += `${textoCompleto}${doc.data.texto.length > maxCharsPerDoc ? '\n   [... continua]' : ''}\n`;
+        } else {
+          // Preview curto quando não solicita full text
+          const preview = doc.data.texto.substring(0, 500);
+          context += `   - Preview: ${preview}...\n`;
+        }
+      } else {
+        context += `   - Conteúdo: [Não extraído]\n`;
       }
 
       context += '\n';

@@ -1170,3 +1170,120 @@
 .lex-minuta-content::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+
+/* ============================================
+   📊 DASHBOARD DE MÉTRICAS
+   ============================================ */
+
+.lex-dashboard {
+  padding: 0;
+}
+
+.lex-dash-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--lex-gray-border);
+}
+
+.lex-dash-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.lex-dash-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+  letter-spacing: 0.5px;
+}
+
+.lex-dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.lex-dash-card {
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  padding: 12px 16px;
+  transition: all 0.2s ease;
+}
+
+.lex-dash-card:hover {
+  border-color: var(--lex-blue);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+}
+
+.lex-dash-label {
+  font-size: 11px;
+  color: var(--lex-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.lex-dash-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--lex-text-primary);
+  font-family: 'Courier New', monospace;
+}
+
+/* Barra de Progresso */
+.lex-dash-progress {
+  width: 100%;
+  height: 8px;
+  background: var(--lex-black-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid var(--lex-gray-border);
+}
+
+.lex-dash-progress-bar {
+  height: 100%;
+  background: var(--lex-gradient-primary);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.lex-dash-hint {
+  font-size: 11px;
+  color: var(--lex-text-subtle);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* Ações Rápidas */
+.lex-dash-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lex-dash-btn {
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  color: var(--lex-text-primary);
+  padding: 8px 16px;
+  border-radius: var(--lex-radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.lex-dash-btn:hover {
+  background: var(--lex-black-tertiary);
+  border-color: var(--lex-blue);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+  transform: translateY(-1px);
+}
+
+.lex-dash-btn:active {
+  transform: translateY(0);
+}

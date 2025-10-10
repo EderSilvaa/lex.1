@@ -102,6 +102,7 @@ class ProcessAnalyzer {
       this.updateProgress('Enviando documentos para análise com IA...');
 
       const analysisResult = await this.sendToAPI();
+      console.log('🔍 DEBUG analyze(): analysisResult recebido:', analysisResult);
 
       // SALVAR ANÁLISE NA SESSÃO
       this.session.setLastAnalysis(analysisResult);
@@ -120,9 +121,11 @@ class ProcessAnalyzer {
 
       console.log('🎉 LEX: Análise completa concluída!');
       console.log('📊 LEX: Estatísticas:', result.statistics);
+      console.log('🔍 DEBUG analyze(): result final a ser retornado:', result);
       console.log(`💬 LEX: Sessão ativa com ${this.session.processedDocuments.length} documentos disponíveis para conversa`);
 
       if (this.callbacks.onComplete) {
+        console.log('🔍 DEBUG analyze(): Chamando callback onComplete com result:', result);
         this.callbacks.onComplete(result);
       }
 
@@ -529,25 +532,111 @@ class ProcessAnalyzer {
       for (let i = 0; i < batches.length; i++) {
         console.log(`📤 LEX: Enviando batch ${i + 1}/${batches.length}...`);
 
-        // OTIMIZAÇÃO: Enviar apenas RESUMO dos documentos (não conteúdo completo)
+        // ✅ CONTEXTO EXPANDIDO: Enviar texto completo dos documentos (até 15K chars cada)
         const documentosTexto = batches[i].map((doc, idx) => {
           let conteudo = doc.conteudo || '(sem conteúdo)';
 
-          // APENAS OS PRIMEIROS 150 CARACTERES
-          const preview = conteudo.substring(0, 150).replace(/\s+/g, ' ');
+          // ✅ TEXTO COMPLETO (até 15.000 caracteres por documento vs 150 anterior)
+          const textoCompleto = conteudo.substring(0, 15000).replace(/\s+/g, ' ').trim();
 
-          return `${idx + 1}. ${doc.nome}: ${preview}...`;
-        }).join('\n');
+          return `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DOCUMENTO ${idx + 1}: ${doc.nome}
+Tipo: ${doc.tipo || 'Não identificado'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        // PROMPT ULTRA-CONCISO: apenas o essencial (3 linhas!)
-        const promptCompleto = `Processo ${this.state.processNumber}. Documentos:
+${textoCompleto}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+        }).join('\n\n');
+
+        // ✅ PROMPT DETALHADO E COMPLETO para análise profunda
+        const isUltimoBatch = (i === batches.length - 1);
+
+        const promptCompleto = isUltimoBatch
+          ? `Você é Lex, assistente jurídica especializada em análise processual brasileira.
+
+PROCESSO: ${this.state.processNumber}
+BATCH: ${i + 1} de ${batches.length} (ÚLTIMO BATCH - ANÁLISE FINAL)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DOCUMENTOS COMPLETOS DO PROCESSO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${documentosTexto}
 
-Responda em 3 linhas:
-1. Tipo de ação e partes
-2. Fase/status atual
-3. Próximo passo ou situação relevante`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INSTRUÇÕES PARA ANÁLISE CONSOLIDADA FINAL:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Este é o ÚLTIMO batch. Forneça uma **ANÁLISE COMPLETA E CONSOLIDADA** do processo inteiro, incluindo:
+
+**1. RESUMO EXECUTIVO** (3-4 parágrafos)
+   - Natureza do processo (tipo de ação, objeto, valor envolvido)
+   - Partes envolvidas (com qualificação completa se disponível)
+   - Fase processual ATUAL (em que ponto está o processo agora?)
+   - Pedidos principais de cada parte
+
+**2. DOCUMENTOS CRÍTICOS** (listar os 3-5 mais importantes)
+   - Nome do documento
+   - Data (se disponível)
+   - Relevância para o processo
+   - Principais informações extraídas
+
+**3. TIMELINE CRONOLÓGICA**
+   - Principais marcos processuais com datas
+   - Sequência dos eventos importantes
+   - Última movimentação registrada
+
+**4. ANÁLISE JURÍDICA DETALHADA**
+   - Teses sustentadas pelas partes (autor e réu)
+   - Argumentos principais de cada lado
+   - Questões de direito envolvidas
+   - Base legal (cite leis/artigos APENAS se tiver certeza absoluta)
+
+**5. PRAZOS E OBRIGAÇÕES**
+   - Prazos pendentes ou próximos (se houver)
+   - Ações necessárias
+   - Obrigações das partes
+
+**6. PRÓXIMOS PASSOS RECOMENDADOS**
+   - Ações imediatas sugeridas
+   - Estratégia processual
+   - Pontos de atenção
+
+**7. OBSERVAÇÕES IMPORTANTES**
+   - Peculiaridades do processo
+   - Riscos identificados
+   - Oportunidades processuais
+
+IMPORTANTE:
+- Use linguagem clara, técnica e profissional
+- Base-se EXCLUSIVAMENTE nos documentos fornecidos
+- Cite fatos específicos extraídos dos documentos
+- NÃO invente informações que não estejam nos documentos
+- Se faltar alguma informação, indique claramente
+- Organize com HTML simples (<strong>, <br>, <em>)
+- Seja COMPLETO e DETALHADO (não resumido demais)`
+          : `Você é Lex, assistente jurídica especializada em análise processual.
+
+PROCESSO: ${this.state.processNumber}
+BATCH PARCIAL: ${i + 1} de ${batches.length}
+
+DOCUMENTOS DESTE BATCH:
+
+${documentosTexto}
+
+INSTRUÇÕES:
+
+Este é um batch PARCIAL (não é o último). Faça uma análise PRELIMINAR destes documentos:
+
+1. **Identificação**: Tipo de cada documento e data (se disponível)
+2. **Informações-chave**: Extraia os dados mais importantes de cada um
+3. **Pontos relevantes**: Destaque informações críticas encontradas
+4. **Observações**: Anote peculiaridades ou informações importantes
+
+Aguarde os próximos batches para análise consolidada final. Seja objetivo mas completo.`;
 
         const payload = {
           pergunta: promptCompleto,
@@ -601,7 +690,12 @@ Responda em 3 linhas:
       }
 
       // Consolidar resultados
+      console.log('🔍 DEBUG: Saiu do loop, allResults length:', allResults.length);
+      console.log('🔍 DEBUG: allResults:', allResults);
+
+      console.log('🔍 DEBUG: Chamando consolidateResults...');
       const consolidatedResult = this.consolidateResults(allResults);
+      console.log('🔍 DEBUG: consolidatedResult:', consolidatedResult);
 
       console.log('✅ LEX: Todos os batches enviados');
 
@@ -676,7 +770,10 @@ Responda em 3 linhas:
    * @returns {Object} Resultado consolidado
    */
   consolidateResults(results) {
+    console.log('🔍 DEBUG consolidateResults: Recebeu', results.length, 'resultados');
+
     if (results.length === 0) {
+      console.log('🔍 DEBUG consolidateResults: Nenhum resultado');
       return {
         resumo: 'Nenhum resultado obtido da API',
         detalhes: []
@@ -684,15 +781,19 @@ Responda em 3 linhas:
     }
 
     if (results.length === 1) {
+      console.log('🔍 DEBUG consolidateResults: Único resultado, retornando direto');
       return results[0];
     }
 
     // Consolidar múltiplos resultados
-    return {
+    console.log('🔍 DEBUG consolidateResults: Consolidando', results.length, 'resultados');
+    const consolidated = {
       resumo: results.map(r => r.resposta || r.resumo || '').join('\n\n'),
       batches: results.length,
       detalhes: results
     };
+    console.log('🔍 DEBUG consolidateResults: Resultado consolidado:', consolidated);
+    return consolidated;
   }
 
   /**

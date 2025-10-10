@@ -361,20 +361,87 @@ class PDFProcessor {
                         console.log(`📄 LEX: Processando página ${pageNum}/${pagesToProcess}...`);
                         const page = yield pdfDocument.getPage(pageNum);
                         const textContent = yield page.getTextContent();
+
+                        // DEBUG: Verificar se items existe e quantos tem
+                        console.log(`🔍 LEX DEBUG: textContent.items length = ${textContent.items?.length || 0}`);
+                        if (textContent.items && textContent.items.length > 0) {
+                            console.log(`🔍 LEX DEBUG: Primeiro item = "${textContent.items[0]?.str}"`);
+                        }
+
                         // Extrair texto dos items
                         let pageText = '';
-                        if ((options === null || options === void 0 ? void 0 : options.combineTextItems) !== false) {
-                            // Combinar itens de texto em uma string
-                            pageText = textContent.items
-                                .map((item) => item.str)
-                                .join(' ');
+
+                        // Se não tem items de texto, tentar OCR (limitado às primeiras 3 páginas)
+                        if (!textContent.items || textContent.items.length === 0) {
+                            // LIMITE: Apenas processar OCR nas primeiras 3 páginas (muito lento)
+                            if (pageNum <= 3) {
+                                console.warn(`⚠️ LEX: Página ${pageNum} sem texto extraível - tentando OCR...`);
+
+                                try {
+                                    // Renderizar página como imagem (escala reduzida para performance)
+                                    const viewport = page.getViewport({ scale: 1.2 }); // Scale menor = mais rápido
+                                    const canvas = document.createElement('canvas');
+                                    const context = canvas.getContext('2d');
+                                    canvas.width = viewport.width;
+                                    canvas.height = viewport.height;
+
+                                    yield page.render({
+                                        canvasContext: context,
+                                        viewport: viewport
+                                    }).promise;
+
+                                    // Converter canvas para blob
+                                    const imageBlob = yield new Promise((resolve) => {
+                                        canvas.toBlob(resolve, 'image/png');
+                                    });
+
+                                    // Chamar Tesseract.js
+                                    if (typeof Tesseract !== 'undefined') {
+                                        console.log(`🔍 LEX: Executando OCR na página ${pageNum}...`);
+                                        const { data: { text: ocrText } } = yield Tesseract.recognize(
+                                            imageBlob,
+                                            'por', // Português
+                                            {
+                                                logger: info => {
+                                                    if (info.status === 'recognizing text') {
+                                                        console.log(`📊 OCR Página ${pageNum}: ${Math.round(info.progress * 100)}%`);
+                                                    }
+                                                }
+                                            }
+                                        );
+                                        pageText = ocrText.trim();
+                                        console.log(`✅ LEX: OCR concluído - ${pageText.length} caracteres extraídos`);
+                                    } else {
+                                        console.error('❌ LEX: Tesseract.js não disponível');
+                                        pageText = '[PDF escaneado - OCR não disponível]';
+                                    }
+                                } catch (ocrError) {
+                                    console.error(`❌ LEX: Erro no OCR da página ${pageNum}:`, ocrError);
+                                    pageText = '[Erro ao processar PDF escaneado]';
+                                }
+                            } else {
+                                // Pular OCR após página 3 (muito lento)
+                                console.log(`⏭️ LEX: Página ${pageNum} sem texto - OCR pulado (limite de 3 páginas)`);
+                                pageText = '[PDF escaneado - OCR limitado às primeiras 3 páginas]';
+                            }
+                        } else {
+                            // Extrair texto normal
+                            if ((options === null || options === void 0 ? void 0 : options.combineTextItems) !== false) {
+                                // Combinar itens de texto em uma string
+                                pageText = textContent.items
+                                    .map((item) => item.str)
+                                    .join(' ');
+                            }
+                            else {
+                                // Manter estrutura de layout
+                                pageText = textContent.items
+                                    .map((item) => item.str)
+                                    .join('\n');
+                            }
                         }
-                        else {
-                            // Manter estrutura de layout
-                            pageText = textContent.items
-                                .map((item) => item.str)
-                                .join('\n');
-                        }
+                        // DEBUG: Texto ANTES da normalização
+                        console.log(`🔍 LEX DEBUG: pageText ANTES normalização = ${pageText.length} chars`);
+
                         // Normalizar espaços em branco se solicitado
                         if ((options === null || options === void 0 ? void 0 : options.normalizeWhitespace) !== false) {
                             pageText = pageText
@@ -382,6 +449,13 @@ class PDFProcessor {
                                 .replace(/\n\s*\n/g, '\n')
                                 .trim();
                         }
+
+                        // DEBUG: Texto DEPOIS da normalização
+                        console.log(`🔍 LEX DEBUG: pageText DEPOIS normalização = ${pageText.length} chars`);
+                        if (pageText.length === 0 && textContent.items.length > 0) {
+                            console.warn(`⚠️ LEX: PDF tem ${textContent.items.length} items mas texto vazio! Possível PDF escaneado ou com imagens.`);
+                        }
+
                         // Adicionar ao resultado
                         const pageResult = {
                             pageNumber: pageNum,

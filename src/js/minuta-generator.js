@@ -322,11 +322,12 @@ DADOS DO PROCESSO:
 - Data: ${this.formatarDataExtenso(new Date())}
 `;
 
-      // Adicionar contexto dos documentos processados
+      // Adicionar contexto dos documentos processados - ✅ EXPANDIDO
       if (documents && documents.length > 0) {
         prompt += `\nDOCUMENTOS ANALISADOS (${documents.length}):\n`;
 
-        documents.slice(0, 5).forEach((doc, i) => {
+        // ✅ Aumentar para 10 documentos (vs 5) com 15K chars cada (vs 600)
+        documents.slice(0, 10).forEach((doc, i) => {
           prompt += `\n${i + 1}. ${doc.name || 'Documento ' + (i + 1)}`;
 
           if (doc.data) {
@@ -335,21 +336,27 @@ DADOS DO PROCESSO:
           }
           prompt += `\n`;
 
-          // Adicionar conteúdo do documento (até 600 caracteres)
+          // ✅ Adicionar conteúdo EXPANDIDO do documento (até 15.000 caracteres vs 600)
           if (doc.data && doc.data.texto) {
-            const texto = doc.data.texto.substring(0, 600).trim();
-            prompt += `   Conteúdo: ${texto}...\n`;
+            const texto = doc.data.texto.substring(0, 15000).trim();
+            prompt += `   Conteúdo (${texto.length} chars):\n   ${texto}${doc.data.texto.length > 15000 ? '\n   [... continua]' : ''}\n`;
           }
         });
 
-        if (documents.length > 5) {
-          prompt += `\n... e mais ${documents.length - 5} documento(s).\n`;
+        if (documents.length > 10) {
+          prompt += `\n... e mais ${documents.length - 10} documento(s).\n`;
         }
       }
 
-      // Adicionar análise anterior se disponível
-      if (lastAnalysis && typeof lastAnalysis === 'string') {
-        prompt += `\nANÁLISE ANTERIOR DO PROCESSO:\n${lastAnalysis.substring(0, 800)}\n`;
+      // ✅ Adicionar análise anterior EXPANDIDA se disponível
+      if (lastAnalysis) {
+        const analiseContent = typeof lastAnalysis === 'string'
+          ? lastAnalysis
+          : (typeof lastAnalysis.content === 'string' ? lastAnalysis.content : JSON.stringify(lastAnalysis.content));
+
+        // ✅ Aumentar para 8.000 chars (vs 800)
+        const analiseTexto = analiseContent.substring(0, 8000);
+        prompt += `\nANÁLISE ANTERIOR DO PROCESSO (${analiseTexto.length} chars):\n${analiseTexto}${analiseContent.length > 8000 ? '\n[... continua]' : ''}\n`;
       }
 
       prompt += `
@@ -367,6 +374,13 @@ INSTRUÇÕES CRÍTICAS:
 COMANDO DO USUÁRIO: "${comandoOriginal}"
 
 GERE A MINUTA:`;
+
+      // 📊 Log de métricas de contexto
+      const promptChars = prompt.length;
+      const promptTokens = Math.ceil(promptChars / 4); // ~4 chars por token
+      console.log(`📊 MINUTA: Contexto gerado - ${promptChars} chars (~${promptTokens} tokens)`);
+      console.log(`📊 MINUTA: Uso estimado: ${(promptTokens / 128000 * 100).toFixed(1)}% da janela GPT-4o`);
+      console.log(`📊 MINUTA: Documentos incluídos: ${Math.min(documents?.length || 0, 10)} de ${documents?.length || 0} total`);
 
       return prompt;
     }
@@ -658,28 +672,18 @@ Gere o texto:
     }
 
     /**
-     * Chama API de IA (reutiliza lógica existente)
+     * Chama API de IA via Edge Functions (Supabase)
+     * SEMPRE usa window.openaiClient - NUNCA fallback direto
      */
     async chamarAPI(prompt) {
-      // Verificar se função global existe
-      if (typeof gerarRespostaIA === 'function') {
-        return await gerarRespostaIA(prompt);
+      // CRÍTICO: SEMPRE usar openaiClient que roteia pelo Edge Functions
+      if (!window.openaiClient || !window.openaiClient.analisarDocumento) {
+        throw new Error('❌ OpenAI Client não disponível. Recarregue a página.');
       }
 
-      // Fallback: chamar diretamente (código simplificado)
-      const API_KEY = 'AIzaSyDSe_eguY4b-S0ZbWfTa3s_6VpU3-2TxOs';
-      const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
-
-      const response = await fetch(`${API_URL}?key=${API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-
-      const data = await response.json();
-      return data.candidates[0].content.parts[0].text;
+      // Usar contexto vazio - apenas para compatibilidade
+      const contextoVazio = '';
+      return await window.openaiClient.analisarDocumento(contextoVazio, prompt);
     }
 
     /**
