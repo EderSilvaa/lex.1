@@ -442,61 +442,131 @@
   font-family: 'Courier New', monospace;
 }
 
-/* Área de input - Design Ultra Clean */
-.lex-input-area {
-  padding: var(--lex-space-sm) var(--lex-space-lg);
-  background-color: var(--lex-black-premium);
-  border-top: 1px solid var(--lex-gray-subtle);
+/* Typing Indicator - Pensando... */
+.lex-typing-indicator {
   display: flex;
-  gap: var(--lex-space-sm);
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.lex-typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.lex-typing-indicator span:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.lex-typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.lex-typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
+
+/* Autocomplete de Comandos */
+.lex-autocomplete {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  background: rgba(20, 20, 20, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  z-index: 10000;
+}
+
+.lex-autocomplete-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s ease;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.lex-autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.lex-autocomplete-item:hover,
+.lex-autocomplete-item.selected {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.lex-autocomplete-cmd {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+  font-family: 'Courier New', monospace;
+}
+
+.lex-autocomplete-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 12px;
+}
+
+/* Área de input - Design Minimalista (estilo cursor-agent) */
+.lex-input-area {
+  padding: 10px 14px;
+  background-color: var(--lex-black-premium);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
   align-items: center;
   position: relative;
 }
 
-
 .lex-input {
   flex: 1;
-  background: var(--lex-black-secondary);
-  border: 1px solid var(--lex-gray-border);
-  border-radius: var(--lex-radius-md);
-  padding: var(--lex-space-xs) var(--lex-space-md);
-  color: var(--lex-text-primary);
-  font-size: 12px;
-  min-height: 28px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  line-height: 1.4;
+  min-height: 36px;
   outline: none;
   resize: none;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease;
   font-family: var(--lex-font-system);
 }
 
 .lex-input:focus {
-  border-color: var(--lex-purple);
-  box-shadow: 0 0 0 2px rgba(74, 26, 92, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: transparent;
 }
 
 .lex-input::placeholder {
-  color: var(--lex-text-subtle);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
 }
 
 .lex-send {
-  background: transparent;
-  color: var(--lex-purple);
-  border: 1px solid var(--lex-purple);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  font-size: 10px;
-}
-
-.lex-send:hover {
-  background: var(--lex-purple);
-  color: var(--lex-text-primary);
-  transform: translateY(-1px) scale(1.05);
+  display: none;
 }
 
 /* Botão flutuante - Design Clean */
@@ -531,32 +601,7 @@
   transform: translateY(-1px);
 }
 
-/* Botão de análise completa */
-.lex-analyze-full {
-  background: transparent;
-  color: var(--lex-blue);
-  border: 1px solid var(--lex-blue);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.lex-analyze-full:hover {
-  background: var(--lex-blue);
-  color: var(--lex-text-primary);
-  transform: translateY(-1px) scale(1.05);
-}
-
-.lex-analyze-full:active {
-  transform: translateY(0) scale(0.95);
-}
+/* Botão de análise completa - REMOVIDO */
 
 /* Modal de progresso */
 .lex-progress-modal {
@@ -1286,4 +1331,371 @@
 
 .lex-dash-btn:active {
   transform: translateY(0);
+}
+
+/* ============================================
+   PERSONALIZATION MODAL STYLES
+   ============================================ */
+
+/* Modal Large (wider for personalization) */
+.lex-modal-large {
+  max-width: 700px;
+  width: 95%;
+}
+
+/* Scrollable Body */
+.lex-scrollable {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.lex-scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lex-scrollable::-webkit-scrollbar-track {
+  background: var(--lex-black-secondary);
+}
+
+.lex-scrollable::-webkit-scrollbar-thumb {
+  background: var(--lex-gray-border);
+  border-radius: 3px;
+}
+
+.lex-scrollable::-webkit-scrollbar-thumb:hover {
+  background: var(--lex-purple);
+}
+
+/* Form Groups */
+.lex-form-group {
+  margin-bottom: 20px;
+}
+
+.lex-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.lex-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+  margin-bottom: 8px;
+}
+
+.lex-form-group small {
+  display: block;
+  font-size: 11px;
+  color: var(--lex-text-tertiary);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* Input Fields */
+.lex-input-field {
+  width: 100%;
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  padding: 10px 14px;
+  color: var(--lex-text-primary);
+  font-size: 14px;
+  font-family: var(--lex-font-system);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.lex-input-field:focus {
+  border-color: var(--lex-blue);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  background: var(--lex-black-tertiary);
+}
+
+.lex-input-field::placeholder {
+  color: var(--lex-text-subtle);
+}
+
+/* Select Dropdown */
+select.lex-input-field {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(255,255,255,0.6)' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+select.lex-input-field:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(99,102,241,1)' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+}
+
+/* Radio Groups */
+.lex-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lex-radio-option {
+  display: flex;
+  align-items: flex-start;
+  padding: 14px;
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lex-radio-option:hover {
+  background: var(--lex-black-tertiary);
+  border-color: var(--lex-accent-border);
+}
+
+.lex-radio-option input[type="radio"] {
+  margin-right: 12px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--lex-blue);
+  flex-shrink: 0;
+}
+
+.lex-radio-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.lex-radio-option strong {
+  color: var(--lex-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.lex-radio-option small {
+  color: var(--lex-text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.lex-radio-option input[type="radio"]:checked {
+  outline: 2px solid var(--lex-blue);
+  outline-offset: 2px;
+}
+
+.lex-radio-option:has(input[type="radio"]:checked) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--lex-blue);
+}
+
+/* Checkbox Options */
+.lex-checkbox-option {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: var(--lex-black-secondary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lex-checkbox-option:hover {
+  background: var(--lex-black-tertiary);
+  border-color: var(--lex-accent-border);
+}
+
+.lex-checkbox-option input[type="checkbox"] {
+  margin-right: 12px;
+  cursor: pointer;
+  accent-color: var(--lex-blue);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.lex-checkbox-option label {
+  color: var(--lex-text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  flex: 1;
+  margin: 0;
+}
+
+.lex-checkbox-option:has(input[type="checkbox"]:checked) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--lex-blue);
+}
+
+/* File Upload Area */
+.lex-file-upload-area {
+  background: var(--lex-black-secondary);
+  border: 2px dashed var(--lex-gray-border);
+  border-radius: var(--lex-radius-md);
+  padding: 24px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.lex-file-upload-area:hover {
+  border-color: var(--lex-blue);
+  background: var(--lex-black-tertiary);
+}
+
+.lex-file-upload-area input[type="file"] {
+  display: none;
+}
+
+.lex-upload-btn {
+  background: var(--lex-gradient-primary);
+  border: none;
+  color: var(--lex-text-primary);
+  padding: 12px 24px;
+  border-radius: var(--lex-radius-md);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.lex-upload-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px var(--lex-glow-purple);
+}
+
+.lex-upload-btn:active {
+  transform: translateY(0);
+}
+
+/* Training Files List */
+.lex-training-files-list {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lex-training-file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--lex-black-tertiary);
+  padding: 12px 16px;
+  border-radius: var(--lex-radius-md);
+  border: 1px solid var(--lex-gray-border);
+  transition: all 0.2s ease;
+}
+
+.lex-training-file-item:hover {
+  border-color: var(--lex-accent-border);
+  background: rgba(74, 26, 92, 0.05);
+}
+
+.lex-file-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.lex-file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lex-file-info strong {
+  color: var(--lex-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lex-file-info small {
+  color: var(--lex-text-tertiary);
+  font-size: 11px;
+  display: flex;
+  gap: 12px;
+}
+
+.lex-file-remove {
+  background: transparent;
+  border: 1px solid var(--lex-gray-border);
+  color: var(--lex-text-tertiary);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 6px 10px;
+  border-radius: var(--lex-radius-sm);
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.lex-file-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #ef4444;
+  transform: scale(1.1);
+}
+
+/* Advanced Actions */
+.lex-advanced-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lex-advanced-actions button {
+  width: 100%;
+  padding: 12px 20px;
+  border-radius: var(--lex-radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--lex-gray-border);
+  background: var(--lex-black-secondary);
+  color: var(--lex-text-primary);
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lex-advanced-actions button:hover {
+  background: var(--lex-black-tertiary);
+  border-color: var(--lex-blue);
+  transform: translateX(4px);
+}
+
+.lex-advanced-actions button:active {
+  transform: translateX(2px);
+}
+
+/* Danger Button */
+.lex-btn-danger {
+  background: transparent !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #ef4444 !important;
+}
+
+.lex-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: #ef4444 !important;
+  color: #ff5555 !important;
+  transform: translateX(4px) !important;
+}
+
+/* Divider */
+.lex-divider {
+  height: 1px;
+  background: var(--lex-gray-border);
+  margin: 20px 0;
+  border: none;
 }

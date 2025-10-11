@@ -74,7 +74,39 @@ class SessionContext {
       timestamp: new Date()
     };
 
-    console.log('📊 LEX: Análise completa salva no contexto da sessão');
+    console.log('LEX: Análise completa salva no contexto da sessão');
+  }
+
+  /**
+   * Salva documentos organizados por classificação
+   * @param {Object} organized - Documentos organizados pelo DocumentClassifier
+   */
+  setOrganizedDocuments(organized) {
+    this.organizedDocuments = organized;
+    console.log('LEX: Documentos organizados salvos na sessão');
+    console.log('- Total:', organized.summary.total);
+    console.log('- Por categoria:', organized.summary.byCategory);
+    console.log('- Mais importantes:', organized.summary.mostImportant);
+  }
+
+  /**
+   * Obtém documentos relevantes para uma pergunta usando o classifier
+   * @param {string} question - Pergunta do usuário
+   * @param {number} maxDocs - Máximo de documentos a retornar
+   * @returns {Array} Documentos relevantes
+   */
+  getRelevantDocuments(question, maxDocs = 5) {
+    if (!this.organizedDocuments || !window.DocumentClassifier) {
+      console.warn('LEX: Documentos não organizados ou classifier não disponível');
+      return this.processedDocuments.slice(0, maxDocs);
+    }
+
+    const classifier = new window.DocumentClassifier();
+    return classifier.selectRelevantDocuments(
+      this.organizedDocuments.all,
+      question,
+      maxDocs
+    );
   }
 
   /**

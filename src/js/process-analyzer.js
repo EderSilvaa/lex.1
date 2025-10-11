@@ -27,10 +27,10 @@ class ProcessAnalyzer {
 
     // Configurações
     this.config = {
-      rateLimitDelay: 500, // ms entre downloads
-      maxConcurrent: 3, // downloads simultâneos
+      rateLimitDelay: 200, // OTIMIZADO: 200ms entre downloads (era 500ms)
+      maxConcurrent: 6, // OTIMIZADO: 6 downloads simultâneos (era 3)
       maxDocumentSize: 10 * 1024 * 1024, // 10MB por documento
-      batchSize: 20, // TODOS os documentos em 1 batch (análise rápida envia apenas preview)
+      batchSize: 20, // OTIMIZADO: Todos documentos em 1 batch (era 5)
       maxContentPerDoc: 200, // REDUZIDO: apenas preview de 200 caracteres
       useCache: true,
       processPDFs: true,
@@ -91,21 +91,34 @@ class ProcessAnalyzer {
 
       await this.processAllDocuments();
 
-      console.log(`✅ LEX: ${this.state.processed.length} documentos processados com sucesso`);
+      console.log(`LEX: ${this.state.processed.length} documentos processados com sucesso`);
 
       if (this.state.errors.length > 0) {
-        console.warn(`⚠️ LEX: ${this.state.errors.length} documentos com erro`);
+        console.warn(`LEX: ${this.state.errors.length} documentos com erro`);
       }
 
-      // 3. ENVIO PARA API: Enviar documentos processados em lotes
-      this.state.status = 'analyzing';
-      this.updateProgress('Enviando documentos para análise com IA...');
+      // 3. CLASSIFICAÇÃO AUTOMÁTICA: Organizar documentos por tipo e relevância
+      this.state.status = 'classifying';
+      this.updateProgress('Organizando documentos...');
 
-      const analysisResult = await this.sendToAPI();
-      console.log('🔍 DEBUG analyze(): analysisResult recebido:', analysisResult);
+      const classifier = new window.DocumentClassifier();
+      const organized = classifier.organize(this.state.processed.map(p => ({
+        ...p.document,
+        content: p.data.content || p.data.texto || ''
+      })));
 
-      // SALVAR ANÁLISE NA SESSÃO
-      this.session.setLastAnalysis(analysisResult);
+      console.log('LEX: Documentos organizados:', organized.summary);
+
+      // Salvar organização na sessão
+      this.session.setOrganizedDocuments(organized);
+
+      // NÃO ENVIAR PARA IA AUTOMATICAMENTE
+      // Usuário pode pedir análise depois com documentos específicos
+      const analysisResult = {
+        type: 'organization',
+        message: 'Documentos baixados e organizados. Use comandos para análises específicas.',
+        organized: organized.summary
+      };
 
       // 4. FINALIZAÇÃO
       this.state.status = 'completed';
@@ -373,9 +386,12 @@ class ProcessAnalyzer {
       const result = await processor.extractTextFromPDF(blob, {
         includeMetadata: true,
         includePageNumbers: true,
-        maxPages: 100, // Limitar para evitar timeout
+        maxPages: 50, // OTIMIZADO: Limitar a 50 páginas (era 100) para evitar timeout
         progressCallback: (progress) => {
-          console.log(`📄 LEX: Página ${progress.currentPage}/${progress.totalPages}`);
+          // Reduzir logs para melhor performance
+          if (progress.currentPage % 5 === 0) {
+            console.log(`LEX: Processando página ${progress.currentPage}/${progress.totalPages}`);
+          }
         }
       });
 
@@ -536,8 +552,8 @@ class ProcessAnalyzer {
         const documentosTexto = batches[i].map((doc, idx) => {
           let conteudo = doc.conteudo || '(sem conteúdo)';
 
-          // ✅ TEXTO COMPLETO (até 15.000 caracteres por documento vs 150 anterior)
-          const textoCompleto = conteudo.substring(0, 15000).replace(/\s+/g, ' ').trim();
+          // OTIMIZADO: 8.000 caracteres por documento (era 15.000) para respostas mais rápidas
+          const textoCompleto = conteudo.substring(0, 8000).replace(/\s+/g, ' ').trim();
 
           return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
