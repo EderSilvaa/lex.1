@@ -8,6 +8,7 @@
       this.modelosExtraidos = [];
       this.editorDetectado = null;
       this.observers = [];
+      this.lastProcessedUrl = null; // Evitar processar mesma URL múltiplas vezes
 
       console.log('🔍 PJE Model Detector: Inicializado');
     }
@@ -45,15 +46,22 @@
      * Verifica se estamos na tela de petição do PJe
      */
     verificarTelaPeticao() {
+      const currentUrl = window.location.href;
+
+      // Se já processamos esta URL, não processar novamente
+      if (this.lastProcessedUrl === currentUrl) {
+        return;
+      }
+
       // Indicadores de tela de petição no TJPA
       const indicadores = [
         // URL contém esses termos
-        window.location.href.includes('peticao'),
-        window.location.href.includes('documento'),
-        window.location.href.includes('expedicao'),
-        window.location.href.includes('minutar'),
-        window.location.href.includes('editor'),
-        window.location.href.includes('listAutosDigitais'), // TJPA
+        currentUrl.includes('peticao'),
+        currentUrl.includes('documento'),
+        currentUrl.includes('expedicao'),
+        currentUrl.includes('minutar'),
+        currentUrl.includes('editor'),
+        currentUrl.includes('listAutosDigitais'), // TJPA
 
         // Elementos específicos do PJe - EXPANDIDO
         !!document.querySelector('select[name="modTDDecoration:modTD"]'), // TJPA específico
@@ -83,8 +91,9 @@
       const naTelaPeticao = indicadores.some(i => i === true);
 
       if (naTelaPeticao) {
+        this.lastProcessedUrl = currentUrl; // Marcar como processada
         console.log('✅ PJE: Tela de petição detectada!');
-        console.log('   URL:', window.location.href);
+        console.log('   URL:', currentUrl);
         console.log('   Title:', document.title);
         this.extrairModelosDisponiveis();
       } else {
