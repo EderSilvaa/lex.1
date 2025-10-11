@@ -1,6 +1,6 @@
 /**
  * SCRIPT DE DESCOBERTA: Botão de Download PDF Completo do PJE
- *
+ * 
  * Objetivo: Encontrar o botão que baixa o PDF gigante com todos os documentos
  * Localização: Menu dropdown no header do PJE
  */
@@ -29,7 +29,7 @@ textosComuns.forEach(texto => {
     const textoEl = el.textContent.trim();
     return textoEl.includes(texto) && textoEl.length < 100;
   });
-
+  
   if (elementos.length > 0) {
     console.log(`✅ Encontrado "${texto}":`, elementos);
     elementos.forEach((el, i) => {
@@ -43,18 +43,18 @@ textosComuns.forEach(texto => {
 // ========================================
 console.log('\n📋 ESTRATÉGIA 2: Buscar dropdowns no header...');
 
-const header = document.querySelector('header') ||
+const header = document.querySelector('header') || 
                document.querySelector('.header') ||
                document.querySelector('[class*="header"]') ||
                document.querySelector('[id*="header"]');
 
 if (header) {
   console.log('✅ Header encontrado:', header);
-
+  
   // Buscar elementos de dropdown
   const dropdowns = header.querySelectorAll('[class*="dropdown"], [class*="menu"], button, [role="button"]');
   console.log(`📦 ${dropdowns.length} elementos dropdown/button encontrados:`, dropdowns);
-
+  
   dropdowns.forEach((el, i) => {
     console.log(`  ${i + 1}. ${el.tagName} - Class: "${el.className}" - Text: "${el.textContent.trim().substring(0, 50)}"`);
   });
@@ -139,25 +139,25 @@ console.log('\n📋 ESTRATÉGIA 8: Estrutura completa do header...');
 
 if (header) {
   console.log('🏗️ Estrutura do header (primeiros 3 níveis):');
-
+  
   function printStructure(element, level = 0, maxLevel = 3) {
     if (level > maxLevel) return;
-
+    
     const indent = '  '.repeat(level);
     const tag = element.tagName;
     const id = element.id ? `#${element.id}` : '';
     const classes = element.className ? `.${element.className.split(' ').join('.')}` : '';
-    const text = element.childNodes.length === 1 && element.childNodes[0].nodeType === 3
-      ? ` - "${element.textContent.trim().substring(0, 30)}"`
+    const text = element.childNodes.length === 1 && element.childNodes[0].nodeType === 3 
+      ? ` - "${element.textContent.trim().substring(0, 30)}"` 
       : '';
-
+    
     console.log(`${indent}${tag}${id}${classes}${text}`);
-
+    
     Array.from(element.children).forEach(child => {
       printStructure(child, level + 1, maxLevel);
     });
   }
-
+  
   printStructure(header);
 }
 
