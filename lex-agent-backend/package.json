@@ -1,0 +1,26 @@
+{
+  "name": "lex-agent-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/openai": "^1.0.0",
+    "browser-use": "^0.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "langchain": "^0.3.36",
+    "node-fetch": "^2.7.0",
+    "openai": "^6.3.0",
+    "playwright": "^1.56.0",
+    "ws": "^8.18.3"
+  }
+}
