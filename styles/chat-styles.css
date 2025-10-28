@@ -927,6 +927,23 @@
   align-items: center;
   z-index: 1000000;
   font-family: var(--lex-font-system);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* Modal visível com animação */
+.lex-modal.lex-modal-show {
+  display: flex;
+  animation: lex-modal-fade-in 0.3s ease forwards;
+}
+
+@keyframes lex-modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .lex-modal-content {

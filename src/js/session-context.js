@@ -290,13 +290,36 @@ class SessionContext {
    */
   save(ttl = 24) {
     try {
+      // Salvar apenas dados essenciais para evitar quota exceeded
       const sessionData = {
         processNumber: this.processNumber,
         processInfo: this.processInfo,
-        documents: this.documents,
-        processedDocuments: this.processedDocuments,
-        conversationHistory: this.conversationHistory.slice(-20), // Últimas 20 mensagens
-        lastAnalysis: this.lastAnalysis,
+        documents: this.documents.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          url: doc.url
+          // Não incluir conteúdo processado para economizar espaço
+        })),
+        processedDocuments: this.processedDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          url: doc.url,
+          processedAt: doc.processedAt,
+          data: {
+            tipo: doc.data?.tipo,
+            tamanho: doc.data?.tamanho,
+            paginas: doc.data?.paginas
+            // NÃO incluir texto completo para economizar espaço
+          }
+        })),
+        conversationHistory: this.conversationHistory.slice(-10), // Apenas últimas 10 mensagens
+        lastAnalysis: this.lastAnalysis ? {
+          summary: this.lastAnalysis.summary,
+          timestamp: this.lastAnalysis.timestamp
+          // Incluir apenas resumo, não todos os detalhes
+        } : null,
         createdAt: this.createdAt,
         expiresAt: Date.now() + (ttl * 60 * 60 * 1000),
         version: '1.0'
@@ -308,6 +331,40 @@ class SessionContext {
       return true;
     } catch (error) {
       console.error('❌ LEX: Erro ao salvar sessão:', error);
+
+      // Se quota excedida, tentar limpar cache de documentos e tentar novamente
+      if (error.name === 'QuotaExceededError') {
+        console.warn('⚠️ LEX: Quota excedida ao salvar sessão, limpando cache de documentos...');
+
+        // Limpar cache de documentos
+        try {
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('lex_doc_cache_'));
+          const removed = keys.length;
+
+          for (const key of keys) {
+            localStorage.removeItem(key);
+          }
+
+          console.log(`🧹 LEX: ${removed} documentos cacheados removidos`);
+
+          // Tentar salvar novamente com dados mínimos
+          const minimalSession = {
+            processNumber: this.processNumber,
+            processedDocuments: this.processedDocuments,
+            createdAt: this.createdAt,
+            expiresAt: Date.now() + (ttl * 60 * 60 * 1000),
+            version: '1.0'
+          };
+
+          localStorage.setItem('lex_session', JSON.stringify(minimalSession));
+          console.log(`💾 LEX: Sessão mínima salva após limpeza`);
+
+          return true;
+        } catch (retryError) {
+          console.error('❌ LEX: Falha ao salvar sessão mesmo após limpeza:', retryError);
+        }
+      }
+
       return false;
     }
   }

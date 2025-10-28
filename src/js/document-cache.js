@@ -7,11 +7,13 @@ class DocumentCache {
     this.prefix = options.prefix || 'lex_doc_cache_';
     this.defaultTTL = options.ttl || 30 * 60 * 1000; // 30 minutos
     this.maxCacheSize = options.maxSize || 50 * 1024 * 1024; // 50MB
+    this.maxDocumentSize = options.maxDocSize || 500 * 1024; // 500KB por documento
     this.compressionEnabled = options.compression !== false;
 
     console.log('💾 LEX: DocumentCache instanciado', {
       TTL: `${this.defaultTTL / 1000}s`,
       maxSize: this.formatBytes(this.maxCacheSize),
+      maxDocSize: this.formatBytes(this.maxDocumentSize),
       compression: this.compressionEnabled
     });
   }
@@ -24,38 +26,46 @@ class DocumentCache {
    * @returns {boolean} Sucesso da operação
    */
   set(documentId, documentData, ttl = null) {
-    try {
-      const key = this.buildKey(documentId);
-      const expiresAt = Date.now() + (ttl || this.defaultTTL);
+    const key = this.buildKey(documentId);
+    const expiresAt = Date.now() + (ttl || this.defaultTTL);
 
-      const cacheEntry = {
-        documentId: documentId,
-        data: documentData,
-        cached: new Date().toISOString(),
-        expiresAt: expiresAt,
-        size: JSON.stringify(documentData).length
-      };
+    // Criar entrada de cache fora do try para estar acessível no retry
+    const cacheEntry = {
+      documentId: documentId,
+      data: documentData,
+      cached: new Date().toISOString(),
+      expiresAt: expiresAt,
+      size: JSON.stringify(documentData).length
+    };
 
-      // Verificar espaço disponível
-      const entrySize = JSON.stringify(cacheEntry).length;
+    // Verificar tamanho do documento individual
+    const entrySize = JSON.stringify(cacheEntry).length;
 
+    if (entrySize > this.maxDocumentSize) {
+      console.warn(`⚠️ LEX: Documento ${documentId} muito grande (${this.formatBytes(entrySize)}), não será cacheado`);
+      console.log(`💡 LEX: Limite por documento: ${this.formatBytes(this.maxDocumentSize)}`);
+      return false;
+    }
+
+    // Verificar espaço disponível no cache geral
+    if (!this.hasSpaceFor(entrySize)) {
+      console.warn('⚠️ LEX: Cache cheio, limpando entradas antigas...');
+      this.evictOldEntries();
+
+      // Verificar novamente
       if (!this.hasSpaceFor(entrySize)) {
-        console.warn('⚠️ LEX: Cache cheio, limpando entradas antigas...');
-        this.evictOldEntries();
-
-        // Verificar novamente
-        if (!this.hasSpaceFor(entrySize)) {
-          console.error('❌ LEX: Não foi possível liberar espaço no cache');
-          return false;
-        }
+        console.error('❌ LEX: Não foi possível liberar espaço no cache');
+        return false;
       }
+    }
 
-      // Comprimir dados se habilitado e o conteúdo for grande
-      if (this.compressionEnabled && entrySize > 1024) {
-        cacheEntry.data = this.compress(documentData);
-        cacheEntry.compressed = true;
-      }
+    // Comprimir dados se habilitado e o conteúdo for grande
+    if (this.compressionEnabled && entrySize > 1024) {
+      cacheEntry.data = this.compress(documentData);
+      cacheEntry.compressed = true;
+    }
 
+    try {
       // Salvar no localStorage
       localStorage.setItem(key, JSON.stringify(cacheEntry));
 
@@ -69,10 +79,31 @@ class DocumentCache {
     } catch (error) {
       console.error('❌ LEX: Erro ao cachear documento:', error);
 
-      // Se erro por QuotaExceeded, tentar limpar cache
+      // Se erro por QuotaExceeded, tentar limpar cache antigo e tentar novamente
       if (error.name === 'QuotaExceededError') {
-        console.warn('⚠️ LEX: Quota excedida, limpando cache...');
-        this.clear();
+        console.warn('⚠️ LEX: Quota excedida, limpando cache antigo...');
+
+        // Tenta limpar entradas antigas/grandes primeiro
+        const freedBytes = this.evictOldEntries();
+
+        if (freedBytes > 0) {
+          console.log(`🧹 LEX: ${this.formatBytes(freedBytes)} liberados, tentando novamente...`);
+
+          // Tenta salvar novamente após limpeza
+          try {
+            localStorage.setItem(key, JSON.stringify(cacheEntry));
+            console.log(`✅ LEX: Documento ${documentId} cacheado após limpeza`);
+            return true;
+          } catch (retryError) {
+            console.error('❌ LEX: Falha mesmo após limpeza:', retryError);
+            // Se ainda falhar, limpa tudo
+            this.clear();
+          }
+        } else {
+          // Se não havia entradas antigas, limpa tudo
+          console.warn('⚠️ LEX: Nenhuma entrada antiga encontrada, limpando todo cache...');
+          this.clear();
+        }
       }
 
       return false;
