@@ -1115,7 +1115,7 @@ Use HTML simples, máximo 300 palavras.`
     let modal = document.getElementById('lex-personalization-modal');
     if (modal) {
       console.log('LEX: Modal já existe, apenas mostrando');
-      modal.style.display = 'flex';
+      modal.classList.add('lex-modal-show');
       return;
     }
 
@@ -1126,9 +1126,13 @@ Use HTML simples, máximo 300 palavras.`
     modal.id = 'lex-personalization-modal';
     modal.className = 'lex-modal';
 
-    // Show modal immediately (even before content is ready)
-    modal.style.display = 'flex';
+    // Add to DOM first
     document.body.appendChild(modal);
+
+    // Show modal with animation after a brief delay
+    setTimeout(() => {
+      modal.classList.add('lex-modal-show');
+    }, 10);
 
     modal.innerHTML = `
       <div class="lex-modal-content lex-modal-large">
@@ -1291,16 +1295,16 @@ Use HTML simples, máximo 300 palavras.`
     const clearTrainingBtn = modal.querySelector('#lex-clear-training');
 
     closeBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
+      modal.classList.remove('lex-modal-show');
     });
 
     cancelBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
+      modal.classList.remove('lex-modal-show');
     });
 
     saveBtn.addEventListener('click', () => {
       savePersonalizationSettings(modal);
-      modal.style.display = 'none';
+      modal.classList.remove('lex-modal-show');
     });
 
     // File upload handling para documentos de treino
@@ -1328,7 +1332,7 @@ Use HTML simples, máximo 300 palavras.`
     // Close on outside click
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.style.display = 'none';
+        modal.classList.remove('lex-modal-show');
       }
     });
 
@@ -1655,7 +1659,7 @@ Use HTML simples, máximo 300 palavras.`
     // Check if modal already exists
     let modal = document.getElementById('lex-dashboard-modal');
     if (modal) {
-      modal.style.display = 'flex';
+      modal.classList.add('lex-modal-show');
       atualizarDashboard(); // Atualizar dados
       return;
     }
@@ -1664,8 +1668,12 @@ Use HTML simples, máximo 300 palavras.`
     modal = document.createElement('div');
     modal.id = 'lex-dashboard-modal';
     modal.className = 'lex-modal';
-    modal.style.display = 'flex';
     document.body.appendChild(modal);
+
+    // Show with animation
+    setTimeout(() => {
+      modal.classList.add('lex-modal-show');
+    }, 10);
 
     // Coletar estatísticas
     const stats = coletarEstatisticas();
@@ -1686,14 +1694,14 @@ Use HTML simples, máximo 300 palavras.`
     const closeBtn = modal.querySelector('.lex-modal-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
-        modal.style.display = 'none';
+        modal.classList.remove('lex-modal-show');
       });
     }
 
     // Click outside to close
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.style.display = 'none';
+        modal.classList.remove('lex-modal-show');
       }
     });
   }
@@ -2610,7 +2618,13 @@ Buscando modelo apropriado...<br><br>
     // Limpar input
     input.value = '';
 
-    // DETECTAR COMANDOS ESPECIAIS
+    // 🤖 DETECTAR COMANDOS DE AÇÃO (LEX AGENT)
+    if (isComandoDeAcao(texto)) {
+      executarComandoAgent(texto, messagesContainer);
+      return;
+    }
+
+    // DETECTAR COMANDOS ESPECIAIS (LEGACY)
     const comandoResult = processarComando(texto);
     if (comandoResult) {
       const comandoMessage = document.createElement('div');
@@ -3441,8 +3455,137 @@ Buscando modelo apropriado...<br><br>
     }
   }
 
+  // ==================================================================
+  // LEX AGENT - INTEGRAÇÃO COM CHAT
+  // ==================================================================
+
+  /**
+   * Detecta se é comando de ação (automação) vs pergunta (análise)
+   */
+  function isComandoDeAcao(texto) {
+    const textoLower = texto.toLowerCase();
+
+    // Palavras-chave que indicam AÇÃO (não pergunta)
+    const palavrasAcao = [
+      'pesquisar',
+      'buscar',
+      'procurar',
+      'encontrar',
+      'navegar',
+      'ir para',
+      'abrir',
+      'fechar',
+      'clicar',
+      'selecionar',
+      'preencher',
+      'digitar',
+      'baixar',
+      'download',
+      'protocolar',
+      'enviar',
+      'anexar',
+      'excluir',
+      'deletar',
+      'marcar',
+      'desmarcar'
+    ];
+
+    // Verificar se começa com palavra de ação
+    for (const palavra of palavrasAcao) {
+      if (textoLower.startsWith(palavra)) {
+        return true;
+      }
+    }
+
+    // Verificar padrões de comando
+    if (textoLower.match(/^(pesquise?|busque?|procure?|encontre?|navegue?|va para|abra|clique em|selecione|preencha|digite)/)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Executa comando via LEX Agent
+   */
+  function executarComandoAgent(comando, messagesContainer) {
+    console.log('🤖 LEX Agent: Detectado comando de ação:', comando);
+
+    // Verificar se LEX Agent está disponível
+    if (!window.lexAgentConnector || !window.lexAgentConnector.connected) {
+      adicionarMensagemAssistente(`
+        <strong>⚠️ LEX Agent não está conectado</strong><br><br>
+        O sistema de automação não está disponível no momento.<br>
+        Certifique-se de que o backend está rodando:<br><br>
+        <code>cd lex-agent-backend && npm start</code>
+      `);
+      return;
+    }
+
+    // Mostrar mensagem de "analisando comando"
+    const thinkingMsg = adicionarMensagemAssistente(`
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="lex-thinking-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span>Analisando comando e criando plano de ação...</span>
+      </div>
+    `);
+
+    // Enviar comando para LEX Agent
+    try {
+      window.lexAgentConnector.executeCommand(comando);
+
+      // Aguardar plano e remover mensagem "pensando"
+      const checkPlan = setInterval(() => {
+        if (window.lexAgentConnector.lastPlan) {
+          clearInterval(checkPlan);
+
+          // Remover mensagem "pensando"
+          if (thinkingMsg && thinkingMsg.parentNode) {
+            thinkingMsg.remove();
+          }
+
+          // Mostrar confirmação no chat
+          adicionarMensagemAssistente(`
+            <strong>✓ Plano de ação criado!</strong><br><br>
+            Um modal foi aberto com os detalhes do plano.<br>
+            Revise e clique em <strong>[Executar]</strong> para continuar.
+          `);
+        }
+      }, 500);
+
+      // Timeout de 30 segundos
+      setTimeout(() => {
+        clearInterval(checkPlan);
+        if (!window.lexAgentConnector.lastPlan) {
+          if (thinkingMsg && thinkingMsg.parentNode) {
+            thinkingMsg.remove();
+          }
+          adicionarMensagemAssistente(`
+            <strong>⏱️ Timeout ao criar plano</strong><br><br>
+            O planejamento demorou mais que o esperado.<br>
+            Tente novamente ou verifique o backend.
+          `);
+        }
+      }, 30000);
+
+    } catch (error) {
+      console.error('🤖 LEX Agent: Erro ao executar comando:', error);
+
+      if (thinkingMsg && thinkingMsg.parentNode) {
+        thinkingMsg.remove();
+      }
+
+      adicionarMensagemAssistente(`
+        <strong>❌ Erro ao executar comando</strong><br><br>
+        ${error.message || 'Erro desconhecido'}
+      `);
+    }
+  }
+
 
   // Iniciar
   inicializar();
-  
+
 })();
