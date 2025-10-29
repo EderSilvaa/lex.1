@@ -94,6 +94,8 @@
         "src/js/pdf.min.js",
         "src/js/tesseract.min.js",
         "src/js/lex-toast.js",
+        "src/js/lex-modal.js",
+        "src/js/lex-agent-ui.js",
         "src/js/document-detector.js",
         "src/js/document-cache.js",
         "src/js/document-classifier.js",
@@ -106,6 +108,10 @@
         "src/js/process-analyzer.js",
         "src/js/lex-agent-connector.js",
         "src/js/content-simple.js"
+      ],
+      "css": [
+        "src/css/lex-modal.css",
+        "src/css/lex-agent-ui.css"
       ],
       "run_at": "document_end",
       "all_frames": false

@@ -43,6 +43,12 @@ class SessionContext {
     const existing = this.processedDocuments.find(d => d.id === document.id);
 
     if (!existing) {
+      // Compatibilidade: aceitar tanto 'texto' quanto 'content'
+      const texto = data.texto || data.content || '';
+      const tipo = data.tipo || data.documentType || data.metadata?.contentType;
+      const tamanho = data.tamanho || data.metadata?.size;
+      const paginas = data.paginas || data.metadata?.pages;
+
       this.processedDocuments.push({
         id: document.id,
         name: document.name,
@@ -50,10 +56,10 @@ class SessionContext {
         url: document.url,
         processedAt: new Date(),
         data: {
-          texto: data.texto,
-          tipo: data.tipo,
-          tamanho: data.tamanho,
-          paginas: data.paginas
+          texto: texto,
+          tipo: tipo,
+          tamanho: tamanho,
+          paginas: paginas
         }
       });
 
@@ -231,22 +237,44 @@ class SessionContext {
 
     docs.forEach((doc, i) => {
       context += `${i + 1}. **${doc.name}** (ID: ${doc.id})\n`;
-      context += `   - Tipo: ${doc.data.tipo}\n`;
-      context += `   - Páginas: ${doc.data.paginas || 'N/A'}\n`;
+      context += `   - Tipo: ${doc.data?.tipo || 'N/A'}\n`;
+      context += `   - Páginas: ${doc.data?.paginas || 'N/A'}\n`;
 
-      if (doc.data.texto) {
+      // Tentar obter o texto - primeiro da memória, depois do cache
+      let textoDoc = doc.data?.texto;
+
+      // Se não tem texto em memória, tentar buscar do cache
+      if (!textoDoc && this.cache) {
+        // Verificar se cache é uma instância (não a classe)
+        const cacheInstance = (typeof this.cache === 'function') ? null : this.cache;
+
+        if (cacheInstance && typeof cacheInstance.get === 'function') {
+          const cached = cacheInstance.get(doc.id);
+          if (cached) {
+            // Compatibilidade: buscar tanto 'texto' quanto 'content'
+            textoDoc = cached.texto || cached.content || cached.data?.texto || cached.data?.content;
+            if (textoDoc) {
+              console.log(`📦 LEX: Texto do documento ${doc.id} recuperado do cache`);
+            }
+          }
+        } else {
+          console.warn(`⚠️ LEX: Cache não disponível para documento ${doc.id}`);
+        }
+      }
+
+      if (textoDoc) {
         if (includeFullText) {
           // ✅ TEXTO COMPLETO quando solicitado
-          const textoCompleto = doc.data.texto.substring(0, maxCharsPerDoc);
+          const textoCompleto = textoDoc.substring(0, maxCharsPerDoc);
           context += `   - Conteúdo (${textoCompleto.length} caracteres):\n`;
-          context += `${textoCompleto}${doc.data.texto.length > maxCharsPerDoc ? '\n   [... continua]' : ''}\n`;
+          context += `${textoCompleto}${textoDoc.length > maxCharsPerDoc ? '\n   [... continua]' : ''}\n`;
         } else {
           // Preview curto quando não solicita full text
-          const preview = doc.data.texto.substring(0, 500);
+          const preview = textoDoc.substring(0, 500);
           context += `   - Preview: ${preview}...\n`;
         }
       } else {
-        context += `   - Conteúdo: [Não extraído]\n`;
+        context += `   - Conteúdo: [Não disponível - reprocesse o documento]\n`;
       }
 
       context += '\n';
@@ -399,6 +427,12 @@ class SessionContext {
       this.conversationHistory = sessionData.conversationHistory || [];
       this.lastAnalysis = sessionData.lastAnalysis;
       this.createdAt = new Date(sessionData.createdAt);
+
+      // Restaurar cache (criar nova instância pois não pode ser serializado)
+      if (window.DocumentCache) {
+        this.cache = new window.DocumentCache({ ttl: 30 * 60 * 1000 });
+        console.log('📦 LEX: Cache re-inicializado para sessão restaurada');
+      }
 
       const horasRestantes = Math.round((sessionData.expiresAt - Date.now()) / (60 * 60 * 1000));
 

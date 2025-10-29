@@ -11,10 +11,23 @@ class ActionPlanner {
   /**
    * Faz requisição à Edge Function de Planejamento
    */
-  async callPlanner(command, context) {
+  async callPlanner(command, context, screenshot = null) {
     console.log('📤 Enviando para LEX-AGENT-PLANNER...');
+    if (screenshot) {
+      console.log('👁️ Incluindo screenshot para análise visual (GPT-4 Vision)');
+    }
 
     try {
+      const payload = {
+        command: command,
+        context: context
+      };
+
+      // Adicionar screenshot se disponível
+      if (screenshot) {
+        payload.screenshot = screenshot;
+      }
+
       const response = await fetch(this.plannerUrl, {
         method: 'POST',
         headers: {
@@ -22,10 +35,7 @@ class ActionPlanner {
           'Authorization': `Bearer ${this.supabaseKey}`,
           'apikey': this.supabaseKey
         },
-        body: JSON.stringify({
-          command: command,
-          context: context
-        })
+        body: JSON.stringify(payload)
       });
 
       console.log('📥 Status da resposta:', response.status);
@@ -55,12 +65,12 @@ class ActionPlanner {
   /**
    * Analisa comando do usuário e cria plano de ação
    */
-  async createPlan(userCommand, context) {
+  async createPlan(userCommand, context, screenshot = null) {
     console.log(`🧠 Planejando ação para: "${userCommand}"`);
 
     try {
       // Usar a Edge Function dedicada que retorna JSON estruturado
-      const plan = await this.callPlanner(userCommand, context);
+      const plan = await this.callPlanner(userCommand, context, screenshot);
 
       console.log(`✅ Plano criado: ${plan.steps?.length || 0} passos`);
       console.log(`⚠️ Riscos identificados: ${plan.risks?.length || 0}`);
