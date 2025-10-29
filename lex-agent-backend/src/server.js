@@ -161,11 +161,31 @@ async function handleUserCommand(sessionId, payload, ws) {
     ws.send(JSON.stringify({
       type: 'status_update',
       status: 'analyzing',
-      message: 'Analisando seu comando com GPT-4...'
+      message: 'Analisando seu comando com GPT-4 Vision...'
     }));
 
-    // Usar ActionPlanner para criar plano inteligente
-    const plan = await actionPlanner.createPlan(command, context);
+    // 🎨 CAPTURAR SCREENSHOT DO NAVEGADOR
+    let screenshot = null;
+    try {
+      // SEMPRE reconectar para garantir que temos acesso à página
+      console.log('🔌 Conectando ao navegador para capturar screenshot...');
+      const connected = await pjeExecutor.initialize();
+
+      if (!connected) {
+        console.warn('⚠️ Navegador não conectado, continuando sem screenshot');
+        throw new Error('Browser not connected');
+      }
+
+      // Capturar screenshot em base64
+      screenshot = await pjeExecutor.screenshotBase64();
+      console.log('👁️ Screenshot capturado para análise visual');
+    } catch (error) {
+      console.warn('⚠️ Não foi possível capturar screenshot:', error.message);
+      console.log('📝 Continuando apenas com contexto textual...');
+    }
+
+    // Usar ActionPlanner para criar plano inteligente (COM VISÃO!)
+    const plan = await actionPlanner.createPlan(command, context, screenshot);
 
     // Armazenar plano na sessão
     const session = activeSessions.get(sessionId);
@@ -313,18 +333,16 @@ async function executeApprovedAction(sessionId, payload, ws) {
   }));
 
   try {
-    // Conectar ao navegador se ainda não conectado
-    if (!pjeExecutor.connected) {
-      ws.send(JSON.stringify({
-        type: 'status_update',
-        status: 'connecting',
-        message: 'Conectando ao navegador...'
-      }));
+    // SEMPRE reconectar ao navegador (fix para "page closed")
+    ws.send(JSON.stringify({
+      type: 'status_update',
+      status: 'connecting',
+      message: 'Conectando ao navegador...'
+    }));
 
-      const connected = await pjeExecutor.initialize();
-      if (!connected) {
-        throw new Error('Não foi possível conectar ao navegador. Abra o Chrome com: chrome.exe --remote-debugging-port=9222');
-      }
+    const connected = await pjeExecutor.initialize();
+    if (!connected) {
+      throw new Error('Não foi possível conectar ao navegador. Abra o Chrome com: chrome.exe --remote-debugging-port=9222');
     }
 
     // Executar cada step do plano

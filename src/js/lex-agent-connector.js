@@ -27,6 +27,9 @@
       // Armazenar último plano recebido
       this.lastPlan = null;
 
+      // UI para interface visual
+      this.ui = null; // Será inicializado depois que LexAgentUI carregar
+
       console.log('🔌 LexAgentConnector inicializado');
     }
 
@@ -177,6 +180,21 @@
               plan: message.plan
             }, '*');
 
+            // Mostrar modal de aprovação AUTOMATICAMENTE
+            if (this.ui) {
+              this.ui.showPlanForApproval(
+                message.plan,
+                () => {
+                  // Callback de aprovação
+                  this.approveAction('current');
+                },
+                () => {
+                  // Callback de cancelamento
+                  this.cancelAction('current');
+                }
+              );
+            }
+
             if (this.onPlanReceived) {
               this.onPlanReceived(message.plan);
             }
@@ -188,6 +206,15 @@
 
           case 'execution_progress':
             console.log(`⏳ Progresso: ${message.percentage}% - ${message.stepDescription}`);
+
+            // Atualizar progress bar no modal
+            if (this.ui) {
+              this.ui.updateProgress(
+                message.currentStep,
+                message.totalSteps,
+                `🔄 ${message.stepDescription}`
+              );
+            }
 
             if (this.onExecutionProgress) {
               this.onExecutionProgress({
@@ -201,6 +228,15 @@
 
           case 'execution_completed':
             console.log('✅ Execução concluída');
+
+            // Mostrar resultado no modal
+            if (this.ui) {
+              this.ui.showExecutionResult({
+                success: message.success !== false,
+                message: message.message || 'Execução concluída!',
+                details: message.details || null
+              });
+            }
 
             if (this.onExecutionCompleted) {
               this.onExecutionCompleted({
@@ -720,6 +756,26 @@
 
   console.log('🌍 LEX Agent Connector configurado');
   console.log('📋 Use no console: lexAgent.executeCommand("seu comando")');
+
+  // Inicializar UI após carregar recursos necessários
+  function initializeUI() {
+    // Verificar se classes estão disponíveis
+    if (typeof window.LexModal !== 'undefined' && typeof window.LexAgentUI !== 'undefined') {
+      connector.ui = new window.LexAgentUI();
+      console.log('🎨 LEX Agent UI inicializada');
+    } else {
+      console.warn('⚠️ LexModal ou LexAgentUI não disponível. Interface visual desabilitada.');
+    }
+  }
+
+  // Aguardar carregar LexModal e LexAgentUI
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(initializeUI, 500);
+    });
+  } else {
+    setTimeout(initializeUI, 500);
+  }
 
   // Auto-conectar após 2 segundos (dar tempo para carregar)
   setTimeout(() => {
