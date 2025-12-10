@@ -1,0 +1,336 @@
+/* LEX Agent UI - Estilos específicos para interface do Agent */
+
+/* Container principal do plano */
+.lex-agent-plan {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Header do plano (objetivo + meta) */
+.lex-agent-plan-header {
+  margin-bottom: 20px;
+}
+
+.lex-agent-plan-intent {
+  font-size: 15px;
+  color: #111827;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  border-left: 4px solid #3b82f6;
+}
+
+.lex-agent-plan-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.lex-agent-plan-time,
+.lex-agent-plan-risk {
+  font-weight: 600;
+}
+
+/* Divisor visual */
+.lex-agent-plan-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%);
+  margin: 20px 0;
+}
+
+/* Lista de passos */
+.lex-agent-plan-steps h4,
+.lex-agent-plan-risks h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 12px 0;
+}
+
+.lex-agent-plan-step {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  transition: all 0.15s ease;
+}
+
+.lex-agent-plan-step:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.lex-agent-plan-step-number {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.lex-agent-plan-step-content {
+  flex: 1;
+}
+
+.lex-agent-plan-step-title {
+  font-weight: 500;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+.lex-agent-plan-step-details {
+  font-size: 12px;
+  color: #6b7280;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  margin-bottom: 6px;
+}
+
+.lex-agent-plan-step-details code {
+  background: #e5e7eb;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #1f2937;
+  font-size: 11px;
+}
+
+.lex-agent-plan-step-reasoning {
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid #d1d5db;
+}
+
+/* Riscos */
+.lex-agent-plan-risks {
+  margin-top: 16px;
+}
+
+.lex-agent-plan-risk {
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border-left: 4px solid;
+}
+
+.lex-agent-plan-risk-low {
+  background: #f0fdf4;
+  border-color: #10b981;
+}
+
+.lex-agent-plan-risk-medium {
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+
+.lex-agent-plan-risk-high {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+.lex-agent-plan-risk-label {
+  font-size: 13px;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.lex-agent-plan-risk-mitigation {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Progresso de execução */
+.lex-agent-progress {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.lex-agent-progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.lex-agent-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.lex-agent-progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+  animation: progressShine 1.5s infinite;
+}
+
+@keyframes progressShine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.lex-agent-progress-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.lex-agent-progress-step {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* Resultado da execução */
+.lex-agent-result {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.lex-agent-result-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  animation: resultBounce 0.5s ease;
+}
+
+@keyframes resultBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.lex-agent-result-message {
+  font-size: 16px;
+  font-weight: 500;
+  color: #111827;
+  margin-bottom: 12px;
+}
+
+.lex-agent-result-details {
+  font-size: 13px;
+  color: #6b7280;
+  background: #f9fafb;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* Responsivo para mobile */
+@media (max-width: 640px) {
+  .lex-agent-plan-step {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lex-agent-plan-step-number {
+    align-self: flex-start;
+  }
+
+  .lex-agent-plan-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .lex-agent-plan-intent {
+    background: #374151;
+    color: #f9fafb;
+    border-left-color: #60a5fa;
+  }
+
+  .lex-agent-plan-step {
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  .lex-agent-plan-step:hover {
+    background: #374151;
+    border-color: #4b5563;
+  }
+
+  .lex-agent-plan-step-title {
+    color: #f9fafb;
+  }
+
+  .lex-agent-plan-step-details {
+    color: #9ca3af;
+  }
+
+  .lex-agent-plan-step-details code {
+    background: #374151;
+    color: #e5e7eb;
+  }
+
+  .lex-agent-plan-step-reasoning {
+    color: #9ca3af;
+    border-left-color: #4b5563;
+  }
+
+  .lex-agent-plan-risk-low {
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .lex-agent-plan-risk-medium {
+    background: rgba(245, 158, 11, 0.1);
+  }
+
+  .lex-agent-plan-risk-high {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .lex-agent-plan-risk-label {
+    color: #f9fafb;
+  }
+
+  .lex-agent-plan-risk-mitigation {
+    color: #9ca3af;
+  }
+
+  .lex-agent-progress-text {
+    color: #f9fafb;
+  }
+
+  .lex-agent-result-message {
+    color: #f9fafb;
+  }
+
+  .lex-agent-result-details {
+    background: #1f2937;
+    border-color: #374151;
+    color: #d1d5db;
+  }
+}
