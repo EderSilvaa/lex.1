@@ -1716,3 +1716,314 @@ select.lex-input-field:focus {
   margin: 20px 0;
   border: none;
 }
+
+/* === Logs Section === */
+.lex-dash-logs-section {
+  margin-top: 12px;
+}
+
+.lex-dash-logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 12px;
+  background: var(--lex-bg-secondary);
+  border-radius: var(--lex-radius-md);
+  transition: background 0.2s ease;
+  user-select: none;
+}
+
+.lex-dash-logs-header:hover {
+  background: var(--lex-gray-hover);
+}
+
+.lex-dash-logs-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lex-text-primary);
+}
+
+.lex-dash-logs-toggle {
+  font-size: 12px;
+  color: var(--lex-text-tertiary);
+  transition: transform 0.3s ease;
+}
+
+.lex-dash-logs-expanded .lex-dash-logs-toggle {
+  transform: rotate(180deg);
+}
+
+.lex-dash-logs-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  background: var(--lex-bg-primary);
+  border-radius: 0 0 var(--lex-radius-md) var(--lex-radius-md);
+}
+
+.lex-dash-logs-expanded .lex-dash-logs-content {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--lex-gray-border);
+  border-top: none;
+  margin-top: -8px;
+  padding: 12px;
+}
+
+.lex-dash-logs-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--lex-text-tertiary);
+  font-size: 13px;
+}
+
+.lex-dash-log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 4px;
+  border-radius: var(--lex-radius-sm);
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  border-left: 3px solid transparent;
+  transition: background 0.2s ease;
+}
+
+.lex-dash-log-item:hover {
+  background: var(--lex-gray-hover);
+}
+
+.lex-log-info {
+  border-left-color: #3b82f6;
+}
+
+.lex-log-warn {
+  border-left-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.lex-log-error {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.lex-log-time {
+  color: var(--lex-text-tertiary);
+  font-size: 11px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.lex-log-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.lex-log-message {
+  flex: 1;
+  color: var(--lex-text-primary);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* Scrollbar para logs */
+.lex-dash-logs-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lex-dash-logs-content::-webkit-scrollbar-track {
+  background: var(--lex-bg-secondary);
+  border-radius: 3px;
+}
+
+.lex-dash-logs-content::-webkit-scrollbar-thumb {
+  background: var(--lex-gray-border);
+  border-radius: 3px;
+}
+
+.lex-dash-logs-content::-webkit-scrollbar-thumb:hover {
+  background: var(--lex-text-tertiary);
+}
+
+/* === Thinking Indicator (Streaming) === */
+.lex-thinking {
+  color: var(--lex-text-tertiary);
+  font-style: italic;
+  animation: lex-thinking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes lex-thinking-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* === Formatação de Conteúdo da IA (Markdown → HTML) === */
+
+/* Headings dentro das mensagens */
+.lex-bubble h1,
+.lex-bubble h2,
+.lex-bubble h3 {
+  color: var(--lex-text-primary);
+  font-weight: 600;
+  margin: 12px 0 8px 0;
+  line-height: 1.3;
+}
+
+.lex-bubble h1 {
+  font-size: 18px;
+  border-bottom: 1px solid var(--lex-gray-border);
+  padding-bottom: 6px;
+}
+
+.lex-bubble h2 {
+  font-size: 16px;
+  color: var(--lex-blue);
+}
+
+.lex-bubble h3 {
+  font-size: 14px;
+  color: var(--lex-text-secondary);
+}
+
+/* Primeira heading sem margem superior */
+.lex-bubble h1:first-child,
+.lex-bubble h2:first-child,
+.lex-bubble h3:first-child {
+  margin-top: 0;
+}
+
+/* Listas */
+.lex-bubble ul,
+.lex-bubble ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  color: var(--lex-text-secondary);
+}
+
+.lex-bubble ul {
+  list-style-type: disc;
+}
+
+.lex-bubble ol {
+  list-style-type: decimal;
+}
+
+.lex-bubble li {
+  margin: 4px 0;
+  line-height: 1.5;
+  color: var(--lex-text-secondary);
+}
+
+.lex-bubble li strong {
+  color: var(--lex-text-primary);
+}
+
+/* Listas aninhadas */
+.lex-bubble ul ul,
+.lex-bubble ol ol,
+.lex-bubble ul ol,
+.lex-bubble ol ul {
+  margin: 2px 0;
+  padding-left: 16px;
+}
+
+/* Negrito e Itálico */
+.lex-bubble strong {
+  font-weight: 600;
+  color: var(--lex-text-primary);
+}
+
+.lex-bubble em {
+  font-style: italic;
+  color: var(--lex-text-secondary);
+}
+
+/* Blocos de código */
+.lex-bubble pre {
+  background: var(--lex-black-tertiary);
+  border: 1px solid var(--lex-gray-border);
+  border-radius: var(--lex-radius-sm);
+  padding: 12px;
+  margin: 12px 0;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.lex-bubble code {
+  font-family: 'Courier New', monospace;
+  color: var(--lex-blue);
+  font-size: 12px;
+}
+
+/* Código inline (sem <pre>) */
+.lex-bubble :not(pre) > code {
+  background: var(--lex-black-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--lex-gray-border);
+}
+
+/* Parágrafos */
+.lex-bubble p {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+/* Links (caso a IA gere) */
+.lex-bubble a {
+  color: var(--lex-blue);
+  text-decoration: underline;
+  transition: color 0.2s ease;
+}
+
+.lex-bubble a:hover {
+  color: var(--lex-purple);
+}
+
+/* Citações (blockquote) */
+.lex-bubble blockquote {
+  border-left: 3px solid var(--lex-blue);
+  padding-left: 12px;
+  margin: 12px 0;
+  color: var(--lex-text-tertiary);
+  font-style: italic;
+}
+
+/* Tabelas (caso a IA gere) */
+.lex-bubble table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.lex-bubble table th,
+.lex-bubble table td {
+  padding: 8px;
+  border: 1px solid var(--lex-gray-border);
+  text-align: left;
+}
+
+.lex-bubble table th {
+  background: var(--lex-black-tertiary);
+  font-weight: 600;
+  color: var(--lex-text-primary);
+}
+
+.lex-bubble table td {
+  color: var(--lex-text-secondary);
+}
+
+/* Linhas horizontais */
+.lex-bubble hr {
+  border: none;
+  border-top: 1px solid var(--lex-gray-border);
+  margin: 16px 0;
+}

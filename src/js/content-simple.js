@@ -9,7 +9,58 @@
   
   window.lexAssistantActive = true;
   console.log('🚀 LEX: Extensão iniciada');
-  
+
+  // Sistema de captura de logs para o Dashboard
+  window.lexLogs = window.lexLogs || [];
+  const MAX_LOGS = 100; // Manter últimos 100 logs
+
+  const originalConsoleLog = console.log;
+  const originalConsoleError = console.error;
+  const originalConsoleWarn = console.warn;
+
+  function capturarLog(tipo, args) {
+    const timestamp = new Date().toLocaleTimeString('pt-BR');
+    const mensagem = Array.from(args).map(arg => {
+      if (typeof arg === 'object') {
+        try {
+          return JSON.stringify(arg, null, 2);
+        } catch (e) {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    }).join(' ');
+
+    // Filtrar apenas logs do LEX
+    if (mensagem.includes('LEX') || mensagem.includes('📤') || mensagem.includes('✅') || mensagem.includes('❌')) {
+      window.lexLogs.push({
+        timestamp,
+        tipo,
+        mensagem: mensagem.substring(0, 500) // Limitar tamanho
+      });
+
+      // Manter apenas últimos MAX_LOGS
+      if (window.lexLogs.length > MAX_LOGS) {
+        window.lexLogs.shift();
+      }
+    }
+  }
+
+  console.log = function(...args) {
+    capturarLog('log', args);
+    originalConsoleLog.apply(console, args);
+  };
+
+  console.error = function(...args) {
+    capturarLog('error', args);
+    originalConsoleError.apply(console, args);
+  };
+
+  console.warn = function(...args) {
+    capturarLog('warn', args);
+    originalConsoleWarn.apply(console, args);
+  };
+
   // Carregar CSS do chat
   function carregarCSS() {
     // Verificar se o CSS já foi carregado
@@ -271,16 +322,16 @@
         console.log('LEX: OpenAI Client via Supabase criado');
       }
 
-      async analisarDocumento(contextoProcesso, perguntaUsuario) {
+      async analisarDocumento(contextoProcesso, perguntaUsuario, messageElement = null) {
         console.log('LEX: Iniciando análise com IA integrada');
-        
+
         try {
           const prompt = this.criarPromptJuridico(contextoProcesso, perguntaUsuario);
-          const response = await this.fazerRequisicao(prompt);
-          console.log('LEX: Resposta da OpenAI recebida');
+          const response = await this.fazerRequisicao(prompt, messageElement);
+          console.log('✅ LEX: Resposta da OpenAI recebida');
           return response;
         } catch (error) {
-          console.error('LEX: Erro na análise OpenAI:', error);
+          console.error('❌ LEX: Erro na análise OpenAI:', error);
           return this.respostaFallback(perguntaUsuario);
         }
       }
@@ -415,8 +466,8 @@ Use HTML simples, máximo 300 palavras.`
         return contexto || 'Informações do processo não disponíveis';
       }
 
-      async fazerRequisicao(prompt) {
-        console.log('📤 LEX: Enviando requisição para Supabase Edge Function...');
+      async fazerRequisicao(prompt, messageElement = null) {
+        console.log('📤 LEX: Enviando requisição para Supabase Edge Function (streaming)...');
 
         const response = await fetch(this.baseUrl, {
           method: 'POST',
@@ -435,42 +486,145 @@ Use HTML simples, máximo 300 palavras.`
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('LEX: Erro da Edge Function:', errorText);
+          console.error('❌ LEX: Erro da Edge Function:', errorText);
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json();
-        
-        if (data.resposta) {
-          return this.limparResposta(data.resposta);
-        } else if (data.fallback) {
-          return this.limparResposta(data.fallback);
+        // Verificar se é streaming (text/event-stream) ou JSON
+        const contentType = response.headers.get('Content-Type');
+
+        if (contentType && contentType.includes('text/event-stream')) {
+          // 🚀 STREAMING HABILITADO
+          console.log('📡 LEX: Processando resposta com streaming...');
+          return await this.processarStreaming(response, messageElement);
         } else {
-          throw new Error('Resposta inválida da Edge Function');
+          // Fallback para resposta JSON (sem streaming)
+          console.log('📦 LEX: Processando resposta JSON (sem streaming)...');
+          const data = await response.json();
+          console.log('📦 LEX: Resposta da Edge Function:', data);
+
+          // Suportar diferentes formatos de resposta
+          const resposta = data.resposta || data.response || data.message || data.fallback || data.content || data.text;
+
+          if (resposta) {
+            return this.limparResposta(resposta);
+          } else {
+            console.error('❌ LEX: Formato de resposta não reconhecido:', Object.keys(data));
+            throw new Error('Resposta inválida da Edge Function - campos disponíveis: ' + Object.keys(data).join(', '));
+          }
+        }
+      }
+
+      async processarStreaming(response, messageElement) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              console.log('✅ LEX: Streaming concluído');
+              break;
+            }
+
+            // Decodificar o chunk recebido
+            const chunk = decoder.decode(value, { stream: true });
+
+            // Processar linhas do SSE (Server-Sent Events)
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              // Linhas SSE começam com "data: "
+              if (line.startsWith('data: ')) {
+                const data = line.substring(6); // Remove "data: "
+
+                // "[DONE]" indica fim do stream
+                if (data === '[DONE]') {
+                  console.log('🏁 LEX: Recebido sinal de conclusão');
+                  continue;
+                }
+
+                try {
+                  const parsed = JSON.parse(data);
+                  const text = parsed.text || '';
+
+                  if (text) {
+                    fullText += text;
+
+                    // Atualizar mensagem em tempo real (se elemento fornecido)
+                    if (messageElement) {
+                      const bubble = messageElement.querySelector('.lex-bubble');
+                      if (bubble) {
+                        bubble.innerHTML = this.limparResposta(fullText);
+
+                        // Auto-scroll
+                        const messagesContainer = messageElement.closest('.lex-messages');
+                        if (messagesContainer) {
+                          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        }
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Linha não é JSON válido, ignorar
+                  if (data.trim() !== '') {
+                    console.warn('⚠️ LEX: Linha SSE inválida:', data);
+                  }
+                }
+              }
+            }
+          }
+
+          return fullText;
+        } catch (error) {
+          console.error('❌ LEX: Erro no streaming:', error);
+          throw error;
         }
       }
 
       limparResposta(resposta) {
         if (!resposta) return resposta;
-        
-        // Remove markdown malformado
-        let cleaned = resposta
-          .replace(/```html\s*/gi, '') 
-          .replace(/```\s*/g, '')      
-          .replace(/#{1,6}\s*/g, '')   
-          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
-          .replace(/\*(.*?)\*/g, '<em>$1</em>')             
-          .trim();
-        
-        // Melhora formatação
-        cleaned = cleaned
-          .replace(/\n{3,}/g, '<br><br>')    // Múltiplas quebras → 2 <br>
-          .replace(/\n{2}/g, '<br><br>')     // Dupla quebra → 2 <br>
-          .replace(/\n/g, '<br>')            // Quebra simples → <br>
-          .replace(/<br>\s*<br>\s*<br>/g, '<br><br>') // Max 2 <br> seguidos
-          .trim();
-        
-        return cleaned;
+
+        let cleaned = resposta;
+
+        // 1. Processar blocos de código
+        cleaned = cleaned.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+        // 2. Processar headings (### → <h3>, ## → <h2>, # → <h1>)
+        cleaned = cleaned.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+        cleaned = cleaned.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+        cleaned = cleaned.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+
+        // 3. Processar listas não ordenadas (- item ou * item)
+        cleaned = cleaned.replace(/^[-*] (.*?)$/gm, '<li>$1</li>');
+
+        // 4. Processar listas numeradas (1. item, 2. item)
+        cleaned = cleaned.replace(/^\d+\. (.*?)$/gm, '<li>$1</li>');
+
+        // 5. Agrupar <li> em <ul> ou <ol>
+        cleaned = cleaned.replace(/(<li>.*?<\/li>\n?)+/gs, (match) => {
+          return '<ul>' + match + '</ul>';
+        });
+
+        // 6. Processar negrito e itálico
+        cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        cleaned = cleaned.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+        // 7. Processar quebras de linha
+        cleaned = cleaned.replace(/\n{3,}/g, '\n\n');  // Max 2 quebras seguidas
+        cleaned = cleaned.replace(/\n\n/g, '<br><br>'); // Parágrafo
+        cleaned = cleaned.replace(/\n/g, '<br>');       // Quebra simples
+
+        // 8. Limpar <br> duplicados criados acidentalmente
+        cleaned = cleaned.replace(/(<br>\s*){3,}/g, '<br><br>');
+
+        // 9. Limpar <br> antes/depois de tags de bloco
+        cleaned = cleaned.replace(/<br>\s*<(h[1-6]|ul|ol|li|pre)/gi, '<$1');
+        cleaned = cleaned.replace(/<\/(h[1-6]|ul|ol|li|pre)>\s*<br>/gi, '</$1>');
+
+        return cleaned.trim();
       }
 
       respostaFallback(pergunta) {
@@ -1713,7 +1867,7 @@ Use HTML simples, máximo 300 palavras.`
       // Sessão
       sessionActive: session && session.isActive(),
       processNumber: session?.processNumber || 'N/A',
-      sessionAge: session?.createdAt ? Math.round((Date.now() - new Date(session.createdAt).getTime()) / 1000 / 60) : 0,
+      sessionAge: session?.lastActiveAt ? Math.round((Date.now() - new Date(session.lastActiveAt).getTime()) / 1000 / 60) : 0,
 
       // Documentos
       totalDocs: session?.documents?.length || 0,
@@ -1927,12 +2081,51 @@ Use HTML simples, máximo 300 palavras.`
             </button>
           </div>
         </div>
+
+        <!-- Logs do Sistema -->
+        <div class="lex-dash-section lex-dash-logs-section">
+          <div class="lex-dash-logs-header" onclick="this.parentElement.classList.toggle('lex-dash-logs-expanded')">
+            <h4>📋 Logs do Sistema (${window.lexLogs ? window.lexLogs.length : 0})</h4>
+            <span class="lex-dash-logs-toggle">▼</span>
+          </div>
+          <div class="lex-dash-logs-content">
+            ${gerarHTMLLogs()}
+          </div>
+        </div>
       </div>
     `;
   }
 
+  // Gerar HTML dos logs
+  function gerarHTMLLogs() {
+    if (!window.lexLogs || window.lexLogs.length === 0) {
+      return '<div class="lex-dash-logs-empty">Nenhum log capturado ainda.</div>';
+    }
+
+    const logs = window.lexLogs.slice().reverse(); // Mais recentes primeiro
+    return logs.map(log => {
+      const iconClass = log.tipo === 'error' ? 'lex-log-error' :
+                       log.tipo === 'warn' ? 'lex-log-warn' : 'lex-log-info';
+      const icon = log.tipo === 'error' ? '❌' :
+                  log.tipo === 'warn' ? '⚠️' : 'ℹ️';
+
+      return `
+        <div class="lex-dash-log-item ${iconClass}">
+          <span class="lex-log-time">${log.timestamp}</span>
+          <span class="lex-log-icon">${icon}</span>
+          <span class="lex-log-message">${log.mensagem}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
   // Atualizar dashboard
   function atualizarDashboard() {
+    // Atualizar última atividade ao abrir dashboard
+    if (window.lexSession && window.lexSession.lastActiveAt) {
+      window.lexSession.lastActiveAt = new Date();
+    }
+
     const dashBody = document.getElementById('lex-dashboard-body');
     if (dashBody) {
       const stats = coletarEstatisticas();
@@ -2534,7 +2727,7 @@ Buscando modelo apropriado...<br><br>
   }
 
   // Gerar resposta com contexto da sessão (se disponível)
-  async function gerarRespostaComContexto(pergunta) {
+  async function gerarRespostaComContexto(pergunta, messageElement = null) {
     // Se há sessão ativa, incluir contexto dos documentos
     if (window.lexSession && window.lexSession.isActive()) {
       console.log('LEX: Gerando resposta com contexto da sessão');
@@ -2582,11 +2775,11 @@ Buscando modelo apropriado...<br><br>
 - Se a pergunta for sobre um documento específico, foque nele`;
 
       // Enviar para IA com contexto
-      return await gerarRespostaIA(promptComContexto);
+      return await gerarRespostaIA(promptComContexto, messageElement);
     }
 
     // Sem sessão, processar normalmente
-    return await gerarRespostaIA(pergunta);
+    return await gerarRespostaIA(pergunta, messageElement);
   }
 
   // Enviar mensagem
@@ -2638,38 +2831,39 @@ Buscando modelo apropriado...<br><br>
       return;
     }
 
-    // Mostrar indicador de "pensando" animado
-    const thinkingIndicator = mostrarIndicadorPensando();
+    // Criar mensagem da IA antecipadamente (para streaming)
+    const assistantMessage = document.createElement('div');
+    assistantMessage.className = 'lex-message assistant';
+    assistantMessage.innerHTML = `
+      <div class="lex-bubble"><span class="lex-thinking">Pensando...</span></div>
+      <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+    `;
+    messagesContainer.appendChild(assistantMessage);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
     // Gerar resposta com IA (com contexto da sessão se disponível)
-    gerarRespostaComContexto(texto).then(resposta => {
-      // Remover indicador de "pensando"
-      removerIndicadorPensando(thinkingIndicator);
-      
-      // Adicionar resposta da IA
-      const assistantMessage = document.createElement('div');
-      assistantMessage.className = 'lex-message assistant';
-      assistantMessage.innerHTML = `
-        <div class="lex-bubble">${resposta}</div>
-        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-      `;
-      
-      messagesContainer.appendChild(assistantMessage);
+    gerarRespostaComContexto(texto, assistantMessage).then(resposta => {
+      // Atualizar mensagem com resposta final APENAS se não foi streaming
+      const bubble = assistantMessage.querySelector('.lex-bubble');
+      if (bubble) {
+        // Se ainda tem "Pensando...", significa que não foi streaming (ou falhou)
+        // Neste caso, atualizar com resposta formatada
+        if (bubble.textContent.includes('Pensando')) {
+          // Aplicar formatação markdown antes de atualizar
+          bubble.innerHTML = window.openaiClient ? window.openaiClient.limparResposta(resposta) : resposta;
+        }
+        // Se não tem "Pensando...", o streaming já atualizou o conteúdo formatado
+        // Não fazer nada para preservar a formatação
+      }
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }).catch(error => {
-      // Remover indicador de "pensando"
-      messagesContainer.removeChild(thinkingMessage);
-      
-      // Mostrar erro
-      const errorMessage = document.createElement('div');
-      errorMessage.className = 'lex-message assistant';
-      errorMessage.innerHTML = `
-        <div class="lex-bubble">Erro ao processar sua pergunta. Tente novamente.</div>
-        <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-      `;
-      
-      messagesContainer.appendChild(errorMessage);
+      // Atualizar mensagem existente com erro
+      const bubble = assistantMessage.querySelector('.lex-bubble');
+      if (bubble) {
+        bubble.innerHTML = '❌ Erro ao processar sua pergunta. Tente novamente.';
+      }
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      console.error('❌ LEX: Erro ao gerar resposta:', error);
     });
   }
 
@@ -2926,15 +3120,15 @@ Buscando modelo apropriado...<br><br>
   }
 
   // Gerar resposta com IA
-  async function gerarRespostaIA(pergunta) {
+  async function gerarRespostaIA(pergunta, messageElement = null) {
     console.log('🚀 LEX: Iniciando geração de resposta');
     console.log('❓ Pergunta recebida:', pergunta);
-    
+
     try {
       // Extrair contexto do processo atual
       const contexto = extrairInformacoesCompletas();
       console.log('Contexto extraído:', contexto);
-      
+
       // Extrair conteúdo do documento atual
       console.log('Tentando extrair conteúdo do documento...');
       const conteudoDocumento = await extrairConteudoDocumento();
@@ -2983,9 +3177,9 @@ Buscando modelo apropriado...<br><br>
       
       if (window.openaiClient && window.openaiClient.isConfigured()) {
         console.log('Usando IA para gerar resposta');
-        // Usar IA para gerar resposta
-        const resposta = await window.openaiClient.analisarDocumento(contexto, pergunta);
-        console.log('Resposta final da IA:', resposta.substring(0, 100) + '...');
+        // Usar IA para gerar resposta (com streaming se messageElement fornecido)
+        const resposta = await window.openaiClient.analisarDocumento(contexto, pergunta, messageElement);
+        console.log('✅ LEX: Resposta final da IA:', resposta.substring(0, 100) + '...');
         return resposta;
       } else {
         console.log('Cliente OpenAI não configurado, usando fallback');

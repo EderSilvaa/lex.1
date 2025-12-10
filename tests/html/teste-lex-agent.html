@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste LEX Agent - Simulador PJe</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #0066cc;
+      border-bottom: 3px solid #0066cc;
+      padding-bottom: 10px;
+    }
+    .info-box {
+      background: #e8f4f8;
+      border-left: 4px solid #0066cc;
+      padding: 15px;
+      margin: 20px 0;
+    }
+    .processo-info {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 15px 0;
+    }
+    .processo-info strong {
+      color: #333;
+    }
+    .instrucoes {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 20px 0;
+    }
+    .instrucoes ol {
+      margin-left: 20px;
+    }
+    .instrucoes li {
+      margin: 10px 0;
+    }
+    .code-box {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    .success {
+      color: #28a745;
+      font-weight: bold;
+    }
+    .warning {
+      color: #ffc107;
+      font-weight: bold;
+    }
+    .error {
+      color: #dc3545;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Teste LEX Agent - Página de Teste</h1>
+
+    <div class="info-box">
+      <strong>📋 Processo Simulado:</strong> 1234567-89.2024.8.14.0001<br>
+      <strong>⚖️ Classe:</strong> Procedimento Comum Cível<br>
+      <strong>📌 Assunto:</strong> Indenização por Danos Morais<br>
+      <strong>👤 Autor:</strong> João da Silva<br>
+      <strong>👤 Réu:</strong> Empresa XYZ Ltda<br>
+      <strong>🏛️ Tribunal:</strong> TJPA - Tribunal de Justiça do Pará
+    </div>
+
+    <div class="instrucoes">
+      <h2>📖 Instruções de Teste:</h2>
+      <ol>
+        <li><strong>Abra o Console do Desenvolvedor</strong>
+          <ul>
+            <li>Pressione <code>F12</code> no teclado</li>
+            <li>Ou clique com botão direito → "Inspecionar" → aba "Console"</li>
+          </ul>
+        </li>
+
+        <li><strong>Aguarde a conexão automática</strong>
+          <ul>
+            <li>A LEX deve conectar automaticamente ao backend</li>
+            <li>Aguarde 2-3 segundos</li>
+          </ul>
+        </li>
+
+        <li><strong>Verifique as mensagens no Console</strong>
+          <ul>
+            <li>Deve aparecer: <span class="success">"✅ Conectado ao LEX Agent Backend"</span></li>
+            <li>E também: <span class="success">"🔑 Session ID: session_..."</span></li>
+          </ul>
+        </li>
+
+        <li><strong>Teste 1: Verificar Status</strong><br>
+          Cole no console e aperte Enter:
+          <div class="code-box">window.lexAgentConnector.getStatus()</div>
+          <strong>Resultado esperado:</strong> Objeto com <code>connected: true</code>
+        </li>
+
+        <li><strong>Teste 2: Enviar Comando</strong><br>
+          Cole no console e aperte Enter:
+          <div class="code-box">window.lexAgentConnector.executeCommand('protocolar petição')</div>
+          <strong>Resultado esperado:</strong> Mensagens de envio e recebimento de plano
+        </li>
+
+        <li><strong>Teste 3: Aprovar Execução</strong><br>
+          Cole no console e aperte Enter:
+          <div class="code-box">window.lexAgentConnector.approveAction('plan_123')</div>
+          <strong>Resultado esperado:</strong> Progresso de execução (0% → 100%)
+        </li>
+      </ol>
+    </div>
+
+    <div class="processo-info">
+      <h3>✅ O que você deve ver no Console:</h3>
+      <div class="code-box">
+🔌 LexAgentConnector inicializado
+✅ LexAgentConnector carregado
+🔌 Tentando conectar ao LEX Agent Backend...
+🔌 Conectando ao backend: ws://localhost:3000
+✅ Conectado ao LEX Agent Backend
+🔑 Session ID: session_1728...
+📤 Sincronizando contexto com backend...
+📨 Mensagem do backend: context_updated
+✅ Contexto sincronizado com backend
+      </div>
+    </div>
+
+    <div class="info-box">
+      <strong>💡 Dica:</strong> Se a conexão não acontecer automaticamente após 5 segundos, digite no console:<br>
+      <div class="code-box">window.lexAgentConnector.connect()</div>
+    </div>
+
+    <div class="processo-info">
+      <h3>🐛 Se algo der errado:</h3>
+      <ul>
+        <li><span class="error">Erro:</span> "WebSocket connection failed"<br>
+          → Verifique se o backend está rodando (terminal deve mostrar mensagens)</li>
+
+        <li><span class="warning">Aviso:</span> Nenhuma mensagem aparece<br>
+          → Recarregue a extensão em chrome://extensions e recarregue esta página</li>
+
+        <li><span class="error">Erro:</span> "lexAgentConnector is not defined"<br>
+          → A extensão não foi carregada. Verifique se está ativada e recarregue a página</li>
+      </ul>
+    </div>
+
+    <div class="info-box" style="background: #d4edda; border-color: #28a745;">
+      <strong style="color: #155724;">✅ Teste bem-sucedido se você viu:</strong>
+      <ul>
+        <li>✅ Mensagem de conexão estabelecida</li>
+        <li>✅ Session ID gerado</li>
+        <li>✅ <code>getStatus()</code> retorna <code>connected: true</code></li>
+        <li>✅ Comando enviado e plano recebido</li>
+        <li>✅ Progresso de execução (20%, 40%, 60%, etc)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Simular estrutura do PJe para a extensão detectar -->
+  <div style="display: none;">
+    <span>Processo: 1234567-89.2024.8.14.0001</span>
+  </div>
+</body>
+</html>

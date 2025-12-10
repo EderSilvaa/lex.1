@@ -11,6 +11,7 @@ class SessionContext {
     this.lastAnalysis = null; // Última análise completa
     this.cache = null; // Referência ao DocumentCache
     this.createdAt = new Date();
+    this.lastActiveAt = new Date(); // Última atividade (atualizado sempre que houver interação)
 
     console.log('💬 LEX: SessionContext inicializado');
   }
@@ -64,6 +65,9 @@ class SessionContext {
       });
 
       console.log(`📌 LEX: Documento ${document.id} adicionado ao contexto da sessão`);
+
+      // Atualizar última atividade
+      this.lastActiveAt = new Date();
 
       // AUTO-SAVE após adicionar documento
       this.save();
@@ -349,6 +353,7 @@ class SessionContext {
           // Incluir apenas resumo, não todos os detalhes
         } : null,
         createdAt: this.createdAt,
+        lastActiveAt: this.lastActiveAt || new Date(),
         expiresAt: Date.now() + (ttl * 60 * 60 * 1000),
         version: '1.0'
       };
@@ -427,6 +432,7 @@ class SessionContext {
       this.conversationHistory = sessionData.conversationHistory || [];
       this.lastAnalysis = sessionData.lastAnalysis;
       this.createdAt = new Date(sessionData.createdAt);
+      this.lastActiveAt = sessionData.lastActiveAt ? new Date(sessionData.lastActiveAt) : new Date();
 
       // Restaurar cache (criar nova instância pois não pode ser serializado)
       if (window.DocumentCache) {

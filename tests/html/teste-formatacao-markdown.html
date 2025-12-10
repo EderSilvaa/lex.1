@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Formatação Markdown → HTML</title>
+  <link rel="stylesheet" href="styles/chat-styles.css">
+  <style>
+    body {
+      background: #0f0f0f;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #6366f1;
+      margin-bottom: 20px;
+    }
+
+    .test-container {
+      background: #1a1a1a;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+
+    .test-title {
+      color: #4a1a5c;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .raw-markdown {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .lex-bubble {
+      background: #1a1a1a;
+      padding: 16px;
+      border-radius: 8px;
+      border-left: 2px solid #333;
+    }
+
+    button {
+      background: linear-gradient(135deg, #4a1a5c, #6366f1);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Teste de Formatação Markdown → HTML</h1>
+
+  <button onclick="testarFormatacao()">▶️ Testar Formatação</button>
+
+  <div id="output"></div>
+
+  <script>
+    // Copiar a função limparResposta do content-simple.js
+    function limparResposta(resposta) {
+      if (!resposta) return resposta;
+
+      let cleaned = resposta;
+
+      // 1. Processar blocos de código
+      cleaned = cleaned.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+      // 2. Processar headings (### → <h3>, ## → <h2>, # → <h1>)
+      cleaned = cleaned.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+      cleaned = cleaned.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+      cleaned = cleaned.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+
+      // 3. Processar listas não ordenadas (- item ou * item)
+      cleaned = cleaned.replace(/^[-*] (.*?)$/gm, '<li>$1</li>');
+
+      // 4. Processar listas numeradas (1. item, 2. item)
+      cleaned = cleaned.replace(/^\\d+\\. (.*?)$/gm, '<li>$1</li>');
+
+      // 5. Agrupar <li> em <ul> ou <ol>
+      cleaned = cleaned.replace(/(<li>.*?<\\/li>\\n?)+/gs, (match) => {
+        return '<ul>' + match + '</ul>';
+      });
+
+      // 6. Processar negrito e itálico
+      cleaned = cleaned.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
+      cleaned = cleaned.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
+
+      // 7. Processar quebras de linha
+      cleaned = cleaned.replace(/\\n{3,}/g, '\\n\\n');  // Max 2 quebras seguidas
+      cleaned = cleaned.replace(/\\n\\n/g, '<br><br>'); // Parágrafo
+      cleaned = cleaned.replace(/\\n/g, '<br>');       // Quebra simples
+
+      // 8. Limpar <br> duplicados criados acidentalmente
+      cleaned = cleaned.replace(/(<br>\\s*){3,}/g, '<br><br>');
+
+      // 9. Limpar <br> antes/depois de tags de bloco
+      cleaned = cleaned.replace(/<br>\\s*<(h[1-6]|ul|ol|li|pre)/gi, '<$1');
+      cleaned = cleaned.replace(/<\\/(h[1-6]|ul|ol|li|pre)>\\s*<br>/gi, '</$1>');
+
+      return cleaned.trim();
+    }
+
+    function testarFormatacao() {
+      const exemplos = [
+        {
+          nome: "Resposta Real do LEX (Análise de Sentença)",
+          markdown: `### Análise da Sentença
+
+A sentença analisada refere-se ao **processo número 0826021-12.2025.8.14.0301** no Tribunal de Justiça do Estado do Pará (TJPA), especificamente da 10ª Vara Cível e Empresarial de Belém. Trata-se de um cumprimento provisório de sentença movido por **Leon Emerson Trindade Silva** contra a **Unimed de Belém Cooperativa de Trabalho Médico**.
+
+#### Ponto Principal da Sentença
+
+1. **Cumprimento da Obrigação**: A executada, Unimed Belém, comprovou o fornecimento do medicamento Purodiol CBD em conformidade com a prescrição médica, atendendo à obrigação imposta pela decisão judicial.
+
+2. **Extinção do Cumprimento Provisório**: Com base no artigo 924, inciso I, do Código de Processo Civil, a execução foi extinta, pois a obrigação foi satisfeita.
+
+3. **Advertência sobre Continuidade**: Apesar do cumprimento atual, a sentença destaca que a Unimed deve manter o fornecimento contínuo do medicamento, conforme prescrição, sob pena de novas sanções. Isso inclui a possibilidade de multa cominatória, entre outras penalidades previstas nos artigos 536 e 537 do CPC.
+
+#### Consequências
+
+- **Desobediência**: Se a Unimed interromper o fornecimento, poderá enfrentar multas mais elevadas e outras sanções, como bloqueio de valores ou suspensão de atividades.
+- **Reabertura do Incidente**: O não cumprimento futuro poderá reabrir o incidente executivo.
+
+#### Dica
+
+Mantenha um controle rigoroso sobre os prazos de fornecimento e documentação comprobatória, garantindo o cumprimento contínuo das obrigações estipuladas na sentença.`
+        },
+        {
+          nome: "Markdown Simples",
+          markdown: `## Resumo do Processo
+
+Este é um **processo importante** com alguns *detalhes relevantes*.
+
+### Partes
+
+- Autor: João da Silva
+- Réu: Maria Santos
+
+### Próximos Passos
+
+1. Aguardar manifestação
+2. Juntar documentos
+3. Protocolar recurso`
+        },
+        {
+          nome: "Com Código",
+          markdown: `## Exemplo Técnico
+
+Aqui está um exemplo de código:
+
+\`\`\`javascript
+function analisar(processo) {
+  return processo.status;
+}
+\`\`\`
+
+E código inline: \`const x = 10;\``
+        }
+      ];
+
+      const output = document.getElementById('output');
+      output.innerHTML = '';
+
+      exemplos.forEach((exemplo, index) => {
+        const container = document.createElement('div');
+        container.className = 'test-container';
+        container.innerHTML = `
+          <div class="test-title">Teste ${index + 1}: ${exemplo.nome}</div>
+
+          <h4 style="color: #6366f1; font-size: 13px; margin-bottom: 8px;">📝 Markdown Original:</h4>
+          <div class="raw-markdown">${exemplo.markdown}</div>
+
+          <h4 style="color: #4a1a5c; font-size: 13px; margin-bottom: 8px;">✨ HTML Renderizado:</h4>
+          <div class="lex-bubble">${limparResposta(exemplo.markdown)}</div>
+        `;
+        output.appendChild(container);
+      });
+    }
+
+    // Executar ao carregar
+    window.addEventListener('load', testarFormatacao);
+  </script>
+</body>
+</html>
