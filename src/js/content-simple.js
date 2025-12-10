@@ -710,13 +710,6 @@ Use HTML simples, máximo 300 palavras.`
    * Detecta se está numa página de processo e inicia processamento automático
    */
   function detectarEProcessarAutomaticamente() {
-    // Verificar se já processou automaticamente nesta sessão
-    const jaProcessouAuto = sessionStorage.getItem('lex_auto_processed');
-    if (jaProcessouAuto === 'true') {
-      console.log('LEX: Processamento automático já executado nesta sessão');
-      return;
-    }
-
     // Detectar se está numa página de processo do PJE
     const isProcessPage = detectarPaginaProcesso();
 
@@ -725,10 +718,27 @@ Use HTML simples, máximo 300 palavras.`
       return;
     }
 
-    console.log('LEX: Página de processo detectada, iniciando download automático...');
+    // Extrair número do processo atual
+    const infoProcesso = extrairInformacoesCompletas();
+    const processoAtual = infoProcesso.numeroProcesso;
 
-    // Marcar como processado
-    sessionStorage.setItem('lex_auto_processed', 'true');
+    if (!processoAtual) {
+      console.log('LEX: Número do processo não encontrado, pulando processamento automático');
+      return;
+    }
+
+    // Verificar se já processou ESTE processo nesta sessão
+    const ultimoProcessoProcessado = sessionStorage.getItem('lex_last_processed_process');
+
+    if (ultimoProcessoProcessado === processoAtual) {
+      console.log(`LEX: Processo ${processoAtual} já foi processado nesta sessão`);
+      return;
+    }
+
+    console.log(`LEX: Novo processo detectado (${processoAtual}), iniciando download automático...`);
+
+    // Marcar este processo como processado
+    sessionStorage.setItem('lex_last_processed_process', processoAtual);
 
     // Mostrar notificação discreta
     mostrarNotificacaoDownload();
