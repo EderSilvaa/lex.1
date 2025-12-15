@@ -56,7 +56,7 @@
 - Código formatado
 - Estrutura visual clara
 
-### 🎯 LEX Agent (Automação)
+### 🎯 LEX Agent (Automação) (em teste )
 - Executa comandos em linguagem natural
 - Planner GPT-4 gera planos de ação
 - Playwright automatiza navegação
