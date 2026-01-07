@@ -376,7 +376,8 @@ supabase functions logs OPENIA --tail
 
 ---
 
-**Última atualização**: 30 de outubro de 2025
+**Última atualização**: 07 de janeiro de 2026
+**Versão Atual**: 2.1 (Fix AI Chat + Prompt Engineering)
 
 ---
 
