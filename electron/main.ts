@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, BrowserView } from 'electron';
+import { app, BrowserWindow, ipcMain, BrowserView, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -15,11 +15,184 @@ import * as fs from 'fs';
 let mainWindow: BrowserWindow | null = null;
 let store: any;
 
+// Prompt Engineering Logic (Ported from Extension)
+function detectarTipoConversa(pergunta: string): string {
+    const perguntaLower = pergunta.toLowerCase();
+
+    // Cumprimento
+    if (/^(oi|olá|e aí|tudo bem|como vai)/i.test(pergunta)) return 'cumprimento';
+    // Análise técnica
+    if (perguntaLower.includes('analisar') || perguntaLower.includes('análise')) return 'analise_tecnica';
+    // Prazos
+    if (perguntaLower.includes('prazo') || perguntaLower.includes('quando')) return 'prazos';
+    // Explicação
+    if (perguntaLower.includes('o que é') || perguntaLower.includes('explique')) return 'explicacao';
+    // Estratégia
+    if (perguntaLower.includes('próximos passos') || perguntaLower.includes('estratégia') || perguntaLower.includes('como proceder')) return 'estrategia';
+
+    return 'conversa_geral';
+}
+
+function obterPromptBase(tipo: string): string {
+    const prompts: Record<string, string> = {
+        cumprimento: `Você é Lex, uma assistente jurídica amigável e acessível. Responda de forma calorosa e natural, como uma colega experiente.`,
+        analise_tecnica: `Você é Lex, especialista em análise processual. Faça uma análise técnica mas acessível, como se estivesse explicando para um colega.`,
+        prazos: `Você é Lex, especialista em prazos processuais. Seja precisa com datas e artigos de lei, mas mantenha um tom acessível e prático.`,
+        explicacao: `Você é Lex, educadora jurídica. Explique conceitos de forma didática, usando exemplos práticos quando possível.`,
+        estrategia: `Você é Lex, consultora estratégica. Apresente opções e recomendações como uma mentora experiente daria conselhos.`,
+        conversa_geral: `Você é Lex, assistente jurídica conversacional. Responda de forma natural e útil, adaptando seu tom ao contexto da pergunta.`
+    };
+    return prompts[tipo] || prompts['conversa_geral'] || '';
+}
+
+function obterInstrucoesEspecificas(tipo: string): string {
+    const instrucoes: Record<string, string> = {
+        cumprimento: `Responda de forma amigável e pergunte como posso ajudar com o processo. Máximo 2-3 linhas.`,
+        analise_tecnica: `Estruture sua resposta em:
+• <strong>Análise:</strong> O que identifiquei no documento
+• <strong>Próximos passos:</strong> O que precisa ser feito
+• <strong>Observações:</strong> Pontos de atenção
+Máximo 300 palavras, use HTML simples.`,
+        prazos: `Seja específica com:
+• <strong>Prazo:</strong> Data/período exato
+• <strong>Fundamento:</strong> Artigo de lei aplicável  
+• <strong>Consequência:</strong> O que acontece se não cumprir
+• <strong>Dica:</strong> Como se organizar
+Use HTML simples, máximo 250 palavras.`,
+        explicacao: `Explique de forma didática:
+• <strong>Conceito:</strong> O que significa
+• <strong>Na prática:</strong> Como funciona no dia a dia
+• <strong>Exemplo:</strong> Situação concreta (se aplicável)
+Use linguagem acessível, máximo 300 palavras.`,
+        estrategia: `Apresente opções estruturadas:
+• <strong>Cenário atual:</strong> Situação identificada
+• <strong>Opções:</strong> Caminhos possíveis
+• <strong>Recomendação:</strong> Sua sugestão e por quê
+Tom consultivo, máximo 300 palavras.`,
+        conversa_geral: `Responda de forma natural e conversacional. Adapte o tom à pergunta:
+- Se for dúvida: seja didática
+- Se for urgente: seja direta e prática  
+- Se for complexa: quebre em partes
+Use HTML simples, máximo 300 palavras.`
+    };
+    return instrucoes[tipo] || instrucoes['conversa_geral'] || '';
+}
+
+function criarPromptJuridico(contexto: any, pergunta: string): string {
+    const tipoConversa = detectarTipoConversa(pergunta);
+    const promptBase = obterPromptBase(tipoConversa);
+    // Simple context formatting
+    const contextStr = JSON.stringify(contexto, null, 2);
+
+    return `${promptBase}\n\nCONTEXTO DO PROCESSO:\n${contextStr}\n\nPERGUNTA: ${pergunta}\n\n${obterInstrucoesEspecificas(tipoConversa)}`;
+}
+
+const DEFAULT_SUPABASE_URL = 'https://nspauxzztflgmxjgevmo.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcGF1eHp6dGZsZ214amdldm1vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MTI4ODUsImV4cCI6MjA3MDE4ODg4NX0.XXJf6alnb6me4PeMCA80UmfJVUZo8VxA0BFDdFCtN1A';
+
 async function initStore() {
     // @ts-ignore
     const { default: Store } = await import('electron-store');
     store = new Store();
+
+    // Initialize default credentials if missing
+    if (!store.has('supabaseUrl')) {
+        store.set('supabaseUrl', DEFAULT_SUPABASE_URL);
+    }
+    if (!store.has('supabaseKey')) {
+        store.set('supabaseKey', DEFAULT_SUPABASE_KEY);
+    }
 }
+
+// AI Chat Handler
+ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
+    if (!store) return { error: 'Store not initialized' };
+
+    const supabaseUrl = store.get('supabaseUrl');
+    const supabaseKey = store.get('supabaseKey');
+    // Changed to OPENIA endpoint which is known to work
+    const functionUrl = `${supabaseUrl}/functions/v1/OPENIA`;
+
+    try {
+        console.log('🤖 Sending to AI (OPENIA)...');
+
+        // Apply Prompt Engineering
+        const messageStr = message || '';
+        const systemPrompt = criarPromptJuridico(context || {}, messageStr);
+        console.log('🤖 System Prompt Type:', detectarTipoConversa(messageStr));
+
+        // Using global fetch (available in Node 18+ / Electron)
+        const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseKey}`,
+                'apikey': supabaseKey // Required for OPENIA endpoint
+            },
+            body: JSON.stringify({
+                pergunta: systemPrompt, // Send the engineered prompt
+                contexto: JSON.stringify(context || {})
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('AI Error:', errText);
+            throw new Error(`AI Request failed: ${response.status} ${errText}`);
+        }
+
+        // Handle SSE Stream
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('Response body is null or not readable');
+
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let done = false;
+
+        while (!done) {
+            const { value, done: isDone } = await reader.read();
+            done = isDone;
+            if (value) {
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataVal = line.slice(6).trim();
+                        if (dataVal === '[DONE]') continue;
+                        try {
+                            const parsed = JSON.parse(dataVal);
+                            if (parsed.text) fullText += parsed.text;
+                            // Fallback for non-streamed responses or different formats
+                            if (parsed.resposta) fullText += parsed.resposta;
+                        } catch (e) {
+                            // Ignora linhas que não são JSON válido
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: if fullText is empty, maybe it wasn't a stream or format was different.
+        // But OPENIA is known to be SSE. If it was a simple JSON, the loop might need adjustment,
+        // but typically fetch handles non-stream body specifically. 
+        // With 'OPENIA', we know it returns SSE/JSON stream.
+
+        console.log('🤖 AI Response received:', fullText.substring(0, 50) + '...');
+
+        // Return in the format expected by app.js: { plan: { intent: { description: text } } }
+        return {
+            plan: {
+                intent: {
+                    description: fullText || 'Sem resposta da IA.'
+                }
+            }
+        };
+
+    } catch (error: any) {
+        console.error('AI Connection Failed:', error);
+        return { error: error.message };
+    }
+});
 
 let pjeView: BrowserView | null = null;
 
@@ -119,6 +292,39 @@ app.whenReady().then(() => {
         const filePath = path.join(__dirname, '..', url); // __dirname is electron/ or dist-electron/, parent is root
         callback({ path: filePath });
     });
+});
+
+// File System Handlers
+ipcMain.handle('files-select-folder', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0]; // Return the selected path
+});
+
+ipcMain.handle('files-list', async (_event, folderPath) => {
+    try {
+        const items = await fs.promises.readdir(folderPath, { withFileTypes: true });
+        // Filter and map
+        const files = items
+            .filter(item => !item.name.startsWith('.')) // Ignore hidden
+            .map(item => ({
+                name: item.name,
+                isDirectory: item.isDirectory(),
+                path: path.join(folderPath, item.name)
+            }));
+        // Sort: directories first
+        files.sort((a, b) => {
+            if (a.isDirectory === b.isDirectory) return a.name.localeCompare(b.name);
+            return a.isDirectory ? -1 : 1;
+        });
+        return files;
+    } catch (e) {
+        console.error('Error listing files:', e);
+        return [];
+    }
 });
 
 async function injectLexScripts(target: BrowserWindow | Electron.WebContents) {
@@ -234,6 +440,29 @@ ipcMain.handle('get-history', async () => {
 ipcMain.handle('save-preferences', async (_event, prefs) => {
     if (store) store.set('userPreferences', prefs);
     return { success: true };
+});
+
+// Workspace Management
+ipcMain.handle('workspace-get', async () => {
+    return store ? store.get('workspaces', []) : [];
+});
+
+ipcMain.handle('workspace-add', async (_event, path) => {
+    if (!store) return { success: false };
+    const workspaces = store.get('workspaces', []) as string[];
+    if (!workspaces.includes(path)) {
+        workspaces.push(path);
+        store.set('workspaces', workspaces);
+    }
+    return { success: true, workspaces };
+});
+
+ipcMain.handle('workspace-remove', async (_event, path) => {
+    if (!store) return { success: false };
+    let workspaces = store.get('workspaces', []) as string[];
+    workspaces = workspaces.filter(w => w !== path);
+    store.set('workspaces', workspaces);
+    return { success: true, workspaces };
 });
 
 ipcMain.handle('check-pje', (event) => {

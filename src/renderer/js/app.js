@@ -53,11 +53,93 @@ chatInput.addEventListener('input', function () {
     this.style.height = (this.scrollHeight) + 'px';
 });
 
-// Send Message (Mock)
-sendBtn.addEventListener('click', () => {
+// Send Message
+sendBtn.addEventListener('click', async () => {
     const text = chatInput.value;
-    console.log('Sending message:', text);
+    if (!text.trim()) return;
+
+    // UI: Add User Message
+    addMessageToUI(text, 'user');
+
+    // Clear input
     chatInput.value = '';
     sendBtn.setAttribute('disabled', 'true');
-    // TODO: Send to Main Process via IPC
+    chatInput.style.height = 'auto'; // Reset height
+
+    // Show Loading
+    const loadingId = addLoadingToUI();
+
+    try {
+        // Send to Main Process -> Supabase
+        if (window.lexApi) {
+            console.log('Sending to AI...');
+            const response = await window.lexApi.sendChat(text, {}); // Context empty for now
+
+            // Remove loading
+            removeMessageFromUI(loadingId);
+
+            if (response.error) {
+                addMessageToUI(`Erro: ${response.error}`, 'system');
+            } else if (response.plan) {
+                // Formatting the plan/response
+                // The edge function returns a "plan" object usually.
+                // For chat, we might want a text response.
+                // Assuming plan has a description or we just show the raw purpose for now.
+                const aiText = response.plan.intent?.description || "Plano recebido.";
+                addMessageToUI(aiText, 'ai');
+
+                // TODO: Render structured plan
+                console.log('AI Plan:', response.plan);
+            }
+        } else {
+            removeMessageFromUI(loadingId);
+            addMessageToUI("Erro: lexApi não disponível.", 'system');
+        }
+    } catch (err) {
+        console.error(err);
+        removeMessageFromUI(loadingId);
+        addMessageToUI("Erro de conexão.", 'system');
+    }
 });
+
+function addMessageToUI(text, type) {
+    const chatContainer = document.querySelector('.greeting-section'); // Just appending here for now, better to have a list
+    // Actually, we should probably hide the greeting and show a message list.
+    // Let's create a message list container if not exists
+    let messageList = document.getElementById('chat-messages');
+    if (!messageList) {
+        // First message: Hide greeting
+        document.querySelector('.greeting-section').style.display = 'none';
+
+        messageList = document.createElement('div');
+        messageList.id = 'chat-messages';
+        messageList.className = 'chat-messages';
+        document.querySelector('.chat-container').insertBefore(messageList, document.querySelector('.input-area'));
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${type}`;
+    msgDiv.id = type === 'loading' ? `msg-${Date.now()}` : '';
+
+    // Icon
+    const icon = type === 'user' ? '👤' : (type === 'ai' ? '🤖' : '⚠️');
+
+    msgDiv.innerHTML = `
+        <div class="msg-avatar">${icon}</div>
+        <div class="msg-content">${text}</div>
+    `;
+
+    messageList.appendChild(msgDiv);
+    messageList.scrollTop = messageList.scrollHeight;
+
+    return msgDiv.id;
+}
+
+function addLoadingToUI() {
+    return addMessageToUI('Pensando...', 'loading');
+}
+
+function removeMessageFromUI(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
