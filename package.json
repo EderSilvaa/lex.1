@@ -2,30 +2,45 @@
   "name": "lex-extension",
   "version": "1.0.0",
   "description": "Assistente jurídico inteligente para o sistema PJe",
+  "main": "dist-electron/main.js",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
     "build:prod": "tsc && npm run minify",
     "minify": "terser dist/js/*.js -o dist/js/bundle.min.js",
     "dev": "concurrently \"npm run build:watch\" \"npm run serve\"",
+    "electron:dev": "concurrently \"tsc -p tsconfig.electron.json -w\" \"npm run build:watch\" \"wait-on dist-electron/main.js && electron .\"",
+    "electron:build": "tsc -p tsconfig.electron.json && npm run build",
     "serve": "http-server . -p 8080",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
     "clean": "rimraf dist"
   },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.27",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "concurrently": "^8.0.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
     "eslint": "^8.0.0",
     "http-server": "^14.0.0",
     "rimraf": "^5.0.0",
     "terser": "^5.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "wait-on": "^9.0.3"
   },
-  "keywords": ["chrome-extension", "typescript", "pdf", "ai", "legal"],
+  "keywords": [
+    "chrome-extension",
+    "typescript",
+    "pdf",
+    "ai",
+    "legal"
+  ],
   "author": "LEX Team",
   "license": "MIT"
 }

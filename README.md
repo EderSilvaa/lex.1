@@ -1,16 +1,16 @@
-# LEX Agent - Assistente Jurídica Inteligente para PJe
+# LEX Desktop - Assistente Jurídico Inteligente para PJe
 
-> Extensão Chrome que usa IA (GPT-4o) para analisar processos judiciais do PJe, com streaming em tempo real, formatação markdown, e execução automatizada de ações via LEX Agent Backend.
+> Aplicativo Desktop (Electron) que funciona como um navegador dedicado para o PJe, integrando IA (GPT-4o) para analisar processos judiciais, com streaming em tempo real, formatação markdown e execução automatizada.
 
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
 ![Versão](https://img.shields.io/badge/versão-2.0-blue)
-![Chrome](https://img.shields.io/badge/chrome-extension-yellow)
+![Electron](https://img.shields.io/badge/platform-windows%20%7C%20mac%20%7C%20linux-blueviolet)
 
 ---
 
 ## 🚀 Quick Start
 
-### Instalação
+### Instalação e Execução
 
 1. **Clone o repositório**:
    ```bash
@@ -18,23 +18,31 @@
    cd lex-test1
    ```
 
-2. **Carregar extensão no Chrome**:
-   - Abra `chrome://extensions`
-   - Ative "Modo do desenvolvedor"
-   - Clique em "Carregar sem compactação"
-   - Selecione a pasta do projeto
-
-3. **Configurar backend** (opcional, para LEX Agent):
+2. **Instalar Dependências**:
    ```bash
-   cd lex-agent-backend
    npm install
-   npm start
    ```
 
-4. **Usar**:
-   - Acesse [PJe do TJPA](https://pje.tjpa.jus.br)
-   - Abra um processo
-   - Use o chat LEX para fazer perguntas
+3. **Rodar Aplicação (Dev Mode)**:
+   ```bash
+   npm run electron:dev
+   ```
+   *Isso abrirá a janela do Lex navegando automaticamente para o PJe.*
+
+4. **Gerar Executável (Build)**:
+   ```bash
+   npm run electron:build
+   ```
+   *O instalador será gerado na pasta `dist/`.*
+
+---
+
+### Uso Básico
+
+1. O aplicativo abrirá na tela de login do PJe (TJPA por padrão).
+2. Faça login normalmente.
+3. O ícone/sidebar do **Lex** aparecerá automaticamente na interface.
+4. Use o chat para analisar processos e documentos.
 
 ---
 
@@ -94,6 +102,7 @@
 ### Arquitetura
 
 - **[Contexto](docs/CONTEXTO.md)** - Visão geral da arquitetura
+- **[Nova Arquitetura Electron](docs/architecture/ELECTRON_ARCHITECTURE.md)** - 🆕 Detalhes da migração Desktop
 - **[Integrações](docs/INTEGRACOES.md)** - Chat + LEX Agent
 - **[Architecture](docs/architecture/)** - Diagramas e especificações
 
@@ -101,12 +110,17 @@
 
 ## 🛠️ Tecnologias
 
-### Frontend (Extensão Chrome)
-- **Manifest V3**
-- **Content Scripts** (content-simple.js)
-- **Service Worker** (background.js)
-- **PDF.js** - Extração de texto de PDFs
-- **Tesseract.js** - OCR para imagens
+### Desktop App (Electron)
+- **Electron**: Framework principal.
+- **Node.js**: Main Process.
+- **Electron Store**: Persistência de dados local.
+- **TypeScript**: Linguagem base.
+
+### Frontend (Injetado)
+- **Content Scripts** (Reutilizados da antiga extensão).
+- **PDF.js** - Extração de texto de PDFs.
+- **Tesseract.js** - OCR para imagens.
+- **Vanilla JS/CSS**: Interface leve e rápida.
 
 ### Backend
 - **Node.js + Express** (lex-agent-backend)
