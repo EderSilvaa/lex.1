@@ -1,6 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+electron_1.contextBridge.exposeInMainWorld('dashboardApi', {
+    setMode: (mode) => electron_1.ipcRenderer.invoke('dashboard-set-mode', mode),
+});
 electron_1.contextBridge.exposeInMainWorld('lexApi', {
     saveHistory: (mensagens) => electron_1.ipcRenderer.invoke('save-history', mensagens),
     getHistory: () => electron_1.ipcRenderer.invoke('get-history'),

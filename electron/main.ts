@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, BrowserView } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -21,29 +21,92 @@ async function initStore() {
     store = new Store();
 }
 
+let pjeView: BrowserView | null = null;
+
+function createPjeView(mainWindow: BrowserWindow) {
+    if (pjeView) return pjeView;
+
+    const view = new BrowserView({
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js'),
+        }
+    });
+
+    const sidebarWidth = 260;
+    // contentHeight needs to account for window frame if not frameless, but main-content takes full height.
+    // getContentBounds is better.
+    const contentBounds = mainWindow.getContentBounds();
+
+    view.setBounds({
+        x: sidebarWidth,
+        y: 0,
+        width: contentBounds.width - sidebarWidth,
+        height: contentBounds.height
+    });
+
+    view.setAutoResize({ width: true, height: true });
+    view.webContents.loadURL('https://pje.tjpa.jus.br/pje/login.seam');
+
+    // Inject scripts into this view
+    view.webContents.on('did-finish-load', () => {
+        injectLexScripts(view.webContents);
+    });
+
+    return view;
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
+        titleBarStyle: 'hidden', // Look "modern"
+        titleBarOverlay: {
+            color: '#1e1e1e',
+            symbolColor: '#ffffff'
+        },
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
-            sandbox: false // sometimes needed for certain electron features
+            sandbox: false
         }
     });
 
-    // Default to a PJe page or a welcome page
-    mainWindow.loadURL('https://pje.tjpa.jus.br/pje/login.seam');
+    // Handle Dashboard Mode Switching
+    ipcMain.handle('dashboard-set-mode', async (_event, mode) => {
+        if (!mainWindow) return;
 
+        if (mode === 'pje') {
+            if (!pjeView) {
+                pjeView = createPjeView(mainWindow);
+            }
+            mainWindow.setBrowserView(pjeView);
+
+            // Recalculate bounds just in case
+            const bounds = mainWindow.getContentBounds();
+            pjeView.setBounds({ x: 260, y: 0, width: bounds.width - 260, height: bounds.height });
+        } else {
+            // Home mode
+            mainWindow.setBrowserView(null);
+        }
+    });
+
+    // Load the local dashboard file
+    if (app.isPackaged) {
+        mainWindow.loadFile(path.join(__dirname, '../src/renderer/index.html'));
+    } else {
+        // In dev, we can link directly to the source
+        mainWindow.loadFile(path.join(process.cwd(), 'src/renderer/index.html'));
+    }
+
+    // Open DevTools in dev mode
     if (!app.isPackaged) {
         mainWindow.webContents.openDevTools();
     }
 
-    // Inject scripts on load
-    mainWindow.webContents.on('did-finish-load', () => {
-        injectLexScripts(mainWindow!);
-    });
+    // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
 
 // Register protocol
@@ -58,8 +121,9 @@ app.whenReady().then(() => {
     });
 });
 
-async function injectLexScripts(win: BrowserWindow) {
-    const currentUrl = win.webContents.getURL();
+async function injectLexScripts(target: BrowserWindow | Electron.WebContents) {
+    const webContents = 'webContents' in target ? target.webContents : target;
+    const currentUrl = webContents.getURL();
     console.log('Checking injection for:', currentUrl);
 
     // Inject Polyfill FIRST
@@ -67,7 +131,7 @@ async function injectLexScripts(win: BrowserWindow) {
         const polyfillPath = path.join(__dirname, 'polyfill.js');
         if (fs.existsSync(polyfillPath)) {
             const polyfillContent = fs.readFileSync(polyfillPath, 'utf8');
-            await win.webContents.executeJavaScript(polyfillContent);
+            await webContents.executeJavaScript(polyfillContent);
         } else {
             // If running from dist-electron, polyfill might be in ../electron/polyfill.js or we need to copy it
             // Let's try to resolve it. If __dirname is dist-electron, polyfill.js might not be there unless copied.
@@ -75,7 +139,7 @@ async function injectLexScripts(win: BrowserWindow) {
             const polyfillSrcPath = path.join(__dirname, '../electron/polyfill.js');
             if (fs.existsSync(polyfillSrcPath)) {
                 const polyfillContent = fs.readFileSync(polyfillSrcPath, 'utf8');
-                await win.webContents.executeJavaScript(polyfillContent);
+                await webContents.executeJavaScript(polyfillContent);
             }
         }
     } catch (e) {
@@ -111,7 +175,7 @@ async function injectLexScripts(win: BrowserWindow) {
                         const cssPath = path.join(__dirname, '..', cssFile);
                         if (fs.existsSync(cssPath)) {
                             const cssContent = fs.readFileSync(cssPath, 'utf8');
-                            win.webContents.insertCSS(cssContent);
+                            webContents.insertCSS(cssContent);
                             console.log('Injected CSS:', cssFile);
                         }
                     }
@@ -127,7 +191,7 @@ async function injectLexScripts(win: BrowserWindow) {
                             // using executeJavaScript with userGesture: false (default)
                             // We wrap in try/catch to prevent stopping on error
                             try {
-                                await win.webContents.executeJavaScript(jsContent);
+                                await webContents.executeJavaScript(jsContent);
                                 console.log('Injected JS:', jsFile);
                             } catch (e) {
                                 console.error('Error injecting ' + jsFile, e);
