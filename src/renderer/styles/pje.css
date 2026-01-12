@@ -1,0 +1,64 @@
+/* PJe Toolbar Styles */
+.pje-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    height: 50px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.url-bar-container {
+    flex: 1;
+    position: relative;
+}
+
+#pje-url-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+#pje-url-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+}
+
+.pje-webview-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(100% - 50px);
+    background-color: var(--bg-primary);
+    color: var(--text-secondary);
+}
+
+/* Ensure buttons look good */
+.icon-btn {
+    background: none;
+    border: none;
+    padding: 6px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.primary-btn.small {
+    padding: 6px 16px;
+    font-size: 13px;
+}

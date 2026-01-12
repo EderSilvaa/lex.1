@@ -1,0 +1,85 @@
+/* Thinking Accordion Logic */
+.thinking-container {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.thinking-accordion {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.thinking-accordion[open] {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+.thinking-summary {
+    padding: 8px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--lex-text-secondary);
+    font-family: var(--font-system);
+    user-select: none;
+    font-weight: 500;
+}
+
+.thinking-summary:hover {
+    color: var(--lex-text-primary);
+}
+
+.thinking-summary::before {
+    content: "▶";
+    font-size: 8px;
+    transition: transform 0.2s;
+    opacity: 0.6;
+}
+
+.thinking-accordion[open] .thinking-summary::before {
+    transform: rotate(90deg);
+}
+
+.thinking-content {
+    padding: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #a1a1aa;
+    background: rgba(0, 0, 0, 0.2);
+    white-space: pre-wrap;
+}
+
+/* Status Log Lines inside Thinking */
+.log-line {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.log-timestamp {
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 11px;
+}
+
+.log-message {
+    color: #d1d5db;
+}
+
+.log-type-exec {
+    color: #6366f1;
+}
+
+.log-type-wait {
+    color: #f59e0b;
+}
+
+.log-type-info {
+    color: #10b981;
+}

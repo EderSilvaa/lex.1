@@ -4,8 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lex - AI Legal Assistant</title>
+    <title>Lex - AI Legal Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/pje.css">
+    <link rel="stylesheet" href="styles/browser.css">
 </head>
 
 <body>
@@ -72,6 +75,10 @@
                         <p class="subtitle">Como posso ajudar você hoje?</p>
                     </div>
 
+                    <div id="chat-messages" class="chat-messages">
+                        <!-- Messages go here -->
+                    </div>
+
                     <div class="input-area">
                         <div class="input-wrapper">
                             <textarea
@@ -79,7 +86,7 @@
                             <button class="send-btn" disabled>
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                                     <path
-                                        d="M8 14a.5.5 0 0 1-.5-.5V3.707L4.354 6.854a.5.5 0 1 1-.708-.708l4-4a.5.5 0 0 1 .708 0l4 4a.5.5 0 0 1-.708.708L8.5 3.707V13.5A.5.5 0 0 1 8 14z" />
+                                        d="M8 14a.5.5 0 0 1-.5-.5V3.707L4.354 6.854a.5.5 0 1 1-.708-.708l4-4a.5.5 0 0 1 .708 0l4 4a.5.5 0 1 1-.708.708L8.5 3.707V13.5A.5.5 0 0 1 8 14z" />
                                 </svg>
                             </button>
                         </div>
@@ -88,7 +95,22 @@
                     <div class="recent-activity">
                         <h3>Atividade Recente</h3>
                         <div class="activity-list">
-                            <!-- Items via JS -->
+                            <div class="activity-item">📄 Resumo Processo 001...</div>
+                            <div class="activity-item">🔎 Pesquisa Dano Moral...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Home Dashboard View -->
+            <div id="view-home" class="view">
+                <div class="dashboard-widgets" style="padding:40px;">
+                    <h2>Bem-vindo ao Lex</h2>
+                    <div class="recent-activity">
+                        <h3>Atividade Recente</h3>
+                        <div class="activity-list">
+                            <div class="activity-item">📄 Resumo Processo 001...</div>
+                            <div class="activity-item">🔎 Pesquisa Dano Moral...</div>
                         </div>
                     </div>
                 </div>
@@ -137,10 +159,32 @@
                 </div>
             </div>
 
-            <!-- PJe Container (Placeholder for BrowserView) -->
-            <div id="view-pje" class="view">
-                <div class="pje-placeholder">
-                    <h2>Carregando PJe...</h2>
+            <!-- Split View Container (PJe + Chat) -->
+            <div id="split-view-container">
+                <!-- Browser Area (Left) -->
+                <div class="browser-area">
+                    <div class="browser-tabs" id="browser-tabs-bar">
+                        <!-- Tabs injected by JS -->
+                        <div class="browser-tab active" data-id="1">
+                            <span class="tab-title">PJe Login</span>
+                            <span class="tab-close">×</span>
+                        </div>
+                        <button id="new-tab-btn" class="icon-btn">+</button>
+                    </div>
+                    <div class="pje-toolbar"> <!-- Reusing existing toolbar class for URL -->
+                        <button id="browser-back" class="icon-btn">←</button>
+                        <button id="browser-reload" class="icon-btn">⟳</button>
+                        <input type="text" id="browser-url" placeholder="https://..."
+                            value="https://pje.tjpa.jus.br/pje/login.seam">
+                    </div>
+                    <div class="browser-viewport" id="browser-viewport"></div>
+                </div>
+
+                <!-- Chat Dock (Right) -->
+                <div class="chat-dock" id="chat-dock">
+                    <button class="chat-toggle-btn" id="chat-toggle">→</button>
+                    <!-- Chat will be moved here via JS when in this mode -->
+                    <div id="chat-dock-content" style="height:100%; width:100%;"></div>
                 </div>
             </div>
         </main>

@@ -1,6 +1,17 @@
-import { app, BrowserWindow, ipcMain, BrowserView, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { PJeManager } from './pje-manager';
+
+// Enable Hot Reload in Development
+if (!app.isPackaged) {
+    try {
+        require('electron-reload')(__dirname, {
+            electron: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
+            awaitWriteFinish: true
+        });
+    } catch (e) { console.error('Error loading electron-reload', e); }
+}
 
 // Initialize store (wrapping in async IIFE if needed or top level if supported)
 // Note: electron-store is ESM. We might need to handle this.
@@ -29,6 +40,8 @@ function detectarTipoConversa(pergunta: string): string {
     if (perguntaLower.includes('o que é') || perguntaLower.includes('explique')) return 'explicacao';
     // Estratégia
     if (perguntaLower.includes('próximos passos') || perguntaLower.includes('estratégia') || perguntaLower.includes('como proceder')) return 'estrategia';
+    // Automação
+    if (perguntaLower.includes('consultar') || perguntaLower.includes('abrir') || perguntaLower.includes('navegar') || perguntaLower.includes('preencher') || perguntaLower.includes('processo')) return 'automacao';
 
     return 'conversa_geral';
 }
@@ -40,6 +53,7 @@ function obterPromptBase(tipo: string): string {
         prazos: `Você é Lex, especialista em prazos processuais. Seja precisa com datas e artigos de lei, mas mantenha um tom acessível e prático.`,
         explicacao: `Você é Lex, educadora jurídica. Explique conceitos de forma didática, usando exemplos práticos quando possível.`,
         estrategia: `Você é Lex, consultora estratégica. Apresente opções e recomendações como uma mentora experiente daria conselhos.`,
+        automacao: `Você é Lex, uma agente de automação capaz de operar o sistema PJe. Seu objetivo é traduzir o pedido do usuário em um plano de execução JSON preciso.`,
         conversa_geral: `Você é Lex, assistente jurídica conversacional. Responda de forma natural e útil, adaptando seu tom ao contexto da pergunta.`
     };
     return prompts[tipo] || prompts['conversa_geral'] || '';
@@ -48,17 +62,21 @@ function obterPromptBase(tipo: string): string {
 function obterInstrucoesEspecificas(tipo: string): string {
     const instrucoes: Record<string, string> = {
         cumprimento: `Responda de forma amigável e pergunte como posso ajudar com o processo. Máximo 2-3 linhas.`,
-        analise_tecnica: `Estruture sua resposta em:
-• <strong>Análise:</strong> O que identifiquei no documento
+        analise_tecnica: `• <strong>Análise:</strong> O que identifiquei no documento
 • <strong>Próximos passos:</strong> O que precisa ser feito
 • <strong>Observações:</strong> Pontos de atenção
-Máximo 300 palavras, use HTML simples.`,
-        prazos: `Seja específica com:
-• <strong>Prazo:</strong> Data/período exato
+Máximo 300 palavras, use HTML simples.
+
+IMPORTANTE: Antes de responder, pense passo a passo sobre sua análise. Coloque seu pensamento dentro de tags <thinking>...</thinking>.
+
+OBS: Se você precisar buscar jurisprudência ou pesquisar algo na web, adicione o campo 'search_query' ao JSON de resposta com o termo de busca.`,
+        prazos: `• <strong>Prazo:</strong> Data/período exato
 • <strong>Fundamento:</strong> Artigo de lei aplicável  
 • <strong>Consequência:</strong> O que acontece se não cumprir
 • <strong>Dica:</strong> Como se organizar
-Use HTML simples, máximo 250 palavras.`,
+Use HTML simples, máximo 250 palavras.
+
+IMPORTANTE: Antes de responder, pense passo a passo sobre sua análise. Coloque seu pensamento dentro de tags <thinking>...</thinking>.`,
         explicacao: `Explique de forma didática:
 • <strong>Conceito:</strong> O que significa
 • <strong>Na prática:</strong> Como funciona no dia a dia
@@ -69,11 +87,44 @@ Use linguagem acessível, máximo 300 palavras.`,
 • <strong>Opções:</strong> Caminhos possíveis
 • <strong>Recomendação:</strong> Sua sugestão e por quê
 Tom consultivo, máximo 300 palavras.`,
-        conversa_geral: `Responda de forma natural e conversacional. Adapte o tom à pergunta:
-- Se for dúvida: seja didática
+        automacao: `Para realizar automações no PJe, você deve responder ESTRITAMENTE com um objeto JSON contendo o plano de execução.
+        
+O formato deve ser:
+\`\`\`json
+{
+  "intent": {
+    "type": "automation",
+    "description": "Texto curto descrevendo o que será feito (ex: Navegando para o processo...)"
+  },
+  "steps": [
+    {
+      "order": 1,
+      "type": "navigate | click | fill | read | wait",
+      "description": "Descrição do passo",
+      "url": "URL se for navegação",
+      "selector": "CSS Selector do elemento",
+      "value": "Valor para preencher (se type=fill)",
+      "duration": 1000 (ms, se type=wait)
+    }
+  ]
+}
+\`\`\`
+
+URLs Úteis do PJe TJPA:
+- Login: https://pje.tjpa.jus.br/pje/login.seam
+- Painel: https://pje.tjpa.jus.br/pje/Processo/ConsultaProcesso/listView.seam
+- Consulta: https://pje.tjpa.jus.br/pje/Processo/ConsultaProcesso/listView.seam
+
+SEMPRE use seletores genéricos ou visuais quando possível, ou IDs específicos se souber.
+Responda APENAS com o bloco JSON.`,
+        conversa_geral: `- Se for dúvida: seja didática
 - Se for urgente: seja direta e prática  
 - Se for complexa: quebre em partes
-Use HTML simples, máximo 300 palavras.`
+Use HTML simples, máximo 300 palavras.
+
+IMPORTANTE: Antes de responder, pense passo a passo sobre sua resposta dentro de tags <thinking>...</thinking>.
+
+OBS: Se o usuário pedir para pesquisar algo (ex: "busque decisões sobre X"), adicione o campo 'search_query' ao JSON de resposta com o termo de busca e defina intent.type = 'search_jurisprudence'.`
     };
     return instrucoes[tipo] || instrucoes['conversa_geral'] || '';
 }
@@ -179,14 +230,58 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
 
         console.log('🤖 AI Response received:', fullText.substring(0, 50) + '...');
 
-        // Return in the format expected by app.js: { plan: { intent: { description: text } } }
-        return {
-            plan: {
-                intent: {
-                    description: fullText || 'Sem resposta da IA.'
-                }
+        // PARSE AI RESPONSE (Extract JSON if present)
+        let aiPlan: any = {
+            intent: {
+                description: fullText || 'Sem resposta da IA.'
             }
         };
+
+        try {
+            // Strategy 1: Look for markdown code block
+            const jsonMatch = fullText.match(/```json\s*([\s\S]*?)\s*```/);
+            let potentialJson = "";
+
+            if (jsonMatch && jsonMatch[1]) {
+                potentialJson = jsonMatch[1];
+            } else {
+                // Strategy 2: Find outermost curly braces (ignoring thinking tag if possible)
+                // We'll search from the end to find the last '}' and match its pair?
+                // Or just first '{' after </thinking>
+                const thinkingEnd = fullText.indexOf('</thinking>');
+                const searchStart = (thinkingEnd !== -1) ? thinkingEnd + 11 : 0;
+
+                const start = fullText.indexOf('{', searchStart);
+                const end = fullText.lastIndexOf('}');
+
+                if (start !== -1 && end !== -1 && end > start) {
+                    potentialJson = fullText.substring(start, end + 1);
+                }
+            }
+
+            if (potentialJson) {
+                const parsed = JSON.parse(potentialJson);
+
+                // If successful:
+                aiPlan = {
+                    ...parsed,
+                    intent: {
+                        ...(parsed.intent || {}),
+                        description: fullText // Always keep full log
+                    }
+                };
+
+                if (parsed.search_query) {
+                    aiPlan.search_query = parsed.search_query;
+                    // Force intent type if missing
+                    if (!aiPlan.intent.type) aiPlan.intent.type = 'search_jurisprudence';
+                }
+            }
+        } catch (e) {
+            console.log('⚠️ Could not parse structured JSON from response, using raw text.', e);
+        }
+
+        return { plan: aiPlan };
 
     } catch (error: any) {
         console.error('AI Connection Failed:', error);
@@ -194,46 +289,14 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
     }
 });
 
-let pjeView: BrowserView | null = null;
+import { BrowserManager } from './browser-manager';
 
-function createPjeView(mainWindow: BrowserWindow) {
-    if (pjeView) return pjeView;
-
-    const view = new BrowserView({
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            preload: path.join(__dirname, 'preload.js'),
-        }
-    });
-
-    const sidebarWidth = 260;
-    // contentHeight needs to account for window frame if not frameless, but main-content takes full height.
-    // getContentBounds is better.
-    const contentBounds = mainWindow.getContentBounds();
-
-    view.setBounds({
-        x: sidebarWidth,
-        y: 0,
-        width: contentBounds.width - sidebarWidth,
-        height: contentBounds.height
-    });
-
-    view.setAutoResize({ width: true, height: true });
-    view.webContents.loadURL('https://pje.tjpa.jus.br/pje/login.seam');
-
-    // Inject scripts into this view
-    view.webContents.on('did-finish-load', () => {
-        injectLexScripts(view.webContents);
-    });
-
-    return view;
-}
+let browserManager: BrowserManager;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1280,
-        height: 800,
+        width: 1400, // Wider for split view
+        height: 900,
         titleBarStyle: 'hidden', // Look "modern"
         titleBarOverlay: {
             color: '#1e1e1e',
@@ -247,22 +310,22 @@ function createWindow() {
         }
     });
 
-    // Handle Dashboard Mode Switching
+    browserManager = new BrowserManager(mainWindow);
+
+    // Dashboard Mode Switching (Refactored for Split View constraints)
     ipcMain.handle('dashboard-set-mode', async (_event, mode) => {
-        if (!mainWindow) return;
+        // We rely on Renderer to tell us Layout Bounds via 'browser-layout-update'
 
         if (mode === 'pje') {
-            if (!pjeView) {
-                pjeView = createPjeView(mainWindow);
+            // Ensure at least one tab exists
+            if (!browserManager.activeTab) {
+                browserManager.createTab('https://pje.tjpa.jus.br/pje/login.seam');
+            } else {
+                browserManager.showView();
             }
-            mainWindow.setBrowserView(pjeView);
-
-            // Recalculate bounds just in case
-            const bounds = mainWindow.getContentBounds();
-            pjeView.setBounds({ x: 260, y: 0, width: bounds.width - 260, height: bounds.height });
         } else {
-            // Home mode
-            mainWindow.setBrowserView(null);
+            // If leaving PJe mode, hide the browser view
+            browserManager.hideView();
         }
     });
 
@@ -352,6 +415,43 @@ async function injectLexScripts(target: BrowserWindow | Electron.WebContents) {
         console.error('Error injecting polyfill:', e);
     }
 
+    // INJECT OVERLAY (The Steering Wheel)
+    try {
+        // CSS Injection
+        let overlayCssPath = path.join(__dirname, 'overlay.css');
+        if (!fs.existsSync(overlayCssPath)) {
+            // Fallback to source directory (Dev Mode)
+            overlayCssPath = path.join(__dirname, '../electron/overlay.css');
+        }
+
+        if (fs.existsSync(overlayCssPath)) {
+            const css = fs.readFileSync(overlayCssPath, 'utf8');
+            webContents.insertCSS(css);
+            console.log('✅ Overlay CSS Injected from:', overlayCssPath);
+        } else {
+            console.error('❌ Overlay CSS not found at:', overlayCssPath);
+        }
+
+        // JS Injection
+        let overlayJsPath = path.join(__dirname, 'overlay.js');
+        if (!fs.existsSync(overlayJsPath)) {
+            // Fallback to source directory (Dev Mode)
+            overlayJsPath = path.join(__dirname, '../electron/overlay.js');
+        }
+
+        if (fs.existsSync(overlayJsPath)) {
+            const js = fs.readFileSync(overlayJsPath, 'utf8');
+            await webContents.executeJavaScript(js);
+            console.log('✅ Overlay JS Injected from:', overlayJsPath);
+        } else {
+            console.error('❌ Overlay JS not found at:', overlayJsPath);
+        }
+
+    } catch (e) {
+        console.error('Error injecting overlay:', e);
+    }
+
+    /*
     try {
         const manifestPath = path.join(__dirname, '../manifest.json');
         if (!fs.existsSync(manifestPath)) {
@@ -363,60 +463,23 @@ async function injectLexScripts(target: BrowserWindow | Electron.WebContents) {
         const contentScripts = manifest.content_scripts;
 
         for (const script of contentScripts) {
-            // Simple match checking (glob pattern matching would be better, but simple verify for now)
-            const matches = script.matches.some((pattern: string) => {
-                const regexPattern = pattern
-                    .replace(/\*/g, '.*')
-                    .replace(/\//g, '\\/')
-                    .replace(/\?/g, '\\?');
-                return new RegExp(regexPattern).test(currentUrl);
-            });
-
-            if (matches) {
-                console.log('Match found, injecting scripts...');
-
-                // Inject CSS
-                if (script.css) {
-                    for (const cssFile of script.css) {
-                        const cssPath = path.join(__dirname, '..', cssFile);
-                        if (fs.existsSync(cssPath)) {
-                            const cssContent = fs.readFileSync(cssPath, 'utf8');
-                            webContents.insertCSS(cssContent);
-                            console.log('Injected CSS:', cssFile);
-                        }
-                    }
-                }
-
-                // Inject JS
-                if (script.js) {
-                    for (const jsFile of script.js) {
-                        const jsPath = path.join(__dirname, '..', jsFile);
-                        if (fs.existsSync(jsPath)) {
-                            const jsContent = fs.readFileSync(jsPath, 'utf8');
-                            // Execute in the page
-                            // using executeJavaScript with userGesture: false (default)
-                            // We wrap in try/catch to prevent stopping on error
-                            try {
-                                await webContents.executeJavaScript(jsContent);
-                                console.log('Injected JS:', jsFile);
-                            } catch (e) {
-                                console.error('Error injecting ' + jsFile, e);
-                            }
-                        } else {
-                            console.error('File not found:', jsPath);
-                        }
-                    }
-                }
-            }
+            // ... (legacy injection logic commented out)
+            // We are replacing this with the unified overlay.js
         }
     } catch (err) {
         console.error('Error reading manifest or injecting scripts:', err);
     }
+    */
 }
+
+import { registerCrawlerHandlers } from './crawler';
+
+// ... (existing code)
 
 app.whenReady().then(async () => {
     await initStore();
     createWindow();
+    registerCrawlerHandlers(); // LOGIN CRAWLER
 
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -465,11 +528,135 @@ ipcMain.handle('workspace-remove', async (_event, path) => {
     return { success: true, workspaces };
 });
 
-ipcMain.handle('check-pje', (event) => {
-    // Check if the current window (or sender) is PJe
-    // Logic can be improved, for now return true if the URL matches
-    const sender = event.sender;
-    const url = sender.getURL();
-    const isPje = url.includes('pje.jus.br') || url.includes('tjsp.jus.br');
-    return { isPje };
+// Browser/PJe IPC Handlers
+ipcMain.handle('browser-layout-update', (_event, bounds) => {
+    // Renderer sends us the calculated "hole" for the browser {x, y, width, height}
+    browserManager.updateBounds(bounds);
+});
+
+ipcMain.handle('browser-tab-new', (_event, url) => {
+    browserManager.createTab(url || 'https://pje.tjpa.jus.br/pje/login.seam');
+});
+
+ipcMain.handle('browser-tab-switch', (_event, tabId) => {
+    browserManager.setActiveTab(tabId);
+});
+
+ipcMain.handle('browser-tab-close', (_event, tabId) => {
+    browserManager.closeTab(tabId);
+});
+
+// Legacy PJe Hooks (mapped to active tab)
+ipcMain.handle('pje-navigate', async (_event, url) => {
+    await browserManager.navigateTo(url);
+});
+ipcMain.handle('pje-execute-script', async (_event, script) => {
+    return await browserManager.executeScript(script);
+});
+
+// LEX EXECUTION ENGINE
+// ====================
+
+async function executePlan(plan: any) {
+    if (!plan || !plan.steps) return { error: "Plano inválido" };
+
+    const webContents = browserManager.activeTab?.view.webContents;
+    if (!webContents) return { error: "Nenhuma aba ativa para automação" };
+
+    for (const step of plan.steps) {
+        console.log(`[EXEC] Step ${step.order}: ${step.type}`);
+
+        // Simular Human Delay (0.5s - 1.5s)
+        const delay = Math.floor(Math.random() * 1000) + 500;
+        await new Promise(r => setTimeout(r, delay));
+
+        try {
+            switch (step.type) {
+                case 'click':
+                    if (step.selector) {
+                        await webContents.executeJavaScript(`
+                            const el = document.querySelector('${step.selector}');
+                            if(el) el.click();
+                        `);
+                    }
+                    break;
+
+                case 'fill':
+                    if (step.selector && step.value) {
+                        await webContents.executeJavaScript(`
+                            const el = document.querySelector('${step.selector}');
+                            if(el) { el.value = '${step.value}'; el.dispatchEvent(new Event('input', {bubbles:true})); }
+                        `);
+                    }
+                    break;
+
+                case 'navigate':
+                    if (step.url) {
+                        await webContents.loadURL(step.url);
+                    }
+                    break;
+
+                case 'read':
+                    // Extract text from multiple selectors
+                    // Expected step format: { type: 'read', selectors: [ { key: 'num_wprocesso', selector: '...' } ] }
+                    if (step.selectors && Array.isArray(step.selectors)) {
+                        const extractedData = await webContents.executeJavaScript(`
+                            (function() {
+                                const result = {};
+                                const selectors = ${JSON.stringify(step.selectors)};
+                                selectors.forEach(item => {
+                                    const el = document.querySelector(item.selector);
+                                    result[item.key] = el ? el.innerText.trim() : 'N/A';
+                                });
+                                return result;
+                            })()
+                        `);
+                        console.log('[EXEC] Read Data:', extractedData);
+                        // Save this data to the global context or define where it goes?
+                        // For now we just log it, but typically we want to return it.
+                        // Let's attach to the plan result if possible, or send an IPC event?
+                        // Simple way: Return it in the final object.
+                        if (!plan.data) plan.data = {};
+                        Object.assign(plan.data, extractedData);
+                    }
+                    break;
+
+                case 'saveFile':
+                    // Save content to a file
+                    // Expected step format: { type: 'saveFile', fileName: 'resumo.md', content: '...' }
+                    // If content is missing, maybe use the last extracted data?
+                    // For now, assume explicit content string (Generated by AI previously)
+                    if (step.fileName && step.content) {
+                        // Ideally we use the user's active workspace.
+                        // Let's use the first workspace if available, or just Documents/Lex
+                        let targetDir = store && store.get('workspaces') && store.get('workspaces')[0]
+                            ? store.get('workspaces')[0]
+                            : path.join(app.getPath('documents'), 'Lex');
+
+                        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+                        const fullPath = path.join(targetDir, step.fileName);
+                        fs.writeFileSync(fullPath, step.content, 'utf8');
+                        console.log('[EXEC] File saved:', fullPath);
+                    }
+                    break;
+
+                case 'wait':
+                    // Wait is handled by the loop delay + potential extra wait
+                    if (step.duration) {
+                        await new Promise(r => setTimeout(r, step.duration));
+                    }
+                    break;
+            }
+        } catch (err: any) {
+            console.error(`[EXEC] Error on step ${step.order}:`, err);
+            return { error: `Erro no passo ${step.order}: ${err.message}` };
+        }
+    }
+
+    return { success: true, data: plan.data };
+}
+
+ipcMain.handle('ai-plan-execute', async (_event, plan) => {
+    return await executePlan(plan);
 });

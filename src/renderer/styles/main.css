@@ -2,6 +2,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 @import 'file-manager.css';
 @import 'chat.css';
+@import 'thinking.css';
 
 :root {
     /* Cores Premium LEX */
@@ -227,6 +228,29 @@ body {
     flex-direction: column;
     justify-content: center;
     padding: 0 40px;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 20px;
+    padding-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    /* Allow it to shrink if empty to respect parent centering */
+    min-height: 0;
+}
+
+/* When empty (no messages), hide it so Greeting + Input center vertically */
+/* Using JS class toggle 'has-messages' for reliability */
+.chat-container:not(.has-messages) .chat-messages {
+    display: none;
+}
+
+.chat-container.has-messages .greeting-section {
+    display: none;
+    /* Redundant if JS hides it, but good safety */
 }
 
 .greeting-section {

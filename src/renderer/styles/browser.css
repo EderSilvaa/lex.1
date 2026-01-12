@@ -1,0 +1,205 @@
+/* Browser Layout & Tabs */
+
+:root {
+    --tab-height: 40px;
+    --chat-width: 400px;
+    --browser-bg: #fff;
+    --tab-bg-active: var(--bg-primary);
+    --tab-bg-inactive: var(--bg-secondary);
+    --border-color: #333;
+}
+
+/* Container for Split View */
+#split-view-container {
+    display: none;
+    /* Hidden by default */
+    position: absolute;
+    top: 0;
+    left: 72px;
+    /* Sidebar width from main.css */
+    /* Sidebar width */
+    right: 0;
+    bottom: 0;
+    width: calc(100% - 72px);
+    height: 100%;
+    z-index: 50;
+    background: var(--bg-primary);
+    flex-direction: row;
+}
+
+#split-view-container.active {
+    display: flex;
+}
+
+/* Browser Area (Left) */
+.browser-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: relative;
+    background: var(--bg-primary);
+    min-width: 300px;
+}
+
+/* Tabs Bar */
+.browser-tabs {
+    height: var(--tab-height);
+    background: var(--bg-secondary);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 5px;
+    border-bottom: 1px solid var(--border-color);
+    -webkit-app-region: no-drag;
+    /* Allow clicking tabs */
+}
+
+.browser-tab {
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-radius: 6px 6px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 200px;
+    min-width: 120px;
+    border: 1px solid transparent;
+}
+
+.browser-tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.browser-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    position: relative;
+    top: 1px;
+    /* Cover border */
+}
+
+.tab-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tab-close {
+    opacity: 0.6;
+    border-radius: 50%;
+    padding: 2px;
+    display: flex;
+}
+
+.tab-close:hover {
+    background: rgba(255, 0, 0, 0.2);
+    opacity: 1;
+}
+
+/* Browser Viewport (Hole for BrowserView) */
+.browser-viewport {
+    flex: 1;
+    background: transparent;
+    /* Transparent so BrowserView shows through */
+    /* Checks pattern to show it's a hole during dev */
+    /* background-image: radial-gradient(#333 1px, transparent 1px);
+    background-size: 20px 20px; */
+}
+
+/* Chat Dock (Right) */
+.chat-dock {
+    width: var(--chat-width);
+    border-left: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.chat-dock.collapsed {
+    width: 0;
+    overflow: hidden;
+    border: none;
+}
+
+/* Toggle Button */
+.chat-toggle-btn {
+    position: absolute;
+    left: -24px;
+    top: 50%;
+    width: 24px;
+    height: 48px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+/* --- Responsive Dock Overrides --- */
+/* Adapt chat when it is inside the dock */
+.chat-dock .chat-container {
+    padding: 0 16px;
+    /* Reduced padding */
+    max-width: 100%;
+}
+
+.chat-dock .greeting-section {
+    margin-bottom: 20px;
+    margin-top: 20px;
+    /* Add some top space */
+    text-align: left;
+    /* Align left looks better in narrow column */
+}
+
+.chat-dock .greeting-section h1 {
+    font-size: 18px;
+    /* Much smaller */
+    line-height: 1.3;
+    white-space: normal;
+    /* Allow wrapping */
+    overflow: visible;
+}
+
+.chat-dock .greeting-section .subtitle {
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.chat-dock .input-area {
+    margin-bottom: 20px;
+}
+
+.chat-dock .input-wrapper {
+    padding: 8px 12px;
+    border-radius: 12px;
+}
+
+.chat-dock .input-wrapper textarea {
+    font-size: 14px;
+}
+
+.chat-dock .send-btn {
+    width: 28px;
+    height: 28px;
+    right: 8px;
+    bottom: 8px;
+    border-radius: 8px;
+}
+
+/* Hide Activity History in Dock */
+.chat-dock .recent-activity {
+    display: none;
+}
