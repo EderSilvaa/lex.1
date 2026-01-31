@@ -7,6 +7,9 @@
 // Core
 export { PJeExecutor, getPJeExecutor, resetPJeExecutor } from './executor';
 
+// Vision AI
+export { PJeVision, getPJeVision } from './vision';
+
 // Types
 export * from './types';
 

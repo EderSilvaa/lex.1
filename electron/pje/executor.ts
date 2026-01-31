@@ -24,6 +24,7 @@ import {
     LOGIN_SELECTORS,
     PROCESSO_SELECTORS
 } from './selectors';
+import { getPJeVision } from './vision';
 
 const execAsync = promisify(exec);
 
@@ -356,6 +357,7 @@ export class PJeExecutor extends EventEmitter {
     ): Promise<PJeResult> {
         const strategies = this.buildClickStrategies(selector, visualDescription, textDescription);
 
+        // Tentar estratégias DOM primeiro
         for (const strategy of strategies) {
             try {
                 console.log(`[PJeExecutor] Tentando click: ${strategy.name}`);
@@ -371,10 +373,31 @@ export class PJeExecutor extends EventEmitter {
             }
         }
 
+        // FALLBACK: Vision AI
+        const description = visualDescription || textDescription || selector || 'elemento';
+        console.log(`[PJeExecutor] Fallback Vision AI: "${description}"`);
+
+        try {
+            const vision = getPJeVision();
+            const result = await vision.findAndClick(this.page!, description);
+
+            if (result.success) {
+                console.log(`[PJeExecutor] Vision AI click OK`);
+                return {
+                    success: true,
+                    action: 'click',
+                    strategy: 'vision-ai',
+                    data: { coordinates: result.coordinates }
+                };
+            }
+        } catch (e: any) {
+            console.log(`[PJeExecutor] Vision AI falhou: ${e.message}`);
+        }
+
         return {
             success: false,
             action: 'click',
-            error: 'Nenhuma estratégia funcionou'
+            error: 'Nenhuma estratégia funcionou (incluindo Vision AI)'
         };
     }
 
