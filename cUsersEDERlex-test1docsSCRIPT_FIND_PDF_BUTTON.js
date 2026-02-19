@@ -7,7 +7,7 @@
 
 console.log('🔍 LEX: Iniciando busca pelo botão de PDF completo...');
 
-// ========================================
+// in ========================================
 // ESTRATÉGIA 1: Buscar por texto comum
 // ========================================
 console.log('\n📋 ESTRATÉGIA 1: Buscar por texto...');

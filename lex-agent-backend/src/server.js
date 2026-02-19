@@ -11,6 +11,27 @@ const PJeExecutor = require('./pje-executor');
 
 dotenv.config();
 
+const API_TOKEN = process.env.LEX_BACKEND_TOKEN || '';
+const HOST = process.env.HOST || '127.0.0.1';
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:8080,http://127.0.0.1:8080')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+function isLocalAddress(address = '') {
+  return address === '127.0.0.1' || address === '::1' || address.startsWith('::ffff:127.0.0.1');
+}
+
+function getRequestToken(req) {
+  const headerToken = req.headers['x-lex-token'];
+  if (headerToken) return String(headerToken);
+  const authHeader = req.headers['authorization'];
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length);
+  }
+  return '';
+}
+
 // Inicializar módulos inteligentes
 const actionPlanner = new ActionPlanner(); // Usa Supabase Edge Function
 const pjeExecutor = new PJeExecutor();
@@ -20,8 +41,32 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS blocked'));
+  }
+}));
 app.use(express.json());
+
+app.use((req, res, next) => {
+  const remoteAddress = req.socket?.remoteAddress || '';
+  if (isLocalAddress(remoteAddress)) {
+    return next();
+  }
+
+  if (!API_TOKEN) {
+    return res.status(403).json({ error: 'Remote access disabled: configure LEX_BACKEND_TOKEN' });
+  }
+
+  const token = getRequestToken(req);
+  if (token !== API_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  return next();
+});
 
 // Armazenamento de sessões ativas
 const activeSessions = new Map();
@@ -31,6 +76,19 @@ const activeSessions = new Map();
 // ====================================
 
 wss.on('connection', (ws, req) => {
+  const remoteAddress = req.socket?.remoteAddress || '';
+  const requestUrl = new URL(req.url || '/', 'http://localhost');
+  const queryToken = requestUrl.searchParams.get('token') || '';
+  const headerToken = getRequestToken(req);
+  const token = queryToken || headerToken;
+
+  if (!isLocalAddress(remoteAddress)) {
+    if (!API_TOKEN || token !== API_TOKEN) {
+      ws.close(1008, 'Unauthorized');
+      return;
+    }
+  }
+
   const sessionId = generateSessionId();
 
   console.log(`🔌 Nova conexão WebSocket: ${sessionId}`);
@@ -497,7 +555,7 @@ function generateSessionId() {
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log('');
   console.log('🤖 =============================================');
   console.log('🤖  LEX Agent Backend - INICIADO');

@@ -93,18 +93,21 @@ export interface UsuarioContext {
 }
 
 // ============================================================================
-// STEPS (Think → Act → Observe)
+// STEPS (Think → Critic → Act → Observe)
 // ============================================================================
 
 export interface AgentStep {
     iteracao: number;
     timestamp: string;
-    tipo: 'think' | 'act' | 'observe';
+    tipo: 'think' | 'critic' | 'act' | 'observe';
     duracao?: number;
 
     // Think
     pensamento?: string;
     decisao?: ThinkDecision;
+
+    // Critic
+    critic?: CriticDecision;
 
     // Act
     skill?: string;
@@ -129,6 +132,18 @@ export interface ThinkDecision {
     // Se tipo = 'pergunta'
     pergunta?: string;
     opcoes?: string[];
+}
+
+export interface CriticDecision {
+    approved: boolean;
+    riskLevel: 'low' | 'medium' | 'high';
+    reason: string;
+    requiresUserConfirmation?: boolean;
+    suggestedQuestion?: string;
+    correctedDecision?: {
+        skill: string;
+        parametros?: Record<string, any>;
+    };
 }
 
 // ============================================================================
@@ -179,6 +194,7 @@ export interface SkillRegistry {
 export type AgentEvent =
     | { type: 'started'; runId: string; objetivo: string }
     | { type: 'thinking'; pensamento: string; iteracao: number }
+    | { type: 'criticizing'; decision: CriticDecision; iteracao: number }
     | { type: 'acting'; skill: string; parametros: Record<string, any> }
     | { type: 'tool_result'; skill: string; resultado: SkillResult }
     | { type: 'observing'; observacao: string }
@@ -200,10 +216,13 @@ export interface AgentConfig {
     // Comportamento
     verbose: boolean;
     allowParallelSkills: boolean;
+    enableCritic: boolean;
 
     // LLM
     model?: string;
     temperature?: number;
+    criticModel?: string;
+    criticTemperature?: number;
 
     // Hooks
     hooks?: AgentHooks;
@@ -212,6 +231,7 @@ export interface AgentConfig {
 export interface AgentHooks {
     beforeStart?: (state: AgentState) => Promise<void>;
     afterThink?: (state: AgentState, decision: ThinkDecision) => Promise<void>;
+    afterCritic?: (state: AgentState, decision: CriticDecision) => Promise<void>;
     beforeToolCall?: (skill: string, params: Record<string, any>) => Promise<Record<string, any>>;
     afterToolCall?: (skill: string, result: SkillResult) => Promise<SkillResult>;
     onComplete?: (state: AgentState, resposta: string) => Promise<void>;
@@ -222,7 +242,9 @@ export const DEFAULT_CONFIG: AgentConfig = {
     maxIterations: 15,
     timeoutMs: 5 * 60 * 1000, // 5 minutos
     verbose: true,
-    allowParallelSkills: false
+    allowParallelSkills: false,
+    enableCritic: true,
+    criticTemperature: 0.1
 };
 
 // ============================================================================

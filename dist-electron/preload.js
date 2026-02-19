@@ -7,6 +7,10 @@ electron_1.contextBridge.exposeInMainWorld('dashboardApi', {
 electron_1.contextBridge.exposeInMainWorld('filesApi', {
     selectFolder: () => electron_1.ipcRenderer.invoke('files-select-folder'),
     listFiles: (path) => electron_1.ipcRenderer.invoke('files-list', path),
+    readFile: (path) => electron_1.ipcRenderer.invoke('files-read', path),
+    writeFile: (path, content) => electron_1.ipcRenderer.invoke('files-write', { path, content }),
+    saveDocument: (name, content) => electron_1.ipcRenderer.invoke('files-save-document', { name, content }),
+    selectFile: (filters) => electron_1.ipcRenderer.invoke('files-select-file', filters),
 });
 electron_1.contextBridge.exposeInMainWorld('workspacesApi', {
     get: () => electron_1.ipcRenderer.invoke('workspace-get'),
@@ -21,6 +25,15 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     checkPje: () => electron_1.ipcRenderer.invoke('check-pje'),
     executePlan: (plan) => electron_1.ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query) => electron_1.ipcRenderer.invoke('crawler-search', query),
+    // Agent Loop API
+    runAgent: (objetivo) => electron_1.ipcRenderer.invoke('agent-run', objetivo),
+    cancelAgent: () => electron_1.ipcRenderer.invoke('agent-cancel'),
+    onAgentEvent: (cb) => {
+        electron_1.ipcRenderer.on('agent-event', (_, event) => cb(event));
+    },
+    offAgentEvent: () => {
+        electron_1.ipcRenderer.removeAllListeners('agent-event');
+    },
     // Browser (PJe) Automation & Tabs
     updateBrowserLayout: (bounds) => electron_1.ipcRenderer.invoke('browser-layout-update', bounds),
     newTab: (url) => electron_1.ipcRenderer.invoke('browser-tab-new', url),
@@ -28,7 +41,6 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     closeTab: (tabId) => electron_1.ipcRenderer.invoke('browser-tab-close', tabId),
     // Legacy Hooks (mapped to active tab)
     pjeNavigate: (url) => electron_1.ipcRenderer.invoke('pje-navigate', url),
-    pjeExecuteScript: (script) => electron_1.ipcRenderer.invoke('pje-execute-script', script),
     // Events
     onBrowserTabCreated: (cb) => electron_1.ipcRenderer.on('browser-tab-created', (_, val) => cb(val)),
     onBrowserTabActive: (cb) => electron_1.ipcRenderer.on('browser-tab-active', (_, val) => cb(val)),

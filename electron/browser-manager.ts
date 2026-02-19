@@ -122,8 +122,9 @@ export class BrowserManager {
 
             // Try to find previous tab (simple logic: last one)
             const remaining = Array.from(this.tabs.keys()).filter(id => id !== tabId);
-            if (remaining.length > 0) {
-                this.setActiveTab(remaining[remaining.length - 1]);
+            const lastTab = remaining[remaining.length - 1];
+            if (lastTab !== undefined) {
+                this.setActiveTab(lastTab);
             }
         }
 
@@ -135,6 +136,8 @@ export class BrowserManager {
     }
 
     updateBounds(bounds: Electron.Rectangle) {
+        // Simple validation to prevent 0x0 glitches unless intentional (x=0, y=0 usually means hiding)
+        // console.log('Bounds Update:', bounds); 
         this.bounds = bounds;
         this.updateViewBounds();
     }

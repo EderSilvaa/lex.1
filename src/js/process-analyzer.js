@@ -540,7 +540,14 @@ class ProcessAnalyzer {
 
       // 🎯 Usar o endpoint OPENIA que já existe e funciona!
       const apiUrl = 'https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA';
-      const apiKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcGF1eHp6dGZsZ214amdldm1vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MTI4ODUsImV4cCI6MjA3MDE4ODg4NX0.XXJf6alnb6me4PeMCA80UmfJVUZo8VxA0BFDdFCtN1A';
+      const apiKey = (
+        window.LEX_SUPABASE_ANON_KEY ||
+        localStorage.getItem('LEX_SUPABASE_ANON_KEY') ||
+        ''
+      ).trim();
+      if (!apiKey) {
+        throw new Error('Supabase key nao configurada (LEX_SUPABASE_ANON_KEY)');
+      }
 
       let allResults = [];
 

@@ -1,85 +1,127 @@
-/* Thinking Accordion Logic */
 .thinking-container {
-    width: 100%;
-    margin-bottom: 12px;
+    width: min(86%, 800px);
+    margin: 4px 0 2px 0;
+    animation: message-in 0.2s ease-out;
 }
 
 .thinking-accordion {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
     overflow: hidden;
-    transition: all 0.2s ease;
 }
 
 .thinking-accordion[open] {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(99, 102, 241, 0.2);
+    background: transparent;
 }
 
 .thinking-summary {
-    padding: 8px 12px;
+    list-style: none;
     cursor: pointer;
+    padding: 6px 0;
+    color: #9a8e7e;
+    font-size: 13px;
+    font-weight: 500;
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--lex-text-secondary);
-    font-family: var(--font-system);
-    user-select: none;
-    font-weight: 500;
+    gap: 6px;
+    transition: color 0.15s ease;
 }
 
 .thinking-summary:hover {
-    color: var(--lex-text-primary);
+    color: #c4b8a5;
 }
 
-.thinking-summary::before {
-    content: "▶";
-    font-size: 8px;
-    transition: transform 0.2s;
-    opacity: 0.6;
+.thinking-summary::-webkit-details-marker {
+    display: none;
 }
 
-.thinking-accordion[open] .thinking-summary::before {
+.thinking-summary::after {
+    content: ">";
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #7a7065;
+    transition: transform 0.15s ease;
+}
+
+.thinking-accordion[open] .thinking-summary::after {
     transform: rotate(90deg);
 }
 
-.thinking-content {
-    padding: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 13px;
-    line-height: 1.6;
-    color: #a1a1aa;
-    background: rgba(0, 0, 0, 0.2);
-    white-space: pre-wrap;
+/* Remove the old ::before arrow */
+.thinking-summary::before {
+    display: none;
 }
 
-/* Status Log Lines inside Thinking */
+.thinking-content {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(10, 10, 10, 0.4);
+    color: #beb3a1;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.54;
+    padding: 10px 12px;
+    max-height: 340px;
+    overflow-y: auto;
+    border-radius: 8px;
+    margin-top: 4px;
+}
+
+.thinking-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.thinking-content::-webkit-scrollbar-thumb {
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
 .log-line {
     display: flex;
-    gap: 8px;
-    margin-bottom: 4px;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 7px;
+}
+
+.log-line:last-child {
+    margin-bottom: 0;
 }
 
 .log-timestamp {
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 11px;
+    min-width: 58px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.34);
+    user-select: none;
 }
 
 .log-message {
-    color: #d1d5db;
+    color: #d0c5b5;
+    word-break: break-word;
 }
 
 .log-type-exec {
-    color: #6366f1;
+    color: #c7baaa;
 }
 
 .log-type-wait {
-    color: #f59e0b;
+    color: #d1ab73;
 }
 
 .log-type-info {
-    color: #10b981;
+    color: #90b897;
+}
+
+.log-type-critic {
+    color: #cfb29b;
+}
+
+.log-type-error {
+    color: #d98383;
+}
+
+@media (max-width: 1100px) {
+    .thinking-container {
+        width: 100%;
+        margin-left: 0;
+    }
 }

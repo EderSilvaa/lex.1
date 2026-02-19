@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld('dashboardApi', {
 contextBridge.exposeInMainWorld('filesApi', {
     selectFolder: () => ipcRenderer.invoke('files-select-folder'),
     listFiles: (path: string) => ipcRenderer.invoke('files-list', path),
+    readFile: (path: string) => ipcRenderer.invoke('files-read', path),
+    writeFile: (path: string, content: string) => ipcRenderer.invoke('files-write', { path, content }),
+    saveDocument: (name: string, content: string) => ipcRenderer.invoke('files-save-document', { name, content }),
+    selectFile: (filters?: any[]) => ipcRenderer.invoke('files-select-file', filters),
 });
 
 contextBridge.exposeInMainWorld('workspacesApi', {
@@ -24,6 +28,16 @@ contextBridge.exposeInMainWorld('lexApi', {
     executePlan: (plan: any) => ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query: string) => ipcRenderer.invoke('crawler-search', query),
 
+    // Agent Loop API
+    runAgent: (objetivo: string) => ipcRenderer.invoke('agent-run', objetivo),
+    cancelAgent: () => ipcRenderer.invoke('agent-cancel'),
+    onAgentEvent: (cb: (event: { type: string; data: any }) => void) => {
+        ipcRenderer.on('agent-event', (_, event) => cb(event));
+    },
+    offAgentEvent: () => {
+        ipcRenderer.removeAllListeners('agent-event');
+    },
+
     // Browser (PJe) Automation & Tabs
     updateBrowserLayout: (bounds: any) => ipcRenderer.invoke('browser-layout-update', bounds),
     newTab: (url?: string) => ipcRenderer.invoke('browser-tab-new', url),
@@ -32,7 +46,6 @@ contextBridge.exposeInMainWorld('lexApi', {
 
     // Legacy Hooks (mapped to active tab)
     pjeNavigate: (url: string) => ipcRenderer.invoke('pje-navigate', url),
-    pjeExecuteScript: (script: string) => ipcRenderer.invoke('pje-execute-script', script),
 
     // Events
     onBrowserTabCreated: (cb: any) => ipcRenderer.on('browser-tab-created', (_, val) => cb(val)),

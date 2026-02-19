@@ -1,205 +1,124 @@
-/* Browser Layout & Tabs */
-
-:root {
-    --tab-height: 40px;
-    --chat-width: 400px;
-    --browser-bg: #fff;
-    --tab-bg-active: var(--bg-primary);
-    --tab-bg-inactive: var(--bg-secondary);
-    --border-color: #333;
-}
-
-/* Container for Split View */
-#split-view-container {
-    display: none;
-    /* Hidden by default */
-    position: absolute;
-    top: 0;
-    left: 72px;
-    /* Sidebar width from main.css */
-    /* Sidebar width */
-    right: 0;
-    bottom: 0;
-    width: calc(100% - 72px);
-    height: 100%;
-    z-index: 50;
-    background: var(--bg-primary);
-    flex-direction: row;
-}
-
-#split-view-container.active {
-    display: flex;
-}
-
-/* Browser Area (Left) */
-.browser-area {
-    flex: 1;
+/* PJe Floating Widget (Premium Agent Mode) */
+.pje-widget {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    /* Centered */
+    width: 850px;
+    height: 60vh;
+    max-height: 800px;
+    background: rgba(30, 30, 30, 0.95);
+    /* Dark Glass */
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    border-radius: 16px;
+    z-index: 2000;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    position: relative;
-    background: var(--bg-primary);
-    min-width: 300px;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Tabs Bar */
-.browser-tabs {
-    height: var(--tab-height);
-    background: var(--bg-secondary);
+.pje-widget.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -45%) scale(0.95);
+    /* Subtle pop-in effect */
+}
+
+/* Header - Sleek & Minimized */
+.pje-header {
+    height: 48px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     align-items: center;
-    padding: 0 10px;
-    gap: 5px;
-    border-bottom: 1px solid var(--border-color);
-    -webkit-app-region: no-drag;
-    /* Allow clicking tabs */
+    padding: 0 20px;
+    justify-content: space-between;
+    cursor: move;
+    user-select: none;
 }
 
-.browser-tab {
-    padding: 8px 16px;
-    background: var(--bg-secondary);
-    border-radius: 6px 6px 0 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
+.pje-title {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e0e0e0;
+    letter-spacing: 0.5px;
     display: flex;
     align-items: center;
     gap: 8px;
-    max-width: 200px;
-    min-width: 120px;
-    border: 1px solid transparent;
 }
 
-.browser-tab:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.browser-tab.active {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-bottom: none;
-    position: relative;
-    top: 1px;
-    /* Cover border */
-}
-
-.tab-title {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.tab-close {
-    opacity: 0.6;
+.pje-title::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: #4ade80;
+    /* Active dot */
     border-radius: 50%;
-    padding: 2px;
+    box-shadow: 0 0 10px #4ade8066;
+}
+
+.pje-controls {
     display: flex;
+    gap: 12px;
 }
 
-.tab-close:hover {
-    background: rgba(255, 0, 0, 0.2);
-    opacity: 1;
-}
-
-/* Browser Viewport (Hole for BrowserView) */
-.browser-viewport {
-    flex: 1;
-    background: transparent;
-    /* Transparent so BrowserView shows through */
-    /* Checks pattern to show it's a hole during dev */
-    /* background-image: radial-gradient(#333 1px, transparent 1px);
-    background-size: 20px 20px; */
-}
-
-/* Chat Dock (Right) */
-.chat-dock {
-    width: var(--chat-width);
-    border-left: 1px solid var(--border-color);
-    background: var(--bg-primary);
-    display: flex;
-    flex-direction: column;
-    transition: width 0.3s ease;
-    position: relative;
-}
-
-.chat-dock.collapsed {
-    width: 0;
-    overflow: hidden;
+.pje-controls button {
+    background: none;
     border: none;
-}
-
-/* Toggle Button */
-.chat-toggle-btn {
-    position: absolute;
-    left: -24px;
-    top: 50%;
-    width: 24px;
-    height: 48px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-right: none;
-    border-radius: 8px 0 0 8px;
+    color: #888;
     cursor: pointer;
+    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    transition: background 0.2s;
 }
 
-/* --- Responsive Dock Overrides --- */
-/* Adapt chat when it is inside the dock */
-.chat-dock .chat-container {
-    padding: 0 16px;
-    /* Reduced padding */
-    max-width: 100%;
+.pje-controls button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
 }
 
-.chat-dock .greeting-section {
-    margin-bottom: 20px;
-    margin-top: 20px;
-    /* Add some top space */
-    text-align: left;
-    /* Align left looks better in narrow column */
+#btn-close-pje:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
 }
 
-.chat-dock .greeting-section h1 {
-    font-size: 18px;
-    /* Much smaller */
-    line-height: 1.3;
-    white-space: normal;
-    /* Allow wrapping */
-    overflow: visible;
-}
-
-.chat-dock .greeting-section .subtitle {
-    font-size: 13px;
-    margin-top: 4px;
-}
-
-.chat-dock .input-area {
-    margin-bottom: 20px;
-}
-
-.chat-dock .input-wrapper {
-    padding: 8px 12px;
-    border-radius: 12px;
-}
-
-.chat-dock .input-wrapper textarea {
-    font-size: 14px;
-}
-
-.chat-dock .send-btn {
-    width: 28px;
-    height: 28px;
-    right: 8px;
-    bottom: 8px;
+/* Viewport - Dark Placeholder */
+.pje-viewport {
+    flex: 1;
+    position: relative;
+    background: #000;
+    margin: 0 10px 10px 10px;
+    /* Inset from the glass borders */
     border-radius: 8px;
+    /* Rounded corners for the content */
+    overflow: hidden;
+    /* Clip native view if possible, though Electron view sits on top */
 }
 
-/* Hide Activity History in Dock */
-.chat-dock .recent-activity {
-    display: none;
+/* Chat Full Screen Override */
+.chat-container {
+    max-width: 980px;
+    margin: 0 auto;
+    width: 100%;
+    height: 100%;
+    padding-top: 26px;
+}
+
+.chat-wrapper {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    background: transparent;
 }

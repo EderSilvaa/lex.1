@@ -88,22 +88,24 @@
 
 ### Guias Principais
 
-- **[Guia de Testes](docs/GUIA-TESTES.md)** - Como testar todas as funcionalidades
-- **[Deploy Edge Functions](docs/DEPLOY-EDGE-FUNCTION-V3.md)** - Deploy no Supabase
-- **[Chrome Debug](docs/COMO-INICIAR-CHROME-DEBUG.md)** - Debug com CDP
-- **[Roadmap](docs/ROADMAP-LEX-AGENT.md)** - Próximos recursos
+- **[Instalação](docs/installation/README-INSTALACAO.md)** - Setup inicial do ambiente
+- **[Checklist Pré-Lançamento](docs/CHECKLIST-PRE-LANCAMENTO.md)** - Validação antes de release
+- **[Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)** - Diagnóstico de problemas comuns
+- **[Playwright Integration](docs/PLAYWRIGHT-INTEGRATION.md)** - Arquitetura de automação do PJe
 
 ### Recursos Específicos
 
-- **[Streaming](docs/STREAMING-IMPLEMENTACAO.md)** - Implementação de SSE
-- **[Formatação Markdown](docs/FORMATACAO-MARKDOWN-MELHORIAS.md)** - Processamento de markdown
-- **[Fix Formatação](docs/FIX-FORMATACAO-STREAMING.md)** - Correção de bug de formatação
+- **[PDF Processor](guides/PDF-PROCESSOR-README.md)** - Pipeline de extração e processamento
+- **[PDF Error Handling](guides/PDF-ERROR-HANDLING-GUIDE.md)** - Tratamento de falhas em PDF/OCR
+- **[Document Detector](guides/DOCUMENT-DETECTOR-README.md)** - Detecção de tipo e estrutura documental
+- **[OCR Hybrid](docs/OCR-HYBRID-README.md)** - Estratégia híbrida de OCR
 
 ### Arquitetura
 
-- **[Contexto](docs/CONTEXTO.md)** - Visão geral da arquitetura
 - **[Nova Arquitetura Electron](docs/architecture/ELECTRON_ARCHITECTURE.md)** - 🆕 Detalhes da migração Desktop
-- **[Integrações](docs/INTEGRACOES.md)** - Chat + LEX Agent
+- **[LEX Agent Architecture](docs/LEX-AGENT-ARCHITECTURE.md)** - Loop do agente e componentes
+- **[Arquitetura LEX Agent](docs/architecture/ARQUITETURA-LEX-AGENT.md)** - Visão arquitetural complementar
+- **[Mapa de Código](docs/architecture/MAPA-CODIGO.md)** - Navegação da base
 - **[Architecture](docs/architecture/)** - Diagramas e especificações
 
 ---
@@ -142,32 +144,20 @@
 
 ## 📁 Estrutura do Projeto
 
-```
+```text
 lex-test1/
-├── manifest.json                 # Configuração da extensão
-├── src/
-│   ├── js/
-│   │   ├── content-simple.js     # Chat, UI, OpenAI Client
-│   │   ├── session-context.js    # Contexto Rico, cache
-│   │   ├── lex-agent-connector.js # Conexão com backend
-│   │   └── lex-agent-ui.js       # UI do Agent
-│   └── css/
-│       └── (estilos)
-├── styles/
-│   └── chat-styles.css           # Estilos do chat + markdown
-├── lex-agent-backend/
-│   ├── src/
-│   │   ├── server.js             # Express + WebSocket
-│   │   ├── action-planner.js     # GPT-4 Planner
-│   │   └── pje-executor.js       # Playwright executor
-│   └── package.json
-├── docs/                         # Documentação completa
-│   ├── GUIA-TESTES.md
-│   ├── STREAMING-IMPLEMENTACAO.md
-│   ├── FORMATACAO-MARKDOWN-MELHORIAS.md
-│   └── archive/                  # Docs antigas/obsoletas
-├── EDGE-FUNCTION-OPENIA-STREAMING.ts  # Edge Function
-└── README.md                     # Este arquivo
+|-- electron/                     # Main process, preload e integração desktop
+|-- src/
+|   |-- renderer/                # UI da aplicação Electron
+|   `-- js/                      # Scripts de conteúdo e módulos legados
+|-- lex-agent-backend/           # Backend local (Express/WebSocket/Playwright)
+|-- docs/                        # Documentação ativa
+|   |-- architecture/
+|   |-- troubleshooting/
+|   |-- installation/
+|   `-- archive/                 # Histórico e material obsoleto
+|-- guides/                      # Guias técnicos específicos
+`-- README.md
 ```
 
 ---
@@ -183,7 +173,7 @@ lex-test1/
 
 ### Teste Completo
 
-Siga o **[Guia de Testes](docs/GUIA-TESTES.md)** completo.
+Use o **[Checklist Pré-Lançamento](docs/CHECKLIST-PRE-LANCAMENTO.md)** e os fluxos em **[Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)**.
 
 ### Limpar Cache
 
@@ -248,7 +238,13 @@ SUPABASE_KEY=eyJh...
 
 ## 🚧 Roadmap
 
-Veja o **[Roadmap completo](docs/ROADMAP-LEX-AGENT.md)** para:
+Consulte os documentos de planejamento ativos:
+
+- **[Plano de Migração Electron](docs/PLANO-MIGRACAO-ELECTRON.md)**
+- **[Migração Electron](docs/MIGRACAO-ELECTRON.md)**
+- **[Playwright Integration](docs/PLAYWRIGHT-INTEGRATION.md)**
+
+Tópicos prioritários:
 
 - 🔄 Integrações futuras
 - 🎯 Recursos planejados
@@ -312,15 +308,15 @@ supabase functions logs OPENIA --tail
 
 ### IA retorna respostas vazias
 - **Solução**: Limpar cache e reprocessar documentos
-- Veja: [Guia de Testes - Correções de Bugs](docs/GUIA-TESTES.md#testar-correções-de-bugs)
+- Veja: [Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)
 
 ### Formatação não aparece
 - **Solução**: Recarregar extensão
-- Veja: [Fix Formatação](docs/FIX-FORMATACAO-STREAMING.md)
+- Veja: [Correção CSP](docs/troubleshooting/CORRECAO-CSP-README.md)
 
 ### Backend não conecta
 - **Solução**: Verificar se está rodando em `localhost:3000`
-- Veja: [Guia de Testes - LEX Agent Backend](docs/GUIA-TESTES.md#testar-lex-agent-backend)
+- Veja: [Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)
 
 ### CORS error
 - **Solução**: Edge Function já tem CORS configurado
@@ -383,6 +379,6 @@ supabase functions logs OPENIA --tail
 
 <div align="center">
 
-**[📖 Documentação](docs/)** • **[🧪 Testes](docs/GUIA-TESTES.md)** • **[🚀 Deploy](docs/DEPLOY-EDGE-FUNCTION-V3.md)** • **[🗺️ Roadmap](docs/ROADMAP-LEX-AGENT.md)**
+**[📖 Documentação](docs/)** • **[🧪 Checklist](docs/CHECKLIST-PRE-LANCAMENTO.md)** • **[🛠️ Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)** • **[🏗️ Arquitetura](docs/architecture/)**
 
 </div>

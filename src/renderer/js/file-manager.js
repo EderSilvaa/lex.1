@@ -10,6 +10,12 @@ const workspaceList = document.getElementById('workspace-list');
 let currentWorkspacePath = null;
 let savedWorkspaces = [];
 
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = typeof text === 'string' ? text : String(text || '');
+    return div.innerHTML;
+}
+
 // Init
 (async () => {
     if (window.workspacesApi) {
@@ -66,13 +72,16 @@ function renderWorkspaces() {
 
     savedWorkspaces.forEach(path => {
         const folderName = path.split('\\').pop().split('/').pop();
+        const safeFolderName = escapeHtml(folderName);
         const item = document.createElement('div');
         item.className = 'ws-item';
         if (path === currentWorkspacePath) item.classList.add('active');
 
         item.innerHTML = `
-            <span>📂</span>
-            <span class="ws-name">${folderName}</span>
+            <svg class="ws-folder-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.8" fill="none">
+                <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11z"></path>
+            </svg>
+            <span class="ws-name">${safeFolderName}</span>
             <button class="ws-remove-btn" title="Remover">×</button>
         `;
 
@@ -115,6 +124,7 @@ function renderFiles(files) {
     }
 
     files.forEach(file => {
+        const safeFileName = escapeHtml(file.name);
         const card = document.createElement('div');
         card.className = 'file-card';
         // SVG Icons
@@ -125,7 +135,7 @@ function renderFiles(files) {
         card.innerHTML = `
             <div class="file-icon-wrapper">${iconSvg}</div>
             <div class="file-info">
-                <div class="file-name" title="${file.name}">${file.name}</div>
+                <div class="file-name" title="${safeFileName}">${safeFileName}</div>
                 <div class="file-meta">${file.isDirectory ? 'Pasta' : 'Documento'}</div>
             </div>
         `;

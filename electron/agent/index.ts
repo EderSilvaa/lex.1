@@ -7,6 +7,7 @@
 // Core
 export { runAgentLoop, cancelAgentLoop, agentEmitter } from './loop';
 export { think } from './think';
+export { critic } from './critic';
 export {
     executeSkill,
     registerSkill,

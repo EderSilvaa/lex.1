@@ -97,6 +97,46 @@
 
   // Variáveis globais
   let chatContainer = null;
+
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = typeof value === 'string' ? value : String(value ?? '');
+    return div.innerHTML;
+  }
+
+  function sanitizeRichHtml(value) {
+    const raw = typeof value === 'string' ? value : String(value ?? '');
+    const allowedTags = ['strong', 'em', 'br', 'code', 'pre', 'ul', 'ol', 'li', 'span', 'div', 'button'];
+    const allowedAttrs = ['class', 'data-action', 'data-id'];
+
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+      return window.DOMPurify.sanitize(raw, {
+        ALLOWED_TAGS: allowedTags,
+        ALLOWED_ATTR: allowedAttrs
+      });
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = raw;
+    const elements = template.content.querySelectorAll('*');
+
+    elements.forEach((element) => {
+      const tagName = element.tagName.toLowerCase();
+      if (!allowedTags.includes(tagName)) {
+        element.replaceWith(document.createTextNode(element.textContent || ''));
+        return;
+      }
+
+      Array.from(element.attributes).forEach((attr) => {
+        const attrName = attr.name.toLowerCase();
+        if (attrName.startsWith('on') || !allowedAttrs.includes(attrName)) {
+          element.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    return template.innerHTML;
+  }
   
   // Cache de elementos DOM para otimização
   const domCache = {
@@ -318,7 +358,16 @@
     class OpenAIClient {
       constructor() {
         this.baseUrl = 'https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/OPENIA';
-        this.supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcGF1eHp6dGZsZ214amdldm1vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MTI4ODUsImV4cCI6MjA3MDE4ODg4NX0.XXJf6alnb6me4PeMCA80UmfJVUZo8VxA0BFDdFCtN1A'; // Chave pública do Supabase
+        this.supabaseKey = '';
+        try {
+          this.supabaseKey = (
+            window.LEX_SUPABASE_ANON_KEY ||
+            localStorage.getItem('LEX_SUPABASE_ANON_KEY') ||
+            ''
+          ).trim();
+        } catch (e) {
+          console.warn('LEX: Não foi possível carregar a chave do Supabase do storage');
+        }
         console.log('LEX: OpenAI Client via Supabase criado');
       }
 
@@ -468,6 +517,9 @@ Use HTML simples, máximo 300 palavras.`
 
       async fazerRequisicao(prompt, messageElement = null) {
         console.log('📤 LEX: Enviando requisição para Supabase Edge Function (streaming)...');
+        if (!this.supabaseKey) {
+          throw new Error('Supabase key não configurada (LEX_SUPABASE_ANON_KEY)');
+        }
 
         const response = await fetch(this.baseUrl, {
           method: 'POST',
@@ -587,7 +639,12 @@ Use HTML simples, máximo 300 palavras.`
       limparResposta(resposta) {
         if (!resposta) return resposta;
 
-        let cleaned = resposta;
+        let cleaned = String(resposta)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
 
         // 1. Processar blocos de código
         cleaned = cleaned.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
@@ -623,6 +680,10 @@ Use HTML simples, máximo 300 palavras.`
         // 9. Limpar <br> antes/depois de tags de bloco
         cleaned = cleaned.replace(/<br>\s*<(h[1-6]|ul|ol|li|pre)/gi, '<$1');
         cleaned = cleaned.replace(/<\/(h[1-6]|ul|ol|li|pre)>\s*<br>/gi, '</$1>');
+
+        if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+          cleaned = window.DOMPurify.sanitize(cleaned);
+        }
 
         return cleaned.trim();
       }
@@ -1662,22 +1723,49 @@ Use HTML simples, máximo 300 palavras.`
     if (!listContainer) return;
 
     const docs = getTrainingDocuments();
+    listContainer.textContent = '';
 
-    if (docs.length === 0) {
-      listContainer.innerHTML = '<p class="lex-no-docs">Nenhum documento adicionado ainda</p>';
+    if (!Array.isArray(docs) || docs.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'lex-no-docs';
+      empty.textContent = 'Nenhum documento adicionado ainda';
+      listContainer.appendChild(empty);
       return;
     }
 
-    listContainer.innerHTML = docs.map(doc => `
-      <div class="lex-training-file-item" data-doc-id="${doc.id}">
-        <div class="lex-file-icon">${getFileIcon(doc.type)}</div>
-        <div class="lex-file-info">
-          <div class="lex-file-name">${doc.name}</div>
-          <div class="lex-file-meta">${formatFileSize(doc.size)} • ${formatDate(doc.uploadedAt)}</div>
-        </div>
-        <button class="lex-file-remove" onclick="removeTrainingDoc(${doc.id})">×</button>
-      </div>
-    `).join('');
+    docs.forEach((doc) => {
+      const item = document.createElement('div');
+      item.className = 'lex-training-file-item';
+      item.dataset.docId = String(doc.id ?? '');
+
+      const icon = document.createElement('div');
+      icon.className = 'lex-file-icon';
+      icon.textContent = getFileIcon(doc.type);
+
+      const info = document.createElement('div');
+      info.className = 'lex-file-info';
+
+      const name = document.createElement('div');
+      name.className = 'lex-file-name';
+      name.textContent = typeof doc.name === 'string' ? doc.name : String(doc.name ?? '');
+
+      const meta = document.createElement('div');
+      meta.className = 'lex-file-meta';
+      meta.textContent = `${formatFileSize(doc.size)} • ${formatDate(doc.uploadedAt)}`;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'lex-file-remove';
+      removeBtn.type = 'button';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => window.removeTrainingDoc(doc.id));
+
+      info.appendChild(name);
+      info.appendChild(meta);
+      item.appendChild(icon);
+      item.appendChild(info);
+      item.appendChild(removeBtn);
+      listContainer.appendChild(item);
+    });
   }
 
   /**
@@ -2151,21 +2239,29 @@ Use HTML simples, máximo 300 palavras.`
     Array.from(files).forEach(file => {
       const fileItem = document.createElement('div');
       fileItem.className = 'lex-file-item';
-      fileItem.innerHTML = `
-        <span class="lex-file-name">${file.name}</span>
-        <span class="lex-file-size">(${(file.size / 1024).toFixed(1)} KB)</span>
-        <button class="lex-file-remove" data-filename="${file.name}">×</button>
-      `;
 
-      filesContainer.appendChild(fileItem);
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'lex-file-name';
+      nameSpan.textContent = file.name;
 
-      // Remove button
-      fileItem.querySelector('.lex-file-remove').addEventListener('click', (e) => {
+      const sizeSpan = document.createElement('span');
+      sizeSpan.className = 'lex-file-size';
+      sizeSpan.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'lex-file-remove';
+      removeBtn.type = 'button';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
         fileItem.remove();
       });
+
+      fileItem.appendChild(nameSpan);
+      fileItem.appendChild(sizeSpan);
+      fileItem.appendChild(removeBtn);
+      filesContainer.appendChild(fileItem);
     });
 
-    // TODO: Actually process and store the files
     console.log('LEX: Arquivos adicionados:', Array.from(files).map(f => f.name));
   }
 
@@ -2173,41 +2269,49 @@ Use HTML simples, máximo 300 palavras.`
   function adicionarInfoDiscreta(info) {
     const messagesContainer = chatContainer.querySelector('.lex-messages');
     const header = chatContainer.querySelector('.lex-header');
-    
+
     if (!messagesContainer || !header) return;
-    
-    // Criar elemento de informações discretas para área de mensagens (expandido)
+
     const infoElement = document.createElement('div');
     infoElement.className = 'lex-process-context';
-    
-    let contextInfo = '';
+
     if (info.numeroProcesso) {
-      contextInfo += `<span class="lex-context-process">${info.numeroProcesso}</span>`;
+      const processEl = document.createElement('span');
+      processEl.className = 'lex-context-process';
+      processEl.textContent = String(info.numeroProcesso);
+      infoElement.appendChild(processEl);
     }
+
     if (info.documentoId) {
-      contextInfo += `<span class="lex-context-doc">Documento ${info.documentoId}</span>`;
+      const docEl = document.createElement('span');
+      docEl.className = 'lex-context-doc';
+      docEl.textContent = `Documento ${String(info.documentoId)}`;
+      infoElement.appendChild(docEl);
     }
-    
-    if (contextInfo) {
-      infoElement.innerHTML = contextInfo;
+
+    if (infoElement.childNodes.length > 0) {
       messagesContainer.appendChild(infoElement);
     }
-    
-    // Criar elemento de informações compactas para o header (compacto)
-    const compactInfoElement = document.createElement('div');
-    compactInfoElement.className = 'lex-compact-info';
-    
-    let compactInfo = '';
+
+    const safeCompactInfoElement = document.createElement('div');
+    safeCompactInfoElement.className = 'lex-compact-info';
+
     if (info.numeroProcesso) {
-      compactInfo += `<div class="lex-compact-process">${info.numeroProcesso}</div>`;
+      const processCompactEl = document.createElement('div');
+      processCompactEl.className = 'lex-compact-process';
+      processCompactEl.textContent = String(info.numeroProcesso);
+      safeCompactInfoElement.appendChild(processCompactEl);
     }
+
     if (info.documentoId) {
-      compactInfo += `<div class="lex-compact-doc">Doc ${info.documentoId}</div>`;
+      const docCompactEl = document.createElement('div');
+      docCompactEl.className = 'lex-compact-doc';
+      docCompactEl.textContent = `Doc ${String(info.documentoId)}`;
+      safeCompactInfoElement.appendChild(docCompactEl);
     }
-    
-    if (compactInfo) {
-      compactInfoElement.innerHTML = compactInfo;
-      header.appendChild(compactInfoElement);
+
+    if (safeCompactInfoElement.childNodes.length > 0) {
+      header.appendChild(safeCompactInfoElement);
     }
   }
 
@@ -2266,11 +2370,12 @@ Forneça uma análise estruturada:
   // Adicionar mensagem do assistente ao chat
   function adicionarMensagemAssistente(html) {
     const messagesContainer = chatContainer.querySelector('.lex-messages');
+    const safeHtml = sanitizeRichHtml(html);
 
     const assistantMessage = document.createElement('div');
     assistantMessage.className = 'lex-message assistant';
     assistantMessage.innerHTML = `
-      <div class="lex-bubble">${html}</div>
+      <div class="lex-bubble">${safeHtml}</div>
       <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
     `;
 
@@ -2796,6 +2901,7 @@ Buscando modelo apropriado...<br><br>
   function enviarMensagem(texto, isAutomatico = false) {
     texto = texto.trim();
     if (!texto) return;
+    const safeUserText = escapeHtml(texto);
 
     // Expandir chat na primeira mensagem
     expandirChat();
@@ -2810,7 +2916,7 @@ Buscando modelo apropriado...<br><br>
       const userMessage = document.createElement('div');
       userMessage.className = 'lex-message user';
       userMessage.innerHTML = `
-        <div class="lex-bubble">${texto}</div>
+        <div class="lex-bubble">${safeUserText}</div>
         <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
       `;
 
@@ -2830,10 +2936,11 @@ Buscando modelo apropriado...<br><br>
     // DETECTAR COMANDOS ESPECIAIS (LEGACY)
     const comandoResult = processarComando(texto);
     if (comandoResult) {
+      const safeComandoResult = sanitizeRichHtml(comandoResult);
       const comandoMessage = document.createElement('div');
       comandoMessage.className = 'lex-message assistant';
       comandoMessage.innerHTML = `
-        <div class="lex-bubble">${comandoResult}</div>
+        <div class="lex-bubble">${safeComandoResult}</div>
         <div class="lex-time">${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
       `;
       messagesContainer.appendChild(comandoMessage);
@@ -2860,7 +2967,11 @@ Buscando modelo apropriado...<br><br>
         // Neste caso, atualizar com resposta formatada
         if (bubble.textContent.includes('Pensando')) {
           // Aplicar formatação markdown antes de atualizar
-          bubble.innerHTML = window.openaiClient ? window.openaiClient.limparResposta(resposta) : resposta;
+          if (window.openaiClient) {
+            bubble.innerHTML = window.openaiClient.limparResposta(resposta);
+          } else {
+            bubble.textContent = typeof resposta === 'string' ? resposta : String(resposta || '');
+          }
         }
         // Se não tem "Pensando...", o streaming já atualizou o conteúdo formatado
         // Não fazer nada para preservar a formatação
@@ -2870,7 +2981,7 @@ Buscando modelo apropriado...<br><br>
       // Atualizar mensagem existente com erro
       const bubble = assistantMessage.querySelector('.lex-bubble');
       if (bubble) {
-        bubble.innerHTML = '❌ Erro ao processar sua pergunta. Tente novamente.';
+        bubble.textContent = 'Erro ao processar sua pergunta. Tente novamente.';
       }
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
       console.error('❌ LEX: Erro ao gerar resposta:', error);

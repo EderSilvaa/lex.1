@@ -1,11 +1,16 @@
 // Action Planner - Usa GPT-4 para planejar ações jurídicas inteligentes
 const fetch = require('node-fetch');
+const OpenAI = require('openai');
 
 class ActionPlanner {
   constructor() {
     // Usar Supabase Edge Function dedicada para planejamento
-    this.plannerUrl = 'https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/LEX-AGENT-PLANNER';
-    this.supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcGF1eHp6dGZsZ214amdldm1vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MTI4ODUsImV4cCI6MjA3MDE4ODg4NX0.XXJf6alnb6me4PeMCA80UmfJVUZo8VxA0BFDdFCtN1A';
+    this.plannerUrl = process.env.LEX_AGENT_PLANNER_URL || 'https://nspauxzztflgmxjgevmo.supabase.co/functions/v1/LEX-AGENT-PLANNER';
+    this.supabaseKey = process.env.SUPABASE_ANON_KEY || '';
+    this.model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    this.openai = process.env.OPENAI_API_KEY
+      ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+      : null;
   }
 
   /**
@@ -26,6 +31,10 @@ class ActionPlanner {
       // Adicionar screenshot se disponível
       if (screenshot) {
         payload.screenshot = screenshot;
+      }
+
+      if (!this.supabaseKey) {
+        throw new Error('SUPABASE_ANON_KEY nao configurada');
       }
 
       const response = await fetch(this.plannerUrl, {
@@ -112,6 +121,9 @@ class ActionPlanner {
    * Analisa contexto jurídico de um processo
    */
   async analyzeProcessContext(processData) {
+    if (!this.openai) {
+      throw new Error('OPENAI_API_KEY nao configurada');
+    }
     console.log('📊 Analisando contexto jurídico do processo...');
 
     const systemPrompt = `Você é um assistente jurídico especializado em análise processual.
@@ -160,6 +172,9 @@ FORMATO DE RESPOSTA (JSON):
    * Gera minuta de documento jurídico
    */
   async generateDocument(documentType, data) {
+    if (!this.openai) {
+      throw new Error('OPENAI_API_KEY nao configurada');
+    }
     console.log(`📝 Gerando minuta: ${documentType}`);
 
     const systemPrompt = `Você é um assistente jurídico especializado em redação de peças processuais.
@@ -218,6 +233,9 @@ Gere a minuta do documento.`;
    * Busca jurisprudência relevante
    */
   async searchJurisprudence(query, filters = {}) {
+    if (!this.openai) {
+      throw new Error('OPENAI_API_KEY nao configurada');
+    }
     console.log(`🔍 Buscando jurisprudência: "${query}"`);
 
     const systemPrompt = `Você é um assistente jurídico especializado em pesquisa de jurisprudência.

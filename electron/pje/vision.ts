@@ -1,7 +1,7 @@
 /**
  * PJe Vision AI
  *
- * Fallback visual para localizar elementos no PJe usando GPT-4o Vision.
+ * Fallback visual para localizar elementos no PJe usando Claude Vision.
  * Usado quando seletores DOM falham devido ao HTML caótico.
  */
 
@@ -43,10 +43,10 @@ export interface VisionClickResult {
 
 export class PJeVision {
     private apiKey: string | null = null;
-    private model: string = 'gpt-4o';
+    private model: string = 'claude-sonnet-4-6';
 
     constructor(apiKey?: string) {
-        this.apiKey = apiKey || process.env['OPENAI_API_KEY'] || null;
+        this.apiKey = apiKey || process.env['ANTHROPIC_API_KEY'] || null;
     }
 
     /**
@@ -102,30 +102,30 @@ Se não encontrar o elemento, retorne:
                 ? `${task}\n\nContexto adicional: ${context}`
                 : task;
 
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
+                    'x-api-key': this.apiKey,
+                    'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
                     model: this.model,
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        {
-                            role: 'user',
-                            content: [
-                                {
-                                    type: 'image_url',
-                                    image_url: {
-                                        url: `data:image/png;base64,${base64}`,
-                                        detail: 'high'
-                                    }
-                                },
-                                { type: 'text', text: userMessage }
-                            ]
-                        }
-                    ],
+                    system: systemPrompt,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image',
+                                source: {
+                                    type: 'base64',
+                                    media_type: 'image/png',
+                                    data: base64
+                                }
+                            },
+                            { type: 'text', text: userMessage }
+                        ]
+                    }],
                     max_tokens: 1000,
                     temperature: 0.1
                 })
@@ -138,7 +138,7 @@ Se não encontrar o elemento, retorne:
             }
 
             const data = await response.json() as any;
-            const content = data.choices?.[0]?.message?.content;
+            const content = data.content?.[0]?.text;
 
             if (!content) {
                 return { success: false, elements: [], error: 'Resposta vazia da API' };

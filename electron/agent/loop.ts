@@ -21,6 +21,7 @@ import {
     TenantConfig
 } from './types';
 import { think } from './think';
+import { critic } from './critic';
 import { executeSkill, getSkillsForPrompt } from './executor';
 import { getMemory } from './memory';
 
@@ -211,8 +212,51 @@ export async function runAgentLoop(
                 // EXECUTAR SKILL
                 // ────────────────────────────────────────────────────────
                 case 'skill': {
-                    const skillName = decisao.skill!;
+                    let skillName = decisao.skill!;
                     let params = decisao.parametros || {};
+
+                    if (cfg.enableCritic) {
+                        log(cfg.verbose, 'Critic: revisando acao planejada...');
+                        const criticStart = Date.now();
+                        const criticDecision = await critic(state, { skill: skillName, parametros: params }, cfg);
+                        const criticDuration = Date.now() - criticStart;
+
+                        const criticStep: AgentStep = {
+                            iteracao: state.iteracao,
+                            timestamp: new Date().toISOString(),
+                            tipo: 'critic',
+                            critic: criticDecision,
+                            duracao: criticDuration
+                        };
+                        state.passos.push(criticStep);
+
+                        emit({ type: 'criticizing', decision: criticDecision, iteracao: state.iteracao });
+                        emit({
+                            type: 'thinking',
+                            pensamento: `[Critic] ${criticDecision.reason}`,
+                            iteracao: state.iteracao
+                        });
+
+                        if (cfg.hooks?.afterCritic) {
+                            await cfg.hooks.afterCritic(state, criticDecision);
+                        }
+
+                        if (!criticDecision.approved || criticDecision.requiresUserConfirmation) {
+                            state.status = 'waiting_user';
+                            const question = criticDecision.suggestedQuestion
+                                || `A acao "${skillName}" foi retida pelo critic: ${criticDecision.reason}`;
+                            emit({ type: 'waiting_user', pergunta: question });
+                            return `❓ ${question}`;
+                        }
+
+                        if (criticDecision.correctedDecision?.skill) {
+                            skillName = criticDecision.correctedDecision.skill;
+                            if (criticDecision.correctedDecision.parametros) {
+                                params = criticDecision.correctedDecision.parametros;
+                            }
+                            log(cfg.verbose, `Critic: acao ajustada para ${skillName}`);
+                        }
+                    }
 
                     log(cfg.verbose, `🔧 Executando: ${skillName}`);
 

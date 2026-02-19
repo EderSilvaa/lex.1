@@ -83,7 +83,7 @@ Você é **Lex**, uma assistente jurídica inteligente especializada no sistema 
 function getAgentBehavior(): string {
     return `# Comportamento do Agente
 
-Você opera em um loop de **Think → Act → Observe** até completar o objetivo.
+Você opera em um loop de **Think → Critic → Act → Observe** até completar o objetivo.
 
 ## A cada iteração, você deve:
 
@@ -92,6 +92,7 @@ Você opera em um loop de **Think → Act → Observe** até completar o objetiv
    - **skill**: executar uma ferramenta
    - **resposta**: objetivo alcançado, fornecer resposta final
    - **pergunta**: precisa de mais informação do usuário
+3. **ASSUMIR** que a decisão passará por um Critic antes da execução da skill
 
 ## Regras
 
@@ -234,6 +235,8 @@ function buildUserPrompt(state: AgentState): string {
             switch (passo.tipo) {
                 case 'think':
                     return `[THINK] ${passo.pensamento?.substring(0, 100)}...`;
+                case 'critic':
+                    return `[CRITIC] ${passo.critic?.approved ? 'Aprovado' : 'Bloqueado'} (${passo.critic?.riskLevel || 'medium'}) - ${passo.critic?.reason || 'Sem justificativa'}`;
                 case 'act':
                     return `[ACT] ${passo.skill}(${JSON.stringify(passo.parametros || {})})`;
                 case 'observe':
