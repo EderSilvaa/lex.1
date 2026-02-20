@@ -24,9 +24,14 @@ import { think } from './think';
 import { critic } from './critic';
 import { executeSkill, getSkillsForPrompt } from './executor';
 import { getMemory } from './memory';
+import { getResponseCache } from './cache';
+import { getSessionManager } from './session';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
+
+// A3: Registry de runs ativos para cancel/state
+const activeRuns = new Map<string, { state: AgentState; abort: AbortController }>();
 
 /**
  * Emite evento para a UI
@@ -58,10 +63,12 @@ function log(verbose: boolean, ...args: any[]): void {
 export async function runAgentLoop(
     objetivo: string,
     config: Partial<AgentConfig> = {},
-    tenantConfig?: TenantConfig
+    tenantConfig?: TenantConfig,
+    sessionId?: string   // A2: ID da sessão para multi-turn
 ): Promise<string> {
     const cfg = { ...DEFAULT_CONFIG, ...config };
     const runId = randomUUID();
+    const abort = new AbortController();
 
     // Carrega memória persistente
     const memory = getMemory();
@@ -83,6 +90,24 @@ export async function runAgentLoop(
         startTime: Date.now()
     };
 
+    // A3: Registra no registry
+    activeRuns.set(runId, { state, abort });
+
+    // A2: Carregar histórico da sessão (se houver)
+    const sessionManager = getSessionManager();
+    let activeSessionId: string | undefined;
+    if (sessionId) {
+        activeSessionId = sessionId;
+        const session = sessionManager.getOrCreate(sessionId);
+        const historyPrompt = sessionManager.formatHistoryForPrompt(sessionId);
+        if (historyPrompt) {
+            // Injeta histórico no contexto para uso pelo think.ts
+            (state.contexto as any).chatHistory = historyPrompt;
+        }
+        // Registra mensagem do usuário na sessão
+        sessionManager.addMessage(sessionId, 'user', objetivo);
+    }
+
     log(cfg.verbose, `═══════════════════════════════════════════`);
     log(cfg.verbose, `Iniciando Agent Loop`);
     log(cfg.verbose, `Run ID: ${runId}`);
@@ -91,6 +116,20 @@ export async function runAgentLoop(
     log(cfg.verbose, `═══════════════════════════════════════════`);
 
     emit({ type: 'started', runId, objetivo });
+
+    // B1: Verificar cache antes de entrar no loop
+    const cache = getResponseCache();
+    if (cache.shouldCache(objetivo)) {
+        const cached = cache.get(objetivo);
+        if (cached) {
+            log(cfg.verbose, `✅ Resposta encontrada no cache!`);
+            state.status = 'completed';
+            state.endTime = Date.now();
+            emit({ type: 'completed', resposta: cached, passos: 0, duracao: Date.now() - state.startTime });
+            activeRuns.delete(runId);
+            return cached;
+        }
+    }
 
     // Hook: beforeStart
     if (cfg.hooks?.beforeStart) {
@@ -102,11 +141,22 @@ export async function runAgentLoop(
         // MAIN LOOP
         // ════════════════════════════════════════════════════════════════
         while (state.status === 'running') {
+            // A3: Verificar cancelamento
+            if (abort.signal.aborted) {
+                state.status = 'cancelled';
+                state.endTime = Date.now();
+                log(cfg.verbose, `🚫 Cancelado pelo usuário`);
+                emit({ type: 'cancelled' });
+                activeRuns.delete(runId);
+                return 'Operação cancelada pelo usuário.';
+            }
+
             // Verificar limites
             if (state.iteracao >= cfg.maxIterations) {
                 log(cfg.verbose, `⚠️ Atingiu limite de ${cfg.maxIterations} iterações`);
                 state.status = 'timeout';
                 emit({ type: 'timeout' });
+                activeRuns.delete(runId);
                 return formatTimeoutResponse(state);
             }
 
@@ -114,6 +164,7 @@ export async function runAgentLoop(
                 log(cfg.verbose, `⚠️ Timeout: ${cfg.timeoutMs}ms`);
                 state.status = 'timeout';
                 emit({ type: 'timeout' });
+                activeRuns.delete(runId);
                 return formatTimeoutResponse(state);
             }
 
@@ -185,6 +236,23 @@ export async function runAgentLoop(
                     // Hook: onComplete
                     if (cfg.hooks?.onComplete) {
                         await cfg.hooks.onComplete(state, decisao.resposta!);
+                    }
+
+                    activeRuns.delete(runId);
+
+                    // B1: Salvar no cache (apenas respostas diretas)
+                    if (cache.shouldCache(objetivo)) {
+                        cache.set(objetivo, decisao.resposta!);
+                    }
+
+                    // A2: Salvar resposta na sessão
+                    if (activeSessionId) {
+                        sessionManager.addMessage(activeSessionId, 'assistant', decisao.resposta!, {
+                            runId,
+                            skillsUsed: state.passos
+                                .filter(p => p.tipo === 'act' && p.skill)
+                                .map(p => p.skill!)
+                        });
                     }
 
                     return decisao.resposta!;
@@ -336,6 +404,7 @@ export async function runAgentLoop(
             await cfg.hooks.onError(state, error);
         }
 
+        activeRuns.delete(runId);
         return `Desculpe, ocorreu um erro: ${error.message}`;
     }
 }
@@ -372,19 +441,42 @@ function formatTimeoutResponse(state: AgentState): string {
 }
 
 /**
- * Cancela um loop em execução
- * (Para implementação futura com AbortController)
+ * Cancela um loop em execução (A3)
  */
 export function cancelAgentLoop(runId?: string): boolean {
-    // TODO: Implementar cancelamento com AbortController
-    emit({ type: 'cancelled' });
+    if (runId) {
+        const run = activeRuns.get(runId);
+        if (run) {
+            run.abort.abort();
+            log(true, `Cancelando run: ${runId}`);
+            return true;
+        }
+        return false;
+    }
+
+    // Cancela todos os runs ativos
+    if (activeRuns.size === 0) return false;
+    activeRuns.forEach((run, id) => {
+        run.abort.abort();
+        log(true, `Cancelando run: ${id}`);
+    });
     return true;
 }
 
 /**
- * Obtém estado atual de um loop
+ * Obtém estado atual de um loop (A3)
  */
 export function getAgentState(runId: string): AgentState | null {
-    // TODO: Implementar registry de estados ativos
-    return null;
+    return activeRuns.get(runId)?.state ?? null;
+}
+
+/**
+ * Lista todos os runs ativos
+ */
+export function listActiveRuns(): Array<{ runId: string; objetivo: string; iteracao: number }> {
+    const runs: Array<{ runId: string; objetivo: string; iteracao: number }> = [];
+    activeRuns.forEach((run, id) => {
+        runs.push({ runId: id, objetivo: run.state.objetivo, iteracao: run.state.iteracao });
+    });
+    return runs;
 }

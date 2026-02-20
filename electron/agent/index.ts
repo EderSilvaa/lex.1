@@ -5,7 +5,7 @@
  */
 
 // Core
-export { runAgentLoop, cancelAgentLoop, agentEmitter } from './loop';
+export { runAgentLoop, cancelAgentLoop, getAgentState, listActiveRuns, agentEmitter } from './loop';
 export { think } from './think';
 export { critic } from './critic';
 export {
@@ -14,7 +14,8 @@ export {
     registerSkills,
     listSkills,
     getSkill,
-    getSkillsForPrompt
+    getSkillsForPrompt,
+    loadSkillsFromDir
 } from './executor';
 
 // Prompt-Layer
@@ -27,11 +28,27 @@ export {
 // Memory
 export { Memory, getMemory } from './memory';
 
+// Cache (B1)
+export { ResponseCache, getResponseCache } from './cache';
+
+// Retry (C3)
+export { withRetry, withAIRetry, withPJeRetry } from './retry';
+
+// Usage Tracker (B4)
+export { UsageTracker, getUsageTracker } from './usage-tracker';
+
+// Session Manager (A2)
+export { SessionManager, getSessionManager } from './session';
+
+// Action Queue (C2)
+export { ActionQueue, getActionQueue } from './action-queue';
+
 // Types
 export * from './types';
 
 // Skills (carrega automaticamente)
 import { loadMockSkills } from '../skills/mock';
+import { loadSkillsFromDir } from './executor';
 
 // Inicialização
 let initialized = false;
@@ -44,9 +61,16 @@ export async function initializeAgent(): Promise<void> {
     // Carrega skills mock (para desenvolvimento/teste)
     loadMockSkills();
 
-    // TODO: Carregar skills reais quando disponíveis
-    // await loadSkillsFromDir('./skills/pje');
-    // await loadSkillsFromDir('./skills/documentos');
+    // C1: Carregar skills reais (substituem mocks de mesmo nome)
+    try {
+        await loadSkillsFromDir('skills/pje');
+    } catch (e: any) {
+        console.warn('[Agent] Erro ao carregar skills PJe:', e.message);
+    }
+
+    // Futuro: mais diretórios de skills
+    // await loadSkillsFromDir('skills/documentos');
+    // await loadSkillsFromDir('skills/pesquisa');
 
     initialized = true;
     console.log('[Agent] Inicializado com sucesso');

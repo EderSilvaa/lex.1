@@ -5,6 +5,8 @@
  * Provider padrão: Anthropic Claude Sonnet 4.6
  */
 
+import { withAIRetry } from './agent/retry';
+
 interface CallAIOptions {
     system: string;
     user: string;
@@ -52,7 +54,8 @@ export async function callAI(options: CallAIOptions): Promise<string> {
     console.log('[AI] Chamando API...');
     console.log('[AI] Provider:', aiConfig.provider);
 
-    try {
+    // C3: Retry automático para rate limits e erros de rede
+    return withAIRetry(async () => {
         switch (aiConfig.provider) {
             case 'anthropic':
                 return await callAnthropic(options);
@@ -63,10 +66,7 @@ export async function callAI(options: CallAIOptions): Promise<string> {
             default:
                 return await callAnthropic(options);
         }
-    } catch (error: any) {
-        console.error('[AI] Erro na chamada:', error);
-        throw new Error(`Falha na API de IA: ${error.message}`);
-    }
+    });
 }
 
 /**
@@ -79,7 +79,8 @@ export async function callAIWithVision(options: CallAIWithVisionOptions): Promis
         throw new Error('Anthropic API key não configurada');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // C3: Retry automático para Vision API
+    const response = await withAIRetry(() => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -106,7 +107,7 @@ export async function callAIWithVision(options: CallAIWithVisionOptions): Promis
             temperature: options.temperature ?? 0.1,
             max_tokens: options.maxTokens || 1000
         })
-    });
+    }));
 
     if (!response.ok) {
         const error = await response.text();

@@ -244,6 +244,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
     verbose: true,
     allowParallelSkills: false,
     enableCritic: true,
+    criticModel: 'claude-3-5-haiku-latest', // B3: ~10x mais barato que sonnet para validação
     criticTemperature: 0.1
 };
 

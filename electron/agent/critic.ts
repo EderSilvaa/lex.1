@@ -25,6 +25,19 @@ const HIGH_RISK_KEYWORDS = [
 ];
 
 /**
+ * Skills de leitura que não precisam de LLM review.
+ * Apenas heurísticas são suficientes para aprovação.
+ */
+const READ_ONLY_SKILLS = new Set([
+    'pje_consultar',
+    'pje_movimentacoes',
+    'pje_documentos',
+    'pesquisa_jurisprudencia',
+    'doc_analisar',
+    'util_calcular_prazo'
+]);
+
+/**
  * Avalia a ação planejada antes da execução.
  */
 export async function critic(
@@ -37,6 +50,13 @@ export async function critic(
     // Heurística já detectou bloqueio/confirmação obrigatória.
     if (!heuristicDecision.approved || heuristicDecision.requiresUserConfirmation) {
         return heuristicDecision;
+    }
+
+    // B2: Skip LLM review para skills de leitura (economia ~40-50% de chamadas Critic)
+    const skillLowerName = String(action.skill || '').toLowerCase();
+    if (READ_ONLY_SKILLS.has(skillLowerName) && heuristicDecision.approved) {
+        console.log(`[Critic] Skip LLM review — skill de leitura: ${action.skill}`);
+        return { ...heuristicDecision, reason: 'Skill de leitura — aprovada sem LLM review.' };
     }
 
     try {

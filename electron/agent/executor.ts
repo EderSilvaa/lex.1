@@ -6,6 +6,8 @@
  */
 
 import { Skill, SkillResult, SkillRegistry, AgentContext } from './types';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // Registry de skills carregadas
 let skillRegistry: SkillRegistry = {};
@@ -238,10 +240,53 @@ function formatCategoria(cat: string): string {
 }
 
 /**
- * Carrega skills de um diretório (padrão OpenClaw)
- * Para implementação futura com SKILL.md
+ * Carrega skills de um diretório (C1)
+ *
+ * Busca todos os arquivos .ts/.js no diretório (exceto index.ts).
+ * Cada módulo deve exportar um Skill (default ou named com 'nome' e 'execute').
  */
 export async function loadSkillsFromDir(dir: string): Promise<void> {
-    // TODO: Implementar carregamento de SKILL.md
-    console.log(`[Executor] loadSkillsFromDir: ${dir} (não implementado)`);
+    const fullDir = path.resolve(__dirname, '..', dir);
+
+    if (!fs.existsSync(fullDir)) {
+        console.warn(`[Executor] Diretório não encontrado: ${fullDir}`);
+        return;
+    }
+
+    const entries = fs.readdirSync(fullDir, { withFileTypes: true });
+    let loaded = 0;
+
+    for (const entry of entries) {
+        // Pular index, diretórios, e arquivos não-TS/JS
+        if (!entry.isFile()) continue;
+        if (entry.name === 'index.ts' || entry.name === 'index.js') continue;
+
+        const ext = path.extname(entry.name);
+        if (ext !== '.ts' && ext !== '.js') continue;
+
+        try {
+            const modulePath = path.join(fullDir, entry.name);
+            const mod = require(modulePath);
+
+            // Buscar Skill: export default ou primeiro export com 'nome' e 'execute'
+            const skill: Skill | undefined =
+                mod.default ||
+                Object.values(mod).find((v: any) => v?.nome && typeof v?.execute === 'function') as Skill | undefined;
+
+            if (skill && skill.nome && typeof skill.execute === 'function') {
+                // Evitar duplicatas (mock pode já ter registrado)
+                if (skillRegistry[skill.nome]) {
+                    console.log(`[Executor] Substituindo skill mock: ${skill.nome} → real`);
+                }
+                registerSkill(skill);
+                loaded++;
+            } else {
+                console.warn(`[Executor] Módulo sem Skill válida: ${entry.name}`);
+            }
+        } catch (error: any) {
+            console.error(`[Executor] Erro ao carregar ${entry.name}:`, error.message);
+        }
+    }
+
+    console.log(`[Executor] Carregadas ${loaded} skills de ${dir}`);
 }
