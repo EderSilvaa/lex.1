@@ -24,12 +24,15 @@ contextBridge.exposeInMainWorld('lexApi', {
     getHistory: () => ipcRenderer.invoke('get-history'),
     sendChat: (message: string, context?: any) => ipcRenderer.invoke('ai-chat-send', { message, context }),
     savePreferences: (prefs: any) => ipcRenderer.invoke('save-preferences', prefs),
+    setAnthropicKey: (key: string) => ipcRenderer.invoke('store-set-anthropic-key', key),
+    getAnthropicKeyStatus: () => ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => ipcRenderer.invoke('check-pje'),
     executePlan: (plan: any) => ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query: string) => ipcRenderer.invoke('crawler-search', query),
 
     // Agent Loop API
-    runAgent: (objetivo: string) => ipcRenderer.invoke('agent-run', objetivo),
+    runAgent: (objetivo: string, config?: any, sessionId?: string) => ipcRenderer.invoke('agent-run', objetivo, config, sessionId),
+    shouldUseAgent: (objetivo: string) => ipcRenderer.invoke('agent-should-handle', objetivo),
     cancelAgent: () => ipcRenderer.invoke('agent-cancel'),
     onAgentEvent: (cb: (event: { type: string; data: any }) => void) => {
         ipcRenderer.on('agent-event', (_, event) => cb(event));
@@ -40,6 +43,7 @@ contextBridge.exposeInMainWorld('lexApi', {
 
     // Browser (PJe) Automation & Tabs
     updateBrowserLayout: (bounds: any) => ipcRenderer.invoke('browser-layout-update', bounds),
+    expandBrowserToFill: (sidebarWidth?: number) => ipcRenderer.invoke('browser-expand-to-fill', sidebarWidth ?? 228),
     newTab: (url?: string) => ipcRenderer.invoke('browser-tab-new', url),
     switchTab: (tabId: number) => ipcRenderer.invoke('browser-tab-switch', tabId),
     closeTab: (tabId: number) => ipcRenderer.invoke('browser-tab-close', tabId),
@@ -53,4 +57,8 @@ contextBridge.exposeInMainWorld('lexApi', {
     onBrowserTabClosed: (cb: any) => ipcRenderer.on('browser-tab-closed', (_, val) => cb(val)),
     onBrowserUpdateUrl: (cb: any) => ipcRenderer.on('browser-update-url', (_, val) => cb(val)),
     onBrowserUpdateTitle: (cb: any) => ipcRenderer.on('browser-update-title', (_, val) => cb(val)),
+    onBrowserLoadState: (cb: any) => ipcRenderer.on('browser-load-state', (_, val) => cb(val)),
+
+    // Vision AI debug stream
+    onVisionDebug: (cb: (data: any) => void) => ipcRenderer.on('vision-debug', (_, val) => cb(val)),
 });

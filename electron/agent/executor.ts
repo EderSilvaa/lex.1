@@ -260,6 +260,7 @@ export async function loadSkillsFromDir(dir: string): Promise<void> {
         // Pular index, diretórios, e arquivos não-TS/JS
         if (!entry.isFile()) continue;
         if (entry.name === 'index.ts' || entry.name === 'index.js') continue;
+        if (entry.name.endsWith('.d.ts')) continue;
 
         const ext = path.extname(entry.name);
         if (ext !== '.ts' && ext !== '.js') continue;

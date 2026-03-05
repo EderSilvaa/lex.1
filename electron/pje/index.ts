@@ -1,17 +1,9 @@
 /**
  * PJe Module - Exports
  *
- * Automação do PJe via Playwright CDP.
+ * Automação do PJe via Stagehand.
+ * executor.ts, vision.ts e selectors.ts foram removidos — substituídos pelo Stagehand agent.
  */
-
-// Core
-export { PJeExecutor, getPJeExecutor, resetPJeExecutor } from './executor';
-
-// Vision AI
-export { PJeVision, getPJeVision } from './vision';
 
 // Types
 export * from './types';
-
-// Selectors
-export * from './selectors';

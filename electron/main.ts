@@ -1,18 +1,19 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-
-// PJeManager type for dynamic import
-type PJeManagerType = import('./pje-manager').PJeManager;
+import { randomUUID } from 'crypto';
+import { getKnownPJeHosts } from './pje/tribunal-urls';
+import { initStagehand, closeStagehand, getStagehand } from './stagehand-manager';
 
 // Agent module loaded dynamically after app ready
 let agentModule: {
     initializeAgent: () => Promise<void>;
-    runAgentLoop: (objetivo: string, config: any, tenantConfig: any) => Promise<string>;
+    runAgentLoop: (objetivo: string, config: any, tenantConfig: any, sessionId?: string) => Promise<string>;
     cancelAgentLoop: (runId?: string) => boolean;
     agentEmitter: import('events').EventEmitter;
     getDefaultTenantConfig: () => any;
 } | null = null;
+const AGENT_SESSION_ID = randomUUID();
 
 // Enable Hot Reload in Development
 if (!app.isPackaged) {
@@ -74,7 +75,7 @@ function isPathApprovedForWrite(targetPath: string): boolean {
     return isWorkspacePathAllowed(normalized) || approvedFileSelections.has(normalized);
 }
 
-const ALLOWED_AUTOMATION_HOSTS = new Set(['pje.tjpa.jus.br']);
+const ALLOWED_AUTOMATION_HOSTS = new Set(getKnownPJeHosts());
 const ALLOWED_AUTOMATION_PROTOCOLS = new Set(['https:']);
 const DEFAULT_PJE_URL = 'https://pje.tjpa.jus.br/pje/login.seam';
 const MAX_PLAN_STEPS = 30;
@@ -91,11 +92,19 @@ function normalizeAllowedAutomationUrl(rawUrl: string): string | null {
     try {
         const parsed = new URL(trimmed);
         if (!ALLOWED_AUTOMATION_PROTOCOLS.has(parsed.protocol)) return null;
-        if (!ALLOWED_AUTOMATION_HOSTS.has(parsed.hostname.toLowerCase())) return null;
+        if (!isAllowedAutomationHost(parsed.hostname)) return null;
         return parsed.toString();
     } catch (_error) {
         return null;
     }
+}
+
+function isAllowedAutomationHost(hostname: string): boolean {
+    const host = String(hostname || '').toLowerCase().trim();
+    if (!host) return false;
+    if (ALLOWED_AUTOMATION_HOSTS.has(host)) return true;
+    if (!host.endsWith('.jus.br')) return false;
+    return host.includes('pje');
 }
 
 function sanitizeFileName(fileName: string): string {
@@ -152,21 +161,25 @@ function sanitizeExecutionPlan(plan: any): { ok: true; plan: any } | { ok: false
         }
 
         if (stepType === 'read') {
-            if (!Array.isArray(rawStep.selectors) || rawStep.selectors.length === 0 || rawStep.selectors.length > MAX_READ_SELECTORS) {
-                return { ok: false, error: `Plano inválido: read.selectors inválido (passo ${order})` };
-            }
-
+            const selectorsToUse = Array.isArray(rawStep.selectors) ? rawStep.selectors : [];
             const selectors = [];
-            for (let idx = 0; idx < rawStep.selectors.length; idx++) {
-                const item = rawStep.selectors[idx];
+
+            for (let idx = 0; idx < Math.min(selectorsToUse.length, MAX_READ_SELECTORS); idx++) {
+                const item = selectorsToUse[idx];
                 const key = normalizeStepString(item?.key || `field_${idx + 1}`);
                 const selector = normalizeStepString(item?.selector);
-                if (!selector) {
-                    return { ok: false, error: `Plano invÃ¡lido: selector vazio em read (passo ${order})` };
+
+                if (selector) {
+                    selectors.push({ key, selector });
                 }
-                if (!selector) throw new Error(`Plano inválido: selector vazio em read (passo ${order})`);
-                selectors.push({ key, selector });
             }
+
+            // Allow empty arrays or invalid arrays to pass if we just want to read general content,
+            // or if the LLM hallucinated the format
+            if (selectors.length === 0 && Array.isArray(rawStep.selectors) && rawStep.selectors.length > 0) {
+                console.warn('[Validation] Ignoring malformed read.selectors');
+            }
+
             sanitizedSteps.push({ order, type: 'read', selectors });
             continue;
         }
@@ -323,31 +336,54 @@ function criarPromptJuridico(contexto: any, pergunta: string): string {
     return `${promptBase}\n\nCONTEXTO DO PROCESSO:\n${contextStr}\n\nPERGUNTA: ${pergunta}\n\n${obterInstrucoesEspecificas(tipoConversa)}`;
 }
 
+async function syncAnthropicKey(rawKey: string): Promise<string> {
+    const key = String(rawKey || '').trim();
+
+    // Keep a single source of truth for all Anthropic callers in-process.
+    process.env['ANTHROPIC_API_KEY'] = key;
+
+    const { initAI } = await import('./ai-handler');
+    initAI({
+        provider: 'anthropic',
+        apiKey: key
+    });
+
+    return key;
+}
+
 async function initStore() {
     // @ts-ignore
     const { default: Store } = await import('electron-store');
     store = new Store();
 
-    // Inicializa chave Anthropic se não existir
-    if (!store.has('anthropicKey')) {
-        store.set('anthropicKey', '');
+    const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
+    const storeKey = String(store.get('anthropicKey', '') || '').trim();
+    const resolvedKey = storeKey || envKey;
+
+    // Persiste a chave resolvida para manter consistência entre inicializações.
+    if (!store.has('anthropicKey') || storeKey !== resolvedKey) {
+        store.set('anthropicKey', resolvedKey);
     }
 
-    // Inicializa AI handler com Claude
-    const { initAI } = await import('./ai-handler');
-    initAI({
-        provider: 'anthropic',
-        apiKey: store.get('anthropicKey') as string || ''
-    });
+    await syncAnthropicKey(resolvedKey);
 }
 
 // Configura chave Anthropic via IPC (para UI de configurações)
 ipcMain.handle('store-set-anthropic-key', async (_event, key: string) => {
     if (!store) return { error: 'Store not initialized' };
-    store.set('anthropicKey', key);
-    const { initAI } = await import('./ai-handler');
-    initAI({ provider: 'anthropic', apiKey: key });
-    return { success: true };
+    const normalizedKey = String(key || '').trim();
+    store.set('anthropicKey', normalizedKey);
+    await syncAnthropicKey(normalizedKey);
+    return { success: true, configured: normalizedKey.length > 0 };
+});
+
+ipcMain.handle('store-get-anthropic-key-status', async () => {
+    if (!store) return { configured: false };
+    const key = String(store.get('anthropicKey', '') || '').trim();
+    return {
+        configured: key.length > 0,
+        preview: key ? `${key.slice(0, 7)}...${key.slice(-4)}` : ''
+    };
 });
 
 // AI Chat Handler
@@ -400,7 +436,24 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
             }
 
             if (potentialJson) {
-                const parsed = JSON.parse(potentialJson);
+                // Fix common LLM format issues:
+                // 1. Remove trailing commas before ']' or '}'
+                let cleanedJson = potentialJson.replace(/,\s*([\]}])/g, '$1');
+
+                // 2. Fix hallucinated quotes between a number and a comma, e.g. `"order": 6,",` -> `"order": 6,`
+                cleanedJson = cleanedJson.replace(/(\d+)\s*",\s*"/g, '$1, "');
+
+                // 3. Fix unescaped newlines in middle of strings (basic heuristic)
+                cleanedJson = cleanedJson.replace(/\n(?=[^"]*"\s*:)/g, '\\n');
+
+
+                let parsed;
+                try {
+                    parsed = JSON.parse(cleanedJson);
+                } catch (e) {
+                    console.warn('[Validation] JSON parse failed after basic cleanup. Falling back to raw response', e);
+                    throw e; // goes to outer catch
+                }
 
                 // Normalizing Response
                 aiPlan = {
@@ -434,29 +487,6 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
     }
 });
 
-import { BrowserManager } from './browser-manager';
-
-let browserManager: BrowserManager | null = null;
-
-// Dashboard Mode Switching (register once)
-ipcMain.handle('dashboard-set-mode', async (_event, mode) => {
-    if (!browserManager) {
-        return { success: false, error: 'Browser manager not initialized' };
-    }
-
-    if (mode === 'pje') {
-        if (!browserManager.activeTab) {
-            browserManager.createTab('https://pje.tjpa.jus.br/pje/login.seam');
-        } else {
-            browserManager.showView();
-        }
-    } else {
-        browserManager.hideView();
-    }
-
-    return { success: true };
-});
-
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400, // Wider for split view
@@ -474,8 +504,6 @@ function createWindow() {
         }
     });
 
-    browserManager = new BrowserManager(mainWindow);
-
     // Load the local dashboard file
     if (app.isPackaged) {
         mainWindow.loadFile(path.join(__dirname, '../src/renderer/index.html'));
@@ -491,6 +519,10 @@ function createWindow() {
 
     // Setup Agent event forwarding to renderer (async, no need to wait)
     setupAgentEventForwarding().catch(err => console.error('[Agent] Failed to setup events:', err));
+
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    });
 
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
@@ -757,12 +789,16 @@ app.whenReady().then(async () => {
     createWindow();
     registerCrawlerHandlers(); // LOGIN CRAWLER
 
+    // Inicia Stagehand + Chrome externo em background (não bloqueia o app)
+    initStagehand().catch(err => console.error('[Stagehand] Falha ao iniciar:', err));
+
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
-app.on('window-all-closed', function () {
+app.on('window-all-closed', async function () {
+    await closeStagehand();
     if (process.platform !== 'darwin') app.quit();
 });
 
@@ -811,183 +847,16 @@ ipcMain.handle('workspace-remove', async (_event, path) => {
     return { success: true, workspaces };
 });
 
-// Browser/PJe IPC Handlers
-ipcMain.handle('browser-layout-update', (_event, bounds) => {
-    // Renderer sends us the calculated "hole" for the browser {x, y, width, height}
-    if (!browserManager) return;
-    browserManager.updateBounds(bounds);
-});
-
-ipcMain.handle('browser-tab-new', (_event, url) => {
-    if (!browserManager) return { success: false, error: 'Browser manager not initialized' };
-    const safeUrl = normalizeAllowedAutomationUrl(String(url || DEFAULT_PJE_URL));
-    if (!safeUrl) {
-        return { success: false, error: 'URL não permitida para nova aba' };
-    }
-    browserManager.createTab(safeUrl);
-    return { success: true, url: safeUrl };
-});
-
-ipcMain.handle('browser-tab-switch', (_event, tabId) => {
-    if (!browserManager) return;
-    browserManager.setActiveTab(tabId);
-});
-
-ipcMain.handle('browser-tab-close', (_event, tabId) => {
-    if (!browserManager) return;
-    browserManager.closeTab(tabId);
-});
-
-// Legacy PJe Hooks (mapped to active tab)
-ipcMain.handle('pje-navigate', async (_event, url) => {
-    if (!browserManager) return { success: false, error: 'Browser manager not initialized' };
-    const safeUrl = normalizeAllowedAutomationUrl(String(url || ''));
-    if (!safeUrl) {
-        return { success: false, error: 'URL não permitida' };
-    }
-    await browserManager.navigateTo(safeUrl);
-    return { success: true };
-});
-
+// Check PJe status via Stagehand
 ipcMain.handle('check-pje', async () => {
-    if (!browserManager || !browserManager.activeTab) {
+    try {
+        const page = getStagehand().context.pages()[0];
+        const url = page?.url() ?? null;
+        const isPje = typeof url === 'string' && url.includes('pje.');
+        return { connected: !!url, isPje, url };
+    } catch {
         return { connected: false, isPje: false, url: null };
     }
-    const url = browserManager.activeTab.url;
-    const isPje = typeof url === 'string' && url.includes('pje.');
-    return { connected: true, isPje, url };
-});
-
-// LEX EXECUTION ENGINE
-// ====================
-
-async function executePlan(plan: any) {
-    if (!browserManager) return { error: "Browser manager nao inicializado" };
-    const validation = sanitizeExecutionPlan(plan);
-    if (!validation.ok) return { error: validation.error };
-    const safePlan = validation.plan;
-    if (!plan || !plan.steps) return { error: "Plano inválido" };
-
-    // Ensure active tab exists
-    if (!browserManager.activeTab) {
-        console.log('[EXEC] No active tab, creating default...');
-        browserManager.createTab(DEFAULT_PJE_URL);
-        // Wait a bit for view creation
-        await new Promise(r => setTimeout(r, 500));
-    }
-
-    const webContents = browserManager.activeTab?.view.webContents;
-    if (!webContents) return { error: "Falha ao criar aba de automação" };
-
-    for (const step of safePlan.steps) {
-        console.log(`[EXEC] Step ${step.order}: ${step.type}`);
-
-        // Simular Human Delay (0.5s - 1.5s)
-        const delay = Math.floor(Math.random() * 1000) + 500;
-        await new Promise(r => setTimeout(r, delay));
-
-        try {
-            switch (step.type) {
-                case 'click':
-                    if (step.selector) {
-                        const safeSelector = JSON.stringify(String(step.selector));
-                        await webContents.executeJavaScript(`
-                            const el = document.querySelector(${safeSelector});
-                            if(el) el.click();
-                        `);
-                    }
-                    break;
-
-                case 'fill':
-                    if (step.selector && step.value) {
-                        const safeSelector = JSON.stringify(String(step.selector));
-                        const safeValue = JSON.stringify(String(step.value));
-                        await webContents.executeJavaScript(`
-                            const el = document.querySelector(${safeSelector});
-                            if(el) { el.value = ${safeValue}; el.dispatchEvent(new Event('input', {bubbles:true})); }
-                        `);
-                    }
-                    break;
-
-                case 'navigate':
-                    if (step.url) {
-                        await webContents.loadURL(step.url);
-                    }
-                    break;
-
-                case 'read':
-                    // Extract text from multiple selectors
-                    // Expected step format: { type: 'read', selectors: [ { key: 'num_wprocesso', selector: '...' } ] }
-                    if (step.selectors && Array.isArray(step.selectors)) {
-                        const extractedData = await webContents.executeJavaScript(`
-                            (function() {
-                                const result = {};
-                                const selectors = ${JSON.stringify(step.selectors)};
-                                selectors.forEach(item => {
-                                    const el = document.querySelector(item.selector);
-                                    result[item.key] = el ? el.innerText.trim() : 'N/A';
-                                });
-                                return result;
-                            })()
-                        `);
-                        console.log('[EXEC] Read Data:', extractedData);
-                        // Save this data to the global context or define where it goes?
-                        // For now we just log it, but typically we want to return it.
-                        // Let's attach to the plan result if possible, or send an IPC event?
-                        // Simple way: Return it in the final object.
-                        Object.assign(safePlan.data, extractedData);
-                    }
-                    break;
-
-                case 'saveFile':
-                    // Save content to a file
-                    // Expected step format: { type: 'saveFile', fileName: 'resumo.md', content: '...' }
-                    // If content is missing, maybe use the last extracted data?
-                    // For now, assume explicit content string (Generated by AI previously)
-                    if (step.fileName && step.content) {
-                        const workspaces = getWorkspaceRoots();
-                        if (workspaces.length === 0) {
-                            return { error: 'Nenhum workspace autorizado para salvar arquivo' };
-                        }
-                        const primaryWorkspace = workspaces[0];
-                        if (!primaryWorkspace) {
-                            return { error: 'Workspace autorizado invalido' };
-                        }
-
-                        const targetDir = normalizeFsPath(primaryWorkspace);
-                        const fullPath = normalizeFsPath(path.join(targetDir, step.fileName));
-                        if (!isWorkspacePathAllowed(fullPath)) {
-                            return { error: 'Tentativa de escrita fora de workspace autorizado' };
-                        }
-
-                        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-                        await fs.promises.writeFile(fullPath, step.content, 'utf8');
-                        console.log('[EXEC] File saved:', fullPath);
-                    }
-                    break;
-
-                case 'wait':
-                    // Wait is handled by the loop delay + potential extra wait
-                    if (step.duration) {
-                        await new Promise(r => setTimeout(r, step.duration));
-                    }
-                    break;
-            }
-        } catch (err: any) {
-            console.error(`[EXEC] Error on step ${step.order}:`, err);
-            return { error: `Erro no passo ${step.order}: ${err.message}` };
-        }
-    }
-
-    return { success: true, data: safePlan.data };
-}
-
-ipcMain.handle('ai-plan-execute', async (event, plan) => {
-    const senderUrl = event.senderFrame?.url || '';
-    if (!senderUrl.startsWith('file://')) {
-        return { error: 'Origem não autorizada para execução de plano' };
-    }
-    return await executePlan(plan);
 });
 
 // ============================================================================
@@ -1026,8 +895,270 @@ async function setupAgentEventForwarding() {
     });
 }
 
+function normalizeIntentText(raw: string): string {
+    return String(raw || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
+type ModeRouteDecision = {
+    useAgent: boolean;
+    reason: string;
+    source: 'heuristic' | 'semantic' | 'fallback';
+    confidence?: number;
+};
+
+type HeuristicModeResult = {
+    decided: boolean;
+    useAgent: boolean;
+    reason: string;
+};
+
+function heuristicRouteForObjective(
+    objetivoRaw: string,
+    activeUrl?: string | null
+): HeuristicModeResult {
+    const objetivo = normalizeIntentText(objetivoRaw);
+    const isPJeActive = Boolean(activeUrl && /pje\./i.test(activeUrl));
+    if (!objetivo) return { decided: true, useAgent: false, reason: 'objetivo_vazio' };
+
+    const shortConfirmationSignals = new Set([
+        'sim',
+        'ok',
+        'pode',
+        'confirmo',
+        'prosseguir',
+        'continuar',
+        'nao',
+        'cancelar'
+    ]);
+    if (isPJeActive && shortConfirmationSignals.has(objetivo)) {
+        return { decided: true, useAgent: true, reason: 'confirmacao_curta_com_pje_ativo' };
+    }
+
+    const smallTalkSignals = [
+        'oi',
+        'ola',
+        'bom dia',
+        'boa tarde',
+        'boa noite',
+        'obrigado',
+        'valeu'
+    ];
+    if (smallTalkSignals.includes(objetivo)) {
+        return { decided: true, useAgent: false, reason: 'small_talk' };
+    }
+
+    const questionOnlySignals = [
+        'o que e',
+        'o que eh',
+        'explique',
+        'como funciona',
+        'qual a diferenca',
+        'resuma',
+        'traduza'
+    ];
+    const actionSignals = [
+        'abrir',
+        'abre',
+        'abra',
+        'acessar',
+        'acesse',
+        'entrar',
+        'entre',
+        'login',
+        'logar',
+        'navegar',
+        'navegue',
+        'ir para',
+        'vai',
+        'vai no',
+        'vai na',
+        'va',
+        'me leva',
+        'leva',
+        'clicar',
+        'clique',
+        'clica',
+        'preencher',
+        'preencha',
+        'digitar',
+        'digite',
+        'selecionar',
+        'selecione',
+        'consultar',
+        'consulte',
+        'buscar',
+        'busque',
+        'pesquisar',
+        'pesquise',
+        'listar',
+        'liste',
+        'anexar',
+        'anexe',
+        'baixar',
+        'baixe',
+        'protocolar',
+        'protocole',
+        'peticionar',
+        'peticione',
+        'gerar documento',
+        'novo processo',
+        'movimentacoes',
+        'movimentacoes do processo'
+    ];
+    const pjeSignals = [
+        'pje',
+        'trt',
+        'trf',
+        'tj',
+        'certificado',
+        'processo',
+        'cnj',
+        'peticionamento',
+        'peticao',
+        'aba'
+    ];
+
+    const hasQuestionOnly = questionOnlySignals.some(token => objetivo.includes(token));
+    const hasActionSignal = actionSignals.some(token => objetivo.includes(token));
+    const hasPjeSignal = pjeSignals.some(token => objetivo.includes(token));
+    const hasCNJNumber = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/.test(objetivoRaw);
+    const hasImperativePJeSignal = /\b(vai|va|abre|abra|entrar|entra|entre|clica|clique|navega|navegue|leva|acesse|consulte|busque)\b/.test(objetivo)
+        && /\b(pje|menu|aba|peticionamento|processo|trt|trf|tj)\b/.test(objetivo);
+
+    if (hasCNJNumber) {
+        return { decided: true, useAgent: true, reason: 'numero_cnj_detectado' };
+    }
+
+    if (hasActionSignal && (hasPjeSignal || isPJeActive)) {
+        return { decided: true, useAgent: true, reason: 'acao_operacional_pje' };
+    }
+
+    if (hasImperativePJeSignal && (hasPjeSignal || isPJeActive)) {
+        return { decided: true, useAgent: true, reason: 'comando_imperativo_pje' };
+    }
+
+    if (isPJeActive && hasActionSignal) {
+        return { decided: true, useAgent: true, reason: 'acao_com_pje_ativo' };
+    }
+
+    if (hasQuestionOnly && !hasActionSignal) {
+        return { decided: true, useAgent: false, reason: 'pergunta_informativa' };
+    }
+
+    // Sem sinal claro: delegar para classificador semântico.
+    return { decided: false, useAgent: false, reason: 'ambiguous' };
+}
+
+function parseSemanticModeResponse(raw: string): ModeRouteDecision | null {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i)
+        || text.match(/```\s*([\s\S]*?)\s*```/i);
+    const candidate = (fenced && fenced[1])
+        ? fenced[1].trim()
+        : (text.includes('{') && text.includes('}') ? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1) : text);
+
+    try {
+        const parsed = JSON.parse(candidate) as any;
+        const mode = String(parsed?.mode || '').toLowerCase();
+        const confidenceRaw = Number(parsed?.confidence);
+        const confidence = Number.isFinite(confidenceRaw)
+            ? Math.max(0, Math.min(1, confidenceRaw))
+            : undefined;
+        const reason = String(parsed?.reason || 'semantic_router').trim();
+
+        if (mode === 'agent') {
+            return { useAgent: true, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
+        }
+        if (mode === 'chat') {
+            return { useAgent: false, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+async function semanticRouteForObjective(
+    objetivoRaw: string,
+    activeUrl?: string | null
+): Promise<ModeRouteDecision | null> {
+    const objective = String(objetivoRaw || '').trim();
+    if (!objective) return null;
+
+    try {
+        const { callAI } = await import('./ai-handler');
+        const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico.
+
+Decida o modo:
+- "agent": quando a mensagem pede ACAO operacional (clicar, navegar, abrir tela, preencher, consultar no sistema, executar fluxo no PJe).
+- "chat": quando a mensagem pede explicacao, opiniao, resumo, orientacao geral, conversa.
+
+Regras:
+- Considere intencao semantica, nao apenas palavras-chave.
+- Se houver duvida e a mensagem parecer comando de execucao em sistema, prefira "agent".
+- Responda APENAS JSON valido:
+{"mode":"agent|chat","confidence":0.0,"reason":"curto"}`;
+
+        const user = JSON.stringify({
+            objective,
+            activeUrl: activeUrl || null,
+            pjeActive: Boolean(activeUrl && /pje\./i.test(activeUrl || ''))
+        });
+
+        const response = await callAI({
+            system,
+            user,
+            temperature: 0,
+            maxTokens: 140,
+            model: 'claude-3-5-haiku-latest'
+        });
+
+        return parseSemanticModeResponse(response);
+    } catch (error: any) {
+        console.warn('[Router] Semantic routing failed:', error?.message || error);
+        return null;
+    }
+}
+
+async function shouldUseAgentLoopForObjective(
+    objetivoRaw: string,
+    activeUrl?: string | null
+): Promise<ModeRouteDecision> {
+    const heuristic = heuristicRouteForObjective(objetivoRaw, activeUrl);
+    if (heuristic.decided) {
+        return {
+            useAgent: heuristic.useAgent,
+            reason: heuristic.reason,
+            source: 'heuristic'
+        };
+    }
+
+    const semantic = await semanticRouteForObjective(objetivoRaw, activeUrl);
+    if (semantic) {
+        return semantic;
+    }
+
+    return {
+        useAgent: false,
+        reason: 'fallback_chat',
+        source: 'fallback'
+    };
+}
+
+ipcMain.handle('agent-should-handle', async (_event, objetivo: string) => {
+    let activeUrl: string | null = null;
+    try { activeUrl = getStagehand().context.pages()[0]?.url() ?? null; } catch {}
+    return await shouldUseAgentLoopForObjective(objetivo, activeUrl);
+});
+
 // IPC: Run Agent Loop
-ipcMain.handle('agent-run', async (_event, objetivo: string) => {
+ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessionId?: string) => {
     const agent = await ensureAgentInitialized();
 
     try {
@@ -1036,9 +1167,9 @@ ipcMain.handle('agent-run', async (_event, objetivo: string) => {
 
         // Run the agent loop
         const resposta = await agent.runAgentLoop(objetivo, {
-            maxIterations: 5,
-            timeoutMs: 60000
-        }, tenantConfig);
+            maxIterations: config?.maxIterations || 5,
+            timeoutMs: config?.timeoutMs || 60000
+        }, tenantConfig, sessionId || AGENT_SESSION_ID);
 
         return { success: true, resposta };
     } catch (error: any) {

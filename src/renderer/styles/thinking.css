@@ -119,6 +119,15 @@
     color: #d98383;
 }
 
+.log-type-vision {
+    color: #7ec8d4;
+}
+
+.log-type-vision-click {
+    color: #a0d4b5;
+    font-weight: 500;
+}
+
 @media (max-width: 1100px) {
     .thinking-container {
         width: 100%;

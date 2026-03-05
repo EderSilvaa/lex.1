@@ -101,8 +101,15 @@ export class ResponseCache {
     shouldCache(query: string): boolean {
         const lowerQuery = query.toLowerCase();
         const noCache = [
+            // Ações destrutivas / protocolares
             'protocolar', 'assinar', 'juntar', 'peticionar',
-            'gerar documento', 'gerar petição', 'criar'
+            'gerar documento', 'gerar petição', 'criar',
+            // Comandos operacionais do PJe — sempre precisam executar a skill
+            'pje', 'abre', 'abrir', 'abra', 'login',
+            'navega', 'navegar', 'naveg',
+            'consulta', 'consultar', 'processo',
+            'movimentac', 'documento', 'peticionamento',
+            'clica', 'clicar', 'preenche', 'preencher'
         ];
         return !noCache.some(term => lowerQuery.includes(term));
     }

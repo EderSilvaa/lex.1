@@ -49,6 +49,7 @@ export * from './types';
 // Skills (carrega automaticamente)
 import { loadMockSkills } from '../skills/mock';
 import { loadSkillsFromDir } from './executor';
+import { registerPJeSkills } from '../skills/pje';
 
 // Inicialização
 let initialized = false;
@@ -60,6 +61,10 @@ export async function initializeAgent(): Promise<void> {
 
     // Carrega skills mock (para desenvolvimento/teste)
     loadMockSkills();
+
+    // Garante registro imediato das skills reais de PJe em runtime.
+    // Isso evita cair em respostas de "skill nao disponivel" quando o loader dinamico falha.
+    registerPJeSkills();
 
     // C1: Carregar skills reais (substituem mocks de mesmo nome)
     try {

@@ -26,6 +26,7 @@ import { executeSkill, getSkillsForPrompt } from './executor';
 import { getMemory } from './memory';
 import { getResponseCache } from './cache';
 import { getSessionManager } from './session';
+import { getStagehand } from '../stagehand-manager';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -73,6 +74,7 @@ export async function runAgentLoop(
     // Carrega memória persistente
     const memory = getMemory();
     const memoriaData = await memory.carregar();
+    const preferredTribunal = normalizeTribunalCode(memoriaData.preferencias?.['tribunal_preferido']);
 
     // Inicializa estado
     const state: AgentState = {
@@ -82,6 +84,7 @@ export async function runAgentLoop(
         contexto: {
             documentos: [],
             resultados: new Map(),
+            ...(preferredTribunal ? { usuario: { tribunal_preferido: preferredTribunal } } : {}),
             ...(tenantConfig ? { tenantConfig } : {}),
             memoria: memoriaData
         },
@@ -240,8 +243,10 @@ export async function runAgentLoop(
 
                     activeRuns.delete(runId);
 
-                    // B1: Salvar no cache (apenas respostas diretas)
-                    if (cache.shouldCache(objetivo)) {
+                    // B1: Salvar no cache apenas se nenhuma skill foi executada
+                    // (respostas após ações reais nunca devem ser cacheadas)
+                    const skillsExecuted = state.passos.some(p => p.tipo === 'act');
+                    if (!skillsExecuted && cache.shouldCache(objetivo)) {
                         cache.set(objetivo, decisao.resposta!);
                     }
 
@@ -271,6 +276,10 @@ export async function runAgentLoop(
                         pergunta: decisao.pergunta!,
                         ...(decisao.opcoes ? { opcoes: decisao.opcoes } : {})
                     });
+
+                    if (activeSessionId) {
+                        sessionManager.addMessage(activeSessionId, 'assistant', decisao.pergunta!);
+                    }
 
                     // Retorna pergunta (UI deve lidar com continuação)
                     return `❓ ${decisao.pergunta}`;
@@ -312,8 +321,15 @@ export async function runAgentLoop(
                         if (!criticDecision.approved || criticDecision.requiresUserConfirmation) {
                             state.status = 'waiting_user';
                             const question = criticDecision.suggestedQuestion
-                                || `A acao "${skillName}" foi retida pelo critic: ${criticDecision.reason}`;
-                            emit({ type: 'waiting_user', pergunta: question });
+                                || `A ação "${skillName}" foi retida pelo critic: ${criticDecision.reason}`;
+                            emit({
+                                type: 'waiting_user',
+                                pergunta: question,
+                                opcoes: ['Sim, confirmar', 'Cancelar']
+                            });
+                            if (activeSessionId) {
+                                sessionManager.addMessage(activeSessionId, 'assistant', question);
+                            }
                             return `❓ ${question}`;
                         }
 
@@ -332,6 +348,7 @@ export async function runAgentLoop(
                     if (cfg.hooks?.beforeToolCall) {
                         params = await cfg.hooks.beforeToolCall(skillName, params);
                     }
+                    params = applyTribunalContinuity(state, skillName, params);
 
                     // Registra ação
                     const actStep: AgentStep = {
@@ -374,7 +391,7 @@ export async function runAgentLoop(
                     state.passos.push(observeStep);
 
                     // Atualiza contexto com resultado
-                    updateContext(state, skillName, resultado);
+                    await updateContext(state, skillName, resultado);
 
                     const observacao = resultado.sucesso
                         ? `Skill ${skillName} executada com sucesso`
@@ -383,6 +400,16 @@ export async function runAgentLoop(
                     emit({ type: 'observing', observacao });
 
                     log(cfg.verbose, `👁️ ${observacao}`);
+
+                    if (shouldPauseForUserAction(resultado)) {
+                        state.status = 'waiting_user';
+                        const question = extractUserActionQuestion(resultado);
+                        emit({ type: 'waiting_user', pergunta: question });
+                        if (activeSessionId) {
+                            sessionManager.addMessage(activeSessionId, 'assistant', question);
+                        }
+                        return `❓ ${question}`;
+                    }
 
                     break;
                 }
@@ -412,7 +439,7 @@ export async function runAgentLoop(
 /**
  * Atualiza contexto com resultado da skill
  */
-function updateContext(state: AgentState, skill: string, resultado: SkillResult): void {
+async function updateContext(state: AgentState, skill: string, resultado: SkillResult): Promise<void> {
     if (!resultado.sucesso || !resultado.dados) return;
 
     // Armazena resultado
@@ -426,6 +453,144 @@ function updateContext(state: AgentState, skill: string, resultado: SkillResult)
     if (skill.includes('documento') && resultado.dados.documento) {
         state.contexto.documentos.push(resultado.dados.documento);
     }
+
+    if (skill.startsWith('pje_')) {
+        const tribunal = extractTribunalFromData(resultado.dados);
+        if (tribunal) {
+            state.contexto.usuario = {
+                ...(state.contexto.usuario || {}),
+                tribunal_preferido: tribunal
+            };
+
+            if (state.contexto.memoria) {
+                state.contexto.memoria.preferencias = {
+                    ...(state.contexto.memoria.preferencias || {}),
+                    tribunal_preferido: tribunal
+                };
+            }
+
+            try {
+                await getMemory().setPreferencia('tribunal_preferido', tribunal);
+            } catch (error: any) {
+                console.warn('[Agent] Falha ao persistir tribunal preferido:', error?.message || error);
+            }
+        }
+    }
+}
+
+function applyTribunalContinuity(
+    state: AgentState,
+    skill: string,
+    params: Record<string, any>
+): Record<string, any> {
+    const skillLower = String(skill || '').toLowerCase();
+    if (!skillLower.startsWith('pje_')) {
+        return params;
+    }
+
+    const explicitTribunal = normalizeTribunalCode(params['tribunal']);
+    if (explicitTribunal) {
+        return params;
+    }
+
+    const objectiveTribunal = inferTribunalFromText(state.objetivo);
+    const contextualTribunal = inferTribunalFromContext(state);
+    const resolvedTribunal = objectiveTribunal || contextualTribunal;
+
+    if (!resolvedTribunal) {
+        return params;
+    }
+
+    return {
+        ...params,
+        tribunal: resolvedTribunal
+    };
+}
+
+function inferTribunalFromContext(state: AgentState): string | null {
+    // Maior prioridade: URL ativa no Chrome (Stagehand)
+    try {
+        const page = getStagehand().context.pages()[0];
+        const activeUrl = page?.url();
+        if (activeUrl) {
+            const fromActiveUrl = inferTribunalFromText(activeUrl);
+            if (fromActiveUrl) return fromActiveUrl;
+        }
+    } catch { /* Stagehand pode não estar pronto ainda */ }
+
+    const processTribunal = normalizeTribunalCode(state.contexto.processo?.tribunal);
+    if (processTribunal) return processTribunal;
+
+    const pjeAbrirResult = state.contexto.resultados.get('pje_abrir');
+    const fromOpenSkill = extractTribunalFromData(pjeAbrirResult);
+    if (fromOpenSkill) return fromOpenSkill;
+
+    const pjeConsultarResult = state.contexto.resultados.get('pje_consultar');
+    const fromConsultSkill = extractTribunalFromData(pjeConsultarResult);
+    if (fromConsultSkill) return fromConsultSkill;
+
+    const userPreferred = normalizeTribunalCode(state.contexto.usuario?.tribunal_preferido);
+    if (userPreferred) return userPreferred;
+
+    const memoryPreferred = normalizeTribunalCode(state.contexto.memoria?.preferencias?.['tribunal_preferido']);
+    if (memoryPreferred) return memoryPreferred;
+
+    return null;
+}
+
+function extractTribunalFromData(data: any): string | null {
+    if (!data || typeof data !== 'object') return null;
+
+    const directTribunal = normalizeTribunalCode(data.tribunal);
+    if (directTribunal) return directTribunal;
+
+    const processTribunal = normalizeTribunalCode(data?.processo?.tribunal);
+    if (processTribunal) return processTribunal;
+
+    const urlTribunal = inferTribunalFromText(String(data.url || ''));
+    if (urlTribunal) return urlTribunal;
+
+    return null;
+}
+
+function inferTribunalFromText(textRaw: string): string | null {
+    const text = String(textRaw || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\s\-_]+/g, '');
+
+    if (!text) return null;
+    if (text.includes('trt8') || text.includes('pje.trt8.jus.br')) return 'TRT8';
+    if (text.includes('trf1') || text.includes('pje1g.trf1.jus.br')) return 'TRF1';
+    if (text.includes('tjpa') || text.includes('pje.tjpa.jus.br')) return 'TJPA';
+
+    const trtMatch = text.match(/trt\d{1,2}/);
+    if (trtMatch && trtMatch[0]) return trtMatch[0].toUpperCase();
+
+    const trfMatch = text.match(/trf\d/);
+    if (trfMatch && trfMatch[0]) return trfMatch[0].toUpperCase();
+
+    const tjMatch = text.match(/tj[a-z]{2}/);
+    if (tjMatch && tjMatch[0]) return tjMatch[0].toUpperCase();
+
+    const treMatch = text.match(/tre[a-z0-9]{1,2}/);
+    if (treMatch && treMatch[0]) return treMatch[0].toUpperCase();
+
+    return null;
+}
+
+function normalizeTribunalCode(value: unknown): string | null {
+    const normalized = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '');
+
+    if (!normalized) return null;
+    if (normalized.includes('trt8')) return 'TRT8';
+    if (normalized.includes('trf1')) return 'TRF1';
+    if (normalized.includes('tjpa')) return 'TJPA';
+    return normalized.toUpperCase();
 }
 
 /**
@@ -479,4 +644,24 @@ export function listActiveRuns(): Array<{ runId: string; objetivo: string; itera
         runs.push({ runId: id, objetivo: run.state.objetivo, iteracao: run.state.iteracao });
     });
     return runs;
+}
+
+function shouldPauseForUserAction(resultado: SkillResult): boolean {
+    if (!resultado || resultado.sucesso) return false;
+    if (!resultado.dados || typeof resultado.dados !== 'object') return false;
+    return Boolean((resultado.dados as any).requiresUserAction);
+}
+
+function extractUserActionQuestion(resultado: SkillResult): string {
+    if (resultado.dados && typeof resultado.dados === 'object') {
+        const dados = resultado.dados as any;
+        const fromData = typeof dados.question === 'string' ? dados.question.trim() : '';
+        if (fromData) return fromData;
+    }
+
+    if (typeof resultado.mensagem === 'string' && resultado.mensagem.trim()) {
+        return resultado.mensagem.trim();
+    }
+
+    return 'Preciso de uma ação sua para continuar. Depois me responda "pronto".';
 }

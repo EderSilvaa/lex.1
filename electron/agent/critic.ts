@@ -14,7 +14,6 @@ interface PlannedSkillAction {
 const HIGH_RISK_KEYWORDS = [
     'protocol',
     'protocolo',
-    'peticion',
     'enviar',
     'submit',
     'assinar',
@@ -29,6 +28,9 @@ const HIGH_RISK_KEYWORDS = [
  * Apenas heurísticas são suficientes para aprovação.
  */
 const READ_ONLY_SKILLS = new Set([
+    'pje_abrir',
+    'pje_navegar',
+    'pje_agir',
     'pje_consultar',
     'pje_movimentacoes',
     'pje_documentos',
@@ -71,7 +73,8 @@ export async function critic(
 function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDecision {
     const skillLower = String(action.skill || '').toLowerCase();
     const paramsJson = JSON.stringify(action.parametros || {}).toLowerCase();
-    const highRisk = HIGH_RISK_KEYWORDS.some(keyword => skillLower.includes(keyword) || paramsJson.includes(keyword));
+    const highRisk = isHighRiskAction(skillLower, paramsJson, state.objetivo);
+    const missingProcessReference = !hasProcessReference(state, action.parametros);
 
     if (highRisk) {
         return {
@@ -83,7 +86,38 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
         };
     }
 
-    if (skillLower.startsWith('pje_') && !hasProcessReference(state, action.parametros)) {
+    // Se o planner escolheu consulta sem numero, mas o objetivo e so abrir/login,
+    // o critic corrige para a skill apropriada sem bloquear a execucao.
+    if (skillLower === 'pje_consultar' && missingProcessReference && isLoginOnlyObjective(state.objetivo)) {
+        const tribunalHint = extractTribunalHint(state.objetivo);
+        return {
+            approved: true,
+            riskLevel: 'low',
+            reason: 'Objetivo indica apenas abrir/login no PJe; ajustado para skill de abertura.',
+            correctedDecision: {
+                skill: 'pje_abrir',
+                parametros: tribunalHint ? { tribunal: tribunalHint } : {}
+            }
+        };
+    }
+
+    if (skillLower === 'pje_consultar' && missingProcessReference && isNavigationObjective(state.objetivo)) {
+        const tribunalHint = extractTribunalHint(state.objetivo);
+        return {
+            approved: true,
+            riskLevel: 'low',
+            reason: 'Objetivo indica navegacao interna no PJe; ajustado para pje_agir.',
+            correctedDecision: {
+                skill: 'pje_agir',
+                parametros: {
+                    objetivo: extractNavigationTarget(state.objetivo),
+                    ...(tribunalHint ? { tribunal: tribunalHint } : {})
+                }
+            }
+        };
+    }
+
+    if (requiresProcessReference(skillLower) && missingProcessReference) {
         return {
             approved: false,
             riskLevel: 'medium',
@@ -108,6 +142,33 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     };
 }
 
+function isHighRiskAction(skillLower: string, paramsJson: string, objectiveRaw: string): boolean {
+    const baseRisk = HIGH_RISK_KEYWORDS.some(keyword =>
+        skillLower.includes(keyword) || paramsJson.includes(keyword)
+    );
+
+    if (baseRisk) return true;
+
+    // pje_navegar e frequentemente usado para abrir menus/abas e nao deve
+    // cair em HITL por termos como "peticionamento".
+    if (skillLower === 'pje_navegar') {
+        const explicitIrreversible = [
+            'protocolar',
+            'enviar peticao',
+            'enviar petição',
+            'assinar',
+            'finalizar protocolo',
+            'peticionar'
+        ];
+        const objective = normalizeText(objectiveRaw);
+        return explicitIrreversible.some(token =>
+            paramsJson.includes(token) || objective.includes(token)
+        );
+    }
+
+    return false;
+}
+
 function hasProcessReference(state: AgentState, parametros: Record<string, any>): boolean {
     if (state.contexto.processo?.numero) return true;
     if (!parametros || typeof parametros !== 'object') return false;
@@ -125,6 +186,130 @@ function hasProcessReference(state: AgentState, parametros: Record<string, any>)
     }
 
     return false;
+}
+
+function requiresProcessReference(skillLower: string): boolean {
+    if (!skillLower.startsWith('pje_')) return false;
+    // pje_agir e pje_navegar são skills de ação/navegação que NÃO precisam de número de processo
+    return !new Set(['pje_abrir', 'pje_navegar', 'pje_agir']).has(skillLower);
+}
+
+function isLoginOnlyObjective(rawObjective: string): boolean {
+    const objective = normalizeText(rawObjective);
+    if (!objective) return false;
+
+    const loginSignals = [
+        'abrir pje',
+        'acessar pje',
+        'entrar no pje',
+        'fazer login',
+        'logar no pje',
+        'tela de login',
+        'certificado'
+    ];
+    const processActions = [
+        'consultar processo',
+        'listar moviment',
+        'buscar processo',
+        'pesquisar processo',
+        'documento do processo'
+    ];
+    const explicitNoConsult = [
+        'nao consultar',
+        'nao pesquisar',
+        'so abrir',
+        'apenas abrir',
+        'somente abrir',
+        'so entrar',
+        'apenas entrar'
+    ];
+
+    const hasLoginIntent = loginSignals.some(token => objective.includes(token));
+    const asksProcessAction = processActions.some(token => objective.includes(token));
+    const explicitlyNoConsult = explicitNoConsult.some(token => objective.includes(token));
+
+    return hasLoginIntent && (explicitlyNoConsult || !asksProcessAction);
+}
+
+function extractTribunalHint(rawObjective: string): string | null {
+    const objective = normalizeText(rawObjective);
+    if (objective.includes('tjpa')) return 'TJPA';
+    if (objective.includes('trf1') || objective.includes('trf 1')) return 'TRF1';
+    if (objective.includes('trt8') || objective.includes('trt 8')) return 'TRT8';
+
+    const compact = objective.replace(/\s+/g, '');
+    const trtMatch = compact.match(/trt\d{1,2}/);
+    if (trtMatch && trtMatch[0]) return trtMatch[0].toUpperCase();
+
+    const trfMatch = compact.match(/trf\d/);
+    if (trfMatch && trfMatch[0]) return trfMatch[0].toUpperCase();
+
+    const tjMatch = compact.match(/tj[a-z]{2}/);
+    if (tjMatch && tjMatch[0]) return tjMatch[0].toUpperCase();
+
+    const treMatch = compact.match(/tre[a-z0-9]{1,2}/);
+    if (treMatch && treMatch[0]) return treMatch[0].toUpperCase();
+
+    return null;
+}
+
+function isNavigationObjective(rawObjective: string): boolean {
+    const objective = normalizeText(rawObjective);
+    if (!objective) return false;
+
+    const navSignals = [
+        'navegar',
+        'ir para',
+        'aba',
+        'menu',
+        'clicar',
+        'acessar area',
+        'abrir tela',
+        'peticionamento',
+        'novo processo',
+        'processo novo'
+    ];
+    const processLookupSignals = [
+        'consultar processo',
+        'numero do processo',
+        'numero cnj',
+        'buscar processo',
+        'pesquisar processo'
+    ];
+
+    const hasNav = navSignals.some(token => objective.includes(token));
+    const asksProcessLookup = processLookupSignals.some(token => objective.includes(token));
+
+    return hasNav && !asksProcessLookup;
+}
+
+function extractNavigationTarget(rawObjective: string): string {
+    const cleaned = String(rawObjective || '').trim();
+    if (!cleaned) return 'menu principal do PJe';
+
+    const patterns = [
+        /(?:ir para|navegar para|navegar ate|navegar até)\s+(?:a|o)?\s*(.+)$/i,
+        /(?:abra|abrir)\s+(?:a|o)?\s*(.+)$/i,
+        /(?:clique em|clicar em)\s+(.+)$/i
+    ];
+
+    for (const pattern of patterns) {
+        const match = cleaned.match(pattern);
+        if (match && match[1]) {
+            const target = match[1].trim();
+            if (target.length >= 3) return target;
+        }
+    }
+
+    return cleaned;
+}
+
+function normalizeText(value: unknown): string {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
 }
 
 async function runLlmCritic(

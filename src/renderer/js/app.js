@@ -6,6 +6,7 @@ window.onerror = function (msg, url, line) {
 // DOM Elements
 const chatInput = document.querySelector('textarea');
 const sendBtn = document.querySelector('.send-btn');
+const stopBtn = document.querySelector('.stop-btn');
 const mainChatContainer = document.querySelector('.chat-container');
 
 // ============================================================================
@@ -14,6 +15,27 @@ const mainChatContainer = document.querySelector('.chat-container');
 
 let currentAgentMessageId = null;
 let agentThinkingElement = null;
+let isAgentWaitingUser = false; // Tracks if agent session is active and waiting for reply
+let routingLoadingId = null;    // Loading bubble shown while routing/starting agent
+
+function showStopBtn() {
+    if (stopBtn) stopBtn.style.display = 'flex';
+    if (sendBtn) sendBtn.style.display  = 'none';
+}
+
+function hideStopBtn() {
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (sendBtn) sendBtn.style.display  = '';
+}
+
+if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+        if (window.lexApi && window.lexApi.cancelAgent) {
+            window.lexApi.cancelAgent();
+        }
+        hideStopBtn();
+    });
+}
 
 // Setup Agent event listener
 function setupAgentEvents() {
@@ -27,58 +49,76 @@ function setupAgentEvents() {
 
         switch (event.type) {
             case 'started':
-                // Agent started - can show initial loading state
                 console.log('[Agent] Started, runId:', event.runId);
+                isAgentWaitingUser = false;
+                // Remove routing loader e cria accordion imediatamente
+                if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
+                agentThinkingElement = null;
+                updateAgentThinking('Analisando solicitação...');
+                showStopBtn();
                 break;
 
             case 'thinking':
-                // event has: pensamento, iteracao
                 updateAgentThinking(event.pensamento);
                 break;
 
             case 'criticizing':
-                // event has: decision, iteracao
                 updateAgentCritic(event.decision);
                 break;
 
             case 'acting':
-                // event has: skill, parametros
                 addAgentActionToUI({ skill: event.skill, parametros: event.parametros });
                 break;
 
             case 'tool_result':
-                // event has: skill, resultado
                 updateAgentObservation(event.resultado);
+                // Auto-expand browser when a PJe skill completes successfully
+                if (event.skill && event.skill.startsWith('pje_') && event.resultado?.sucesso) {
+                }
                 break;
 
             case 'observing':
-                // event has: observacao
                 console.log('[Agent] Observing:', event.observacao);
                 break;
 
             case 'completed':
-                // event has: resposta, passos, duracao
                 finalizeAgentResponse(event.resposta);
+                isAgentWaitingUser = false;
                 completeAgentSession();
                 break;
 
             case 'waiting_user':
-                // event has: pergunta
                 finalizeAgentResponse(event.pergunta);
+                isAgentWaitingUser = true;
+                if (event.opcoes && event.opcoes.length > 0) {
+                    addQuickReplies(event.opcoes);
+                } else if (event.requiresUserAction) {
+                    addQuickReplies(['Sim, continuar', 'Cancelar']);
+                }
                 completeAgentSession();
                 break;
 
             case 'error':
-                // event has: erro, recuperavel
+                hideStopBtn();
                 showAgentError(event.erro);
+                isAgentWaitingUser = false;
                 break;
 
             case 'timeout':
+                hideStopBtn();
                 showAgentError('Tempo limite atingido');
+                isAgentWaitingUser = false;
                 break;
 
             case 'cancelled':
-                showAgentError('Operação cancelada');
+                hideStopBtn();
+                if (agentThinkingElement) {
+                    const details = agentThinkingElement.querySelector('details');
+                    if (details) details.removeAttribute('open');
+                    agentThinkingElement = null;
+                }
+                addMessageToUI('Operação interrompida.', 'system');
+                isAgentWaitingUser = false;
                 break;
         }
     });
@@ -258,21 +298,42 @@ function finalizeAgentResponse(resposta) {
 
 // Show agent error
 function showAgentError(erro) {
-    if (agentThinkingElement) {
-        const statusText = agentThinkingElement.querySelector('.agent-status-text');
-        if (statusText) {
-            statusText.textContent = `Erro: ${erro}`;
-            statusText.classList.add('error');
-        }
-    } else {
-        addMessageToUI(`Erro: ${erro}`, 'system');
+    // Extrai mensagem amigável para erros conhecidos
+    let msg = String(erro || 'Erro desconhecido');
+    if (msg.includes('credit balance is too low') || msg.includes('402')) {
+        msg = 'Saldo insuficiente na API Anthropic. Adicione créditos em console.anthropic.com.';
+    } else if (msg.includes('401') || msg.includes('authentication')) {
+        msg = 'Chave de API inválida. Verifique ANTHROPIC_API_KEY.';
+    } else if (msg.includes('529') || msg.includes('overloaded')) {
+        msg = 'API sobrecarregada. Tente novamente em instantes.';
+    } else if (msg.length > 120) {
+        msg = msg.slice(0, 120) + '…';
     }
+
+    if (agentThinkingElement) {
+        // Adiciona linha de erro no log do accordion
+        const content = agentThinkingElement.querySelector('.thinking-content');
+        if (content) {
+            const logLine = document.createElement('div');
+            logLine.className = 'log-line';
+            logLine.innerHTML = `
+                <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
+                <span class="log-message log-type-error">✗ ${escapeHtml(msg)}</span>
+            `;
+            content.appendChild(logLine);
+        }
+        // Fecha accordion e limpa referência
+        completeAgentSession();
+    }
+    // Mostra também como mensagem no chat para não passar despercebido
+    addMessageToUI(msg, 'system');
 }
 
 // Complete agent session
 function completeAgentSession() {
     agentThinkingElement = null;
     currentAgentMessageId = null;
+    if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
 }
 
 // Helper: escape HTML
@@ -300,110 +361,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupAgentEvents();
 });
 
-// Widget Elements
-const pjeWidget = document.getElementById('pje-floating-container');
-const browserViewport = document.getElementById('browser-viewport');
-const btnClosePje = document.getElementById('btn-close-pje');
-const btnMinimizePje = document.getElementById('btn-minimize-pje');
-const btnMaximizePje = document.getElementById('btn-maximize-pje');
-
-// State
-let isWidgetVisible = false;
-
-// --- Widget Layout Logic ---
-
-function updateWidgetLayout() {
-    if (!pjeWidget || !isWidgetVisible || pjeWidget.classList.contains('hidden')) {
-        // Hide BrowserView
-        if (window.lexApi && window.lexApi.updateBrowserLayout) {
-            window.lexApi.updateBrowserLayout({ x: 0, y: 0, width: 0, height: 0 });
-        }
-        return;
-    }
-
-    if (browserViewport) {
-        const rect = browserViewport.getBoundingClientRect();
-        // Send to Main Process to resize BrowserView
-        if (window.lexApi && window.lexApi.updateBrowserLayout) {
-            window.lexApi.updateBrowserLayout({
-                x: Math.round(rect.x),
-                y: Math.round(rect.y),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
-            });
-        }
-    }
-}
-
-// Observer for widget resize/move
-const resizeObserver = new ResizeObserver(() => {
-    updateWidgetLayout();
-});
-if (pjeWidget) resizeObserver.observe(pjeWidget);
-
-// Fix: Expose toggle globally
-window.togglePJeWidget = function (show) {
-    if (!pjeWidget) return;
-
-    if (show) {
-        pjeWidget.classList.remove('hidden');
-        isWidgetVisible = true;
-        // Wait for CSS transition or render
-        setTimeout(updateWidgetLayout, 350);
-    } else {
-        pjeWidget.classList.add('hidden');
-        isWidgetVisible = false;
-        setTimeout(updateWidgetLayout, 350);
-    }
-};
-
-// --- Widget Controls ---
-
-if (btnClosePje) btnClosePje.addEventListener('click', () => window.togglePJeWidget(false));
-
-// Draggable Logic (Simple)
-const pjeHeader = document.querySelector('.pje-header');
-if (pjeHeader && pjeWidget) {
-    let isDragging = false;
-    let startX, startY, initialLeft, initialTop;
-
-    pjeHeader.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-
-        const rect = pjeWidget.getBoundingClientRect();
-        initialLeft = rect.left;
-        initialTop = rect.top;
-
-        // Remove transform centering to allow free drag
-        pjeWidget.style.transform = 'none';
-        pjeWidget.style.left = initialLeft + 'px';
-        pjeWidget.style.top = initialTop + 'px';
-        // Ensure bottom/right don't interfere
-        pjeWidget.style.bottom = 'auto';
-        pjeWidget.style.right = 'auto';
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-
-        pjeWidget.style.left = `${initialLeft + dx}px`;
-        pjeWidget.style.top = `${initialTop + dy}px`;
-
-        // Ideally we pause browser view updates here or throttle them
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (isDragging) {
-            isDragging = false;
-            updateWidgetLayout(); // Snap view to new position
-        }
-    });
-}
-
 
 // --- Chat Logic ---
 
@@ -415,10 +372,24 @@ if (chatInput) {
         if (this.value.trim().length > 0) sendBtn.removeAttribute('disabled');
         else sendBtn.setAttribute('disabled', 'true');
     });
+
+    // Enter envia; Shift+Enter quebra linha
+    chatInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (this.value.trim().length > 0 && !sendBtn.hasAttribute('disabled')) {
+                sendBtn.click();
+            }
+        }
+    });
 }
 
-// Feature Flag: Use Agent Loop (set to true to enable)
+// Generate a unique session ID for this window/user session
+const currentSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+
+// Mode Routing: use Agent Loop only for operational/automation intents.
 const USE_AGENT_LOOP = true;
+const AUTO_AGENT_ROUTING = true;
 
 // Send Message Logic
 if (sendBtn) {
@@ -437,14 +408,37 @@ if (sendBtn) {
         if (greeting && greeting.style.display !== 'none') greeting.style.display = 'none';
         if (mainChatContainer) mainChatContainer.classList.add('has-messages');
 
+        // Remove Quick Replies if any exist when user types manually
+        removeQuickReplies();
+
+        // Mostra loading imediato enquanto faz routing / inicializa agente
+        agentThinkingElement = null;
+        routingLoadingId = addLoadingToUI();
+
         try {
             if (window.lexApi) {
-                if (USE_AGENT_LOOP && window.lexApi.runAgent) {
+                let routeDecision = { useAgent: USE_AGENT_LOOP, reason: 'feature_flag' };
+
+                // If the agent is actively waiting for an answer, skip the AI Router
+                // and force the reply right back into the agent loop.
+                if (isAgentWaitingUser) {
+                    routeDecision = { useAgent: true, reason: 'agent_waiting_user' };
+                    console.log('[Router] Bypassing AI router. Agent is waiting for user reply.');
+                } else if (AUTO_AGENT_ROUTING && window.lexApi.shouldUseAgent) {
+                    try {
+                        routeDecision = await window.lexApi.shouldUseAgent(text);
+                        console.log('[Router] Mode:', routeDecision);
+                    } catch (routeErr) {
+                        console.warn('[Router] shouldUseAgent failed, fallback to feature flag.', routeErr);
+                    }
+                }
+
+                if (routeDecision.useAgent && window.lexApi.runAgent) {
                     // === AGENT LOOP MODE ===
                     // Events will stream via onAgentEvent
-                    console.log('[App] Running Agent Loop for:', text);
+                    console.log('[App] Running Agent Loop for:', text, 'in session:', currentSessionId);
 
-                    const result = await window.lexApi.runAgent(text);
+                    const result = await window.lexApi.runAgent(text, null, currentSessionId);
 
                     if (!result.success) {
                         // Error case (if no streaming error was shown)
@@ -457,6 +451,8 @@ if (sendBtn) {
 
                 } else {
                     // === LEGACY MODE (sendChat) ===
+                    // Remove routing loader e cria o loading do legacy
+                    if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
                     const loadingId = addLoadingToUI();
 
                     const response = await window.lexApi.sendChat(text, {});
@@ -473,7 +469,6 @@ if (sendBtn) {
                             const cardId = addAutomationCardToUI();
 
                             // Auto-Show Widget for now
-                            window.togglePJeWidget(true);
 
                             try {
                                 const execResult = await window.lexApi.executePlan(response.plan);
@@ -491,6 +486,7 @@ if (sendBtn) {
             }
         } catch (err) {
             console.error('[App] Error:', err);
+            if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
             addMessageToUI("Erro de conexão.", 'system');
             completeAgentSession();
         }
@@ -547,6 +543,44 @@ function legacyAddMessageToUIBase(text, type) {
 function legacyAddLoadingToUI() { return addMessageToUI('Pensando...', 'loading'); }
 function removeMessageFromUI(id) { document.getElementById(id)?.remove(); }
 
+// --- Quick Reply Buttons ---
+function removeQuickReplies() {
+    const existing = document.querySelector('.quick-reply-container');
+    if (existing) existing.remove();
+}
+
+function addQuickReplies(options) {
+    if (!options || options.length === 0) return;
+    removeQuickReplies();
+
+    const messageList = document.getElementById('chat-messages');
+    if (!messageList) return;
+
+    const container = document.createElement('div');
+    container.className = 'quick-reply-container';
+
+    options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'quick-reply-btn';
+        btn.textContent = opt.label || opt;
+        btn.addEventListener('click', () => {
+            // Remove os botões logo após o clique
+            removeQuickReplies();
+
+            // Envia a opção escolhida como se o usuário tivesse digitado
+            const textToSent = opt.value || opt.label || opt;
+            chatInput.value = textToSent;
+            // Dispara o evento 'input' para habilitar o sendBtn (que pode estar disabled)
+            chatInput.dispatchEvent(new Event('input'));
+            sendBtn.click();
+        });
+        container.appendChild(btn);
+    });
+
+    messageList.appendChild(container);
+    messageList.scrollTop = messageList.scrollHeight;
+}
+
 function legacyAddAutomationCardToUIBase() {
     let messageList = document.getElementById('chat-messages');
     const msgDiv = document.createElement('div');
@@ -570,7 +604,6 @@ function legacyAddAutomationCardToUIBase() {
 
     const openPjeBtn = msgDiv.querySelector('.open-pje-btn');
     if (openPjeBtn) {
-        openPjeBtn.addEventListener('click', () => window.togglePJeWidget(true));
     }
 
     messageList.appendChild(msgDiv);
@@ -590,7 +623,7 @@ function updateAutomationCardStatus(cardId, status) {
 const navItems = document.querySelectorAll('.nav-item');
 const views = {
     'nav-chat': document.querySelector('.chat-wrapper'),
-    'nav-pje': document.getElementById('pje-floating-container'), // PJe is floating, handled differently usually, but let's include
+    'nav-pje': null,
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null, // Todo
     'nav-settings': null // Todo
@@ -605,10 +638,12 @@ navItems.forEach(item => {
         item.classList.add('active');
 
         // 2. Handle Views
-        // Special case: PJe button might just toggle the floating widget
         if (viewId === 'nav-pje') {
-            window.togglePJeWidget(true);
+            showChatView();
             return;
+        }
+
+        if (isWidgetVisible) {
         }
 
         // Standard Tab Switching
@@ -637,6 +672,10 @@ function stripEmojiCharacters(rawText) {
 }
 
 function addAgentActionToUI(data) {
+    // Abre widget do browser independente do estado do thinking element
+    if (data && typeof data.skill === 'string' && data.skill.startsWith('pje_')) {
+    }
+
     if (!agentThinkingElement) return;
 
     const content = agentThinkingElement.querySelector('.thinking-content');
@@ -717,10 +756,13 @@ function updateAgentObservation(data) {
     logLine.className = 'log-line';
     const isSuccess = !!data?.sucesso;
     const colorClass = isSuccess ? 'log-type-info' : 'log-type-error';
+    const modeInfo = data?.dados?.mode ? ` (${data.dados.mode})` : '';
+    const errorInfo = !isSuccess && data?.erro ? ` - ${String(data.erro)}` : '';
 
+    const mensagem = data?.mensagem ? escapeHtml(String(data.mensagem).slice(0, 120)) : (modeInfo || errorInfo ? escapeHtml(modeInfo + errorInfo) : '');
     logLine.innerHTML = `
         <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
-        <span class="log-message ${colorClass}">Result: ${isSuccess ? 'Success' : 'Failed'}</span>
+        <span class="log-message ${colorClass}">${isSuccess ? '✓' : '✗'} ${mensagem || (isSuccess ? 'concluído' : 'falhou')}</span>
     `;
     content.appendChild(logLine);
 }
@@ -791,7 +833,6 @@ function addAutomationCardToUI() {
 
     const openPjeBtn = msgDiv.querySelector('.open-pje-btn');
     if (openPjeBtn) {
-        openPjeBtn.addEventListener('click', () => window.togglePJeWidget(true));
     }
 
     messageList.appendChild(msgDiv);

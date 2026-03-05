@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Lex Agent Think
  *
- * Módulo de raciocínio - usa LLM para decidir próximo passo.
+ * MÃ³dulo de raciocÃ­nio - usa LLM para decidir prÃ³ximo passo.
  * Inspirado no OpenClaw, integrado com Prompt-Layer.
  */
 
@@ -10,7 +10,7 @@ import { getSkillsForPrompt } from './executor';
 import { buildPromptLayerSystem } from './prompt-layer';
 
 /**
- * Decide próximo passo baseado no estado atual
+ * Decide prÃ³ximo passo baseado no estado atual
  */
 export async function think(
     state: AgentState,
@@ -19,7 +19,7 @@ export async function think(
     // Monta system prompt (Prompt-Layer + Skills + Contexto)
     const systemPrompt = buildSystemPrompt(state);
 
-    // Monta user prompt (objetivo + histórico)
+    // Monta user prompt (objetivo + histÃ³rico)
     const userPrompt = buildUserPrompt(state);
 
     // Chama LLM
@@ -45,7 +45,7 @@ function buildSystemPrompt(state: AgentState): string {
     // 2. Comportamento do agente
     parts.push(getAgentBehavior());
 
-    // 3. Skills disponíveis
+    // 3. Skills disponÃ­veis
     parts.push(getSkillsForPrompt());
 
     // 4. Contexto atual
@@ -58,23 +58,23 @@ function buildSystemPrompt(state: AgentState): string {
 }
 
 /**
- * Personalidade padrão (quando não tem tenant config)
+ * Personalidade padrÃ£o (quando nÃ£o tem tenant config)
  */
 function getDefaultPersonality(): string {
-    return `# Lex - Assistente Jurídica
+    return `# Lex - Assistente JurÃ­dica
 
-Você é **Lex**, uma assistente jurídica inteligente especializada no sistema judicial brasileiro, especialmente no PJe (Processo Judicial Eletrônico).
+VocÃª Ã© **Lex**, uma assistente jurÃ­dica inteligente especializada no sistema judicial brasileiro, especialmente no PJe (Processo Judicial EletrÃ´nico).
 
 ## Sua Identidade
 - Profissional, precisa e proativa
 - Especialista em direito brasileiro
 - Foco em produtividade do advogado
 
-## Princípios
-- NUNCA invente informações - se não sabe, diga
-- Seja concisa - advogados são ocupados
+## PrincÃ­pios
+- NUNCA invente informaÃ§Ãµes - se nÃ£o sabe, diga
+- Seja concisa - advogados sÃ£o ocupados
 - Antecipe problemas e prazos
-- O advogado tem a decisão final`;
+- O advogado tem a decisÃ£o final`;
 }
 
 /**
@@ -83,54 +83,72 @@ Você é **Lex**, uma assistente jurídica inteligente especializada no sistema 
 function getAgentBehavior(): string {
     return `# Comportamento do Agente
 
-Você opera em um loop de **Think → Critic → Act → Observe** até completar o objetivo.
+VocÃª opera em um loop de **Think â†’ Critic â†’ Act â†’ Observe** atÃ© completar o objetivo.
 
-## A cada iteração, você deve:
+## A cada iteraÃ§Ã£o, vocÃª deve:
 
-1. **ANALISAR** o objetivo e o histórico
-2. **DECIDIR** uma das três opções:
+1. **ANALISAR** o objetivo e o histÃ³rico
+2. **DECIDIR** uma das trÃªs opÃ§Ãµes:
    - **skill**: executar uma ferramenta
-   - **resposta**: objetivo alcançado, fornecer resposta final
-   - **pergunta**: precisa de mais informação do usuário
-3. **ASSUMIR** que a decisão passará por um Critic antes da execução da skill
+   - **resposta**: objetivo alcanÃ§ado, fornecer resposta final
+   - **pergunta**: precisa de mais informaÃ§Ã£o do usuÃ¡rio
+3. **ASSUMIR** que a decisÃ£o passarÃ¡ por um Critic antes da execuÃ§Ã£o da skill
 
 ## Regras
 
 ### Quando usar Skills
-- Para obter informações que você não tem
-- Para executar ações no PJe ou gerar documentos
-- Combine múltiplas skills quando necessário
+- Para obter informaÃ§Ãµes que vocÃª nÃ£o tem
+- Para executar aÃ§Ãµes no PJe ou gerar documentos
+- Combine mÃºltiplas skills quando necessÃ¡rio
+- Se o usuario der comando operacional no PJe (ex: "vai", "abra", "entre", "clique", "navegue"), prefira tipo=skill.
+- Para navegar, clicar ou preencher campos no PJe, use pje_agir com o objetivo em linguagem natural.
+- Se o usuario pedir "ir para", "abrir aba", "menu", "peticionamento", "novo processo", "preencher campo" ou comandos equivalentes, use pje_agir.
+- NUNCA responda apenas com instrucoes textuais quando ha uma skill que executa a acao.
 
 ### Quando Responder
-- Quando tiver informação suficiente para atender o objetivo
-- Quando todas as ações necessárias foram completadas
-- Quando o objetivo for uma pergunta simples que você sabe responder
+- Quando tiver informaÃ§Ã£o suficiente para atender o objetivo
+- Quando todas as aÃ§Ãµes necessÃ¡rias foram completadas
+- Quando o objetivo for uma pergunta simples que vocÃª sabe responder
 
 ### Quando Perguntar
-- Quando o objetivo for ambíguo
-- Quando precisar de confirmação antes de ação importante
-- Quando houver múltiplas opções válidas
+- Quando o objetivo for ambÃ­guo
+- Quando precisar de confirmaÃ§Ã£o antes de aÃ§Ã£o importante
+- Quando houver mÃºltiplas opÃ§Ãµes vÃ¡lidas
 
-## Estratégias Comuns
+## EstratÃ©gias Comuns
+
+### Apenas abrir/login no PJe
+1. Use \`pje_abrir\`
+2. Oriente o usuÃ¡rio a autenticar com certificado digital
+3. Aguarde o prÃ³ximo comando do usuÃ¡rio
 
 ### Consultar Processo
-1. Use \`pje_consultar\` primeiro
+1. Use \`pje_consultar\` com o numero do processo
 2. Analise os dados retornados
-3. Se precisar de mais detalhes, use skills específicas
+3. Para movimentacoes ou documentos, use \`pje_movimentacoes\` ou \`pje_documentos\`
+
+### Navegar/Clicar/Preencher dentro do PJe
+1. Use \`pje_agir\` com o objetivo em linguagem natural
+2. pje_agir executa um loop visual inteligente — se adapta a qualquer tela e tribunal
+3. Exemplos de objetivo: "ir para peticionamento novo processo", "preencher Jurisdicao com Belem", "clicar em Pesquisar"
+4. Inclua sempre o parametro tribunal se o usuario mencionou
+
+### Ver movimentacoes ou documentos
+1. Use \`pje_movimentacoes\` ou \`pje_documentos\` apos o processo estar aberto na tela
 
 ### Criar Documento
 1. Certifique-se de ter os dados do processo
 2. Identifique o tipo de documento
 3. Use \`doc_gerar\` com contexto completo
 
-### Pesquisar Jurisprudência
+### Pesquisar JurisprudÃªncia
 1. Identifique os termos relevantes
 2. Use \`pesquisa_jurisprudencia\`
 3. Sintetize os resultados`;
 }
 
 /**
- * Monta seção de contexto
+ * Monta seÃ§Ã£o de contexto
  */
 function buildContextSection(state: AgentState): string {
     const parts: string[] = ['# Contexto Atual'];
@@ -139,7 +157,7 @@ function buildContextSection(state: AgentState): string {
     if (state.contexto.processo) {
         const p = state.contexto.processo;
         parts.push(`## Processo Carregado
-- Número: ${p.numero}
+- NÃºmero: ${p.numero}
 - Classe: ${p.classe}
 - Assunto: ${p.assunto}
 - Partes: ${p.partes.autor.join(', ')} vs ${p.partes.reu.join(', ')}
@@ -168,10 +186,10 @@ function buildContextSection(state: AgentState): string {
         parts.push(`## Resultados de Skills Anteriores\n${resultados.join('\n')}`);
     }
 
-    // Memória persistente
+    // MemÃ³ria persistente
     if (state.contexto.memoria) {
         const mem = state.contexto.memoria;
-        const memParts: string[] = ['## Memória Persistente'];
+        const memParts: string[] = ['## MemÃ³ria Persistente'];
 
         if (mem.processosRecentes && mem.processosRecentes.length > 0) {
             memParts.push(`Processos recentes: ${mem.processosRecentes.slice(0, 5).join(', ')}`);
@@ -186,6 +204,11 @@ function buildContextSection(state: AgentState): string {
         }
     }
 
+    const chatHistory = (state.contexto as any).chatHistory as string | undefined;
+    if (chatHistory) {
+        parts.push(`## Historico Recente da Conversa\n${chatHistory}`);
+    }
+
     return parts.join('\n\n');
 }
 
@@ -195,41 +218,41 @@ function buildContextSection(state: AgentState): string {
 function getResponseFormat(): string {
     return `# Formato de Resposta
 
-Responda APENAS com JSON válido no seguinte formato:
+Responda APENAS com JSON vÃ¡lido no seguinte formato:
 
 \`\`\`json
 {
-    "pensamento": "Seu raciocínio passo a passo aqui",
+    "pensamento": "Seu raciocÃ­nio passo a passo aqui",
     "tipo": "skill" | "resposta" | "pergunta",
     "skill": "nome_da_skill (apenas se tipo=skill)",
     "parametros": { ... (apenas se tipo=skill) },
-    "resposta": "Resposta final ao usuário (apenas se tipo=resposta)",
-    "pergunta": "Pergunta ao usuário (apenas se tipo=pergunta)",
-    "opcoes": ["opção 1", "opção 2"] (opcional, se tipo=pergunta)
+    "resposta": "Resposta final ao usuÃ¡rio (apenas se tipo=resposta)",
+    "pergunta": "Pergunta ao usuÃ¡rio (apenas se tipo=pergunta)",
+    "opcoes": ["opÃ§Ã£o 1", "opÃ§Ã£o 2"] (opcional, se tipo=pergunta)
 }
 \`\`\`
 
 IMPORTANTE:
 - Responda SOMENTE o JSON, sem texto adicional
 - Use apenas skills que existem na lista
-- Se não tem certeza, pergunte ao usuário
-- Se já tem informação suficiente, responda`;
+- Se nÃ£o tem certeza, pergunte ao usuÃ¡rio
+- Se jÃ¡ tem informaÃ§Ã£o suficiente, responda`;
 }
 
 /**
- * Monta user prompt com objetivo e histórico
+ * Monta user prompt com objetivo e histÃ³rico
  */
 function buildUserPrompt(state: AgentState): string {
     const parts: string[] = [];
 
     // Objetivo
-    parts.push(`## Objetivo do Usuário
+    parts.push(`## Objetivo do UsuÃ¡rio
 "${state.objetivo}"`);
 
-    // Iteração
-    parts.push(`## Iteração Atual: ${state.iteracao}`);
+    // IteraÃ§Ã£o
+    parts.push(`## IteraÃ§Ã£o Atual: ${state.iteracao}`);
 
-    // Histórico
+    // HistÃ³rico
     if (state.passos.length > 0) {
         const historico = state.passos.map(passo => {
             switch (passo.tipo) {
@@ -254,42 +277,42 @@ function buildUserPrompt(state: AgentState): string {
             }
         }).filter(Boolean).join('\n');
 
-        parts.push(`## Histórico de Passos\n${historico}`);
+        parts.push(`## HistÃ³rico de Passos\n${historico}`);
     } else {
-        parts.push('## Histórico\nPrimeira iteração - nenhum passo executado ainda.');
+        parts.push('## HistÃ³rico\nPrimeira iteraÃ§Ã£o - nenhum passo executado ainda.');
     }
 
-    // Instrução final
+    // InstruÃ§Ã£o final
     parts.push(`## Sua Tarefa
 
-Analise o objetivo e o contexto. Decida o próximo passo e responda em JSON.`);
+Analise o objetivo e o contexto. Decida o prÃ³ximo passo e responda em JSON.`);
 
     return parts.join('\n\n');
 }
 
 /**
- * Chama LLM (integração com o handler existente)
+ * Chama LLM (integraÃ§Ã£o com o handler existente)
  */
 async function callLLM(
     systemPrompt: string,
     userPrompt: string,
     config: AgentConfig
 ): Promise<string> {
-    // Importa dinamicamente para evitar dependência circular
+    // Importa dinamicamente para evitar dependÃªncia circular
     const { callAI } = await import('../ai-handler');
 
     try {
         const response = await callAI({
             system: systemPrompt,
             user: userPrompt,
-            temperature: config.temperature ?? 0.3, // Mais determinístico
+            temperature: config.temperature ?? 0.3, // Mais determinÃ­stico
             ...(config.model ? { model: config.model } : {})
         });
 
         return response;
     } catch (error: any) {
         console.error('[Think] Erro ao chamar LLM:', error);
-        throw new Error(`Falha ao processar raciocínio: ${error.message}`);
+        throw new Error(`Falha ao processar raciocÃ­nio: ${error.message}`);
     }
 }
 
@@ -304,13 +327,13 @@ function parseThinkResponse(response: string): ThinkDecision {
             || response.match(/\{[\s\S]*\}/);
 
         if (!jsonMatch) {
-            throw new Error('Resposta não contém JSON válido');
+            throw new Error('Resposta nÃ£o contÃ©m JSON vÃ¡lido');
         }
 
         const jsonStr = jsonMatch[1] || jsonMatch[0];
         const decisao: ThinkDecision = JSON.parse(jsonStr);
 
-        // Validação básica
+        // ValidaÃ§Ã£o bÃ¡sica
         if (!decisao.tipo) {
             throw new Error('Campo "tipo" ausente');
         }
@@ -319,7 +342,7 @@ function parseThinkResponse(response: string): ThinkDecision {
             decisao.pensamento = 'Processando...';
         }
 
-        // Validação por tipo
+        // ValidaÃ§Ã£o por tipo
         switch (decisao.tipo) {
             case 'skill':
                 if (!decisao.skill) {
@@ -337,7 +360,7 @@ function parseThinkResponse(response: string): ThinkDecision {
                 }
                 break;
             default:
-                throw new Error(`Tipo inválido: ${decisao.tipo}`);
+                throw new Error(`Tipo invÃ¡lido: ${decisao.tipo}`);
         }
 
         return decisao;
@@ -346,11 +369,12 @@ function parseThinkResponse(response: string): ThinkDecision {
         console.error('[Think] Erro ao parsear resposta:', error);
         console.error('[Think] Resposta raw:', response.substring(0, 500));
 
-        // Fallback: tenta responder algo útil
+        // Fallback: tenta responder algo Ãºtil
         return {
             tipo: 'pergunta',
-            pensamento: 'Erro ao processar raciocínio, solicitando clarificação',
-            pergunta: 'Desculpe, não entendi completamente. Pode reformular sua solicitação?'
+            pensamento: 'Erro ao processar raciocÃ­nio, solicitando clarificaÃ§Ã£o',
+            pergunta: 'Desculpe, nÃ£o entendi completamente. Pode reformular sua solicitaÃ§Ã£o?'
         };
     }
 }
+

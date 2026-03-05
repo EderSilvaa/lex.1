@@ -8,8 +8,6 @@
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co ws://127.0.0.1:* http://127.0.0.1:*;">
     <title>Lex - AI Legal Agent</title>
     <link rel="stylesheet" href="styles/main.css">
-    <link rel="stylesheet" href="styles/pje.css">
-    <link rel="stylesheet" href="styles/browser.css">
     <link rel="stylesheet" href="styles/file-manager.css">
 </head>
 
@@ -43,18 +41,18 @@
                     </svg>
                     <span class="label">Arquivos</span>
                 </button>
-                <button class="nav-item" id="nav-history" title="Histórico">
+                <button class="nav-item" id="nav-history" title="Historico">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
-                    <span class="label">Histórico</span>
+                    <span class="label">Historico</span>
                 </button>
             </nav>
 
             <div class="sidebar-footer">
-                <button class="nav-item" id="nav-settings" title="Configurações">
+                <button class="nav-item" id="nav-settings" title="Configuracoes">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"></circle>
@@ -62,7 +60,7 @@
                             d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
                         </path>
                     </svg>
-                    <span class="label">Configurações</span>
+                    <span class="label">Configuracoes</span>
                 </button>
             </div>
         </aside>
@@ -72,8 +70,8 @@
             <div class="chat-wrapper">
                 <div class="chat-container">
                     <div class="greeting-section">
-                        <h1>Olá, Eder Silva</h1>
-                        <p class="subtitle">Como posso ajudar você hoje?</p>
+                        <h1>Ola, Eder Silva</h1>
+                        <p class="subtitle">Como posso ajudar voce hoje?</p>
                     </div>
 
                     <div id="chat-messages" class="chat-messages">
@@ -83,6 +81,11 @@
                     <div class="input-area">
                         <div class="input-wrapper">
                             <textarea placeholder="Responder..."></textarea>
+                            <button class="stop-btn" title="Parar agente" style="display:none">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                                    <rect x="1" y="1" width="10" height="10" rx="2"/>
+                                </svg>
+                            </button>
                             <button class="send-btn" disabled>
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                                     <path
@@ -128,23 +131,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-
-            <!-- Floating PJe Widget (Hidden by default) -->
-            <div id="pje-floating-container" class="pje-widget hidden">
-                <div class="pje-header">
-                    <span class="pje-title">Navegador PJe</span>
-                    <div class="pje-controls">
-                        <button id="btn-minimize-pje" title="Minimizar">_</button>
-                        <button id="btn-maximize-pje" title="Expandir">□</button>
-                        <button id="btn-close-pje" title="Fechar">×</button>
-                    </div>
-                </div>
-                <!-- Browser Tabs (Optional, can be simplified) -->
-                <div class="browser-tabs" id="browser-tabs-bar">
-                    <!-- Tabs injected by JS -->
-                </div>
-                <div class="pje-viewport" id="browser-viewport"></div>
             </div>
         </main>
     </div>
