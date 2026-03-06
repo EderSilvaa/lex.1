@@ -29,9 +29,9 @@ export const pjeAgir: Skill = {
         },
         maxPassos: {
             tipo: 'number',
-            descricao: 'Número máximo de passos do agent (default: 20)',
+            descricao: 'Número máximo de passos do agent (default: 10)',
             obrigatorio: false,
-            default: 20
+            default: 10
         }
     },
 
@@ -46,7 +46,7 @@ export const pjeAgir: Skill = {
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {
         const objetivo = String(params['objetivo'] || '');
         const tribunal = String(params['tribunal'] || '');
-        const maxPassos = Number(params['maxPassos'] || 20);
+        const maxPassos = Number(params['maxPassos'] || 10);
 
         if (!objetivo) {
             return { sucesso: false, erro: 'Parâmetro "objetivo" obrigatório.', mensagem: 'Informe o que deve ser feito.' };

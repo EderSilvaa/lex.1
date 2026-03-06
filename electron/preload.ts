@@ -61,4 +61,11 @@ contextBridge.exposeInMainWorld('lexApi', {
 
     // Vision AI debug stream
     onVisionDebug: (cb: (data: any) => void) => ipcRenderer.on('vision-debug', (_, val) => cb(val)),
+
+    // Multi-conversation persistence
+    listConversations: () => ipcRenderer.invoke('conversations-list'),
+    loadConversation: (id: string) => ipcRenderer.invoke('conversations-load', id),
+    saveConversation: (conv: any) => ipcRenderer.invoke('conversations-save', conv),
+    deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
+    seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
 });

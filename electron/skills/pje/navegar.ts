@@ -5,7 +5,9 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { runBrowserTask } from '../../stagehand-manager';
+import { getStagehand, ensureStagehand, runBrowserTask } from '../../stagehand-manager';
+import { resolveTribunalRoutes, resolveDestinationUrl } from '../../pje/tribunal-urls';
+import { lookupRoute, saveRoute } from '../../pje/route-memory';
 
 export const pjeNavegar: Skill = {
     nome: 'pje_navegar',
@@ -40,24 +42,64 @@ export const pjeNavegar: Skill = {
             return { sucesso: false, erro: 'Destino obrigatório.', mensagem: 'Informe o destino da navegação.' };
         }
 
-        const instrucao = `
-Você está no PJe ${tribunal ? `(${tribunal})` : '(sistema judicial brasileiro)'}.
-
-Objetivo: Navegar até "${destino}".
-
-- Analise a tela atual e identifique como chegar ao destino
-- Clique nos menus, abas ou links necessários
-- Se houver menu hamburger ou menu lateral recolhido, abra-o primeiro
-- Confirme que chegou ao destino correto
-        `.trim();
-
         console.log(`[pje_navegar] Destino: "${destino}" ${tribunal ? `(${tribunal})` : ''}`);
 
+        // Resolve URL na ordem de prioridade:
+        // 1. Route Memory (aprendido pelo uso — mais confiável)
+        // 2. tribunal-urls.ts (estático)
+        const routes = resolveTribunalRoutes(tribunal);
+        const urlDireta = lookupRoute(tribunal, destino) ?? resolveDestinationUrl(routes, destino);
+
+        if (urlDireta) {
+            console.log(`[pje_navegar] URL direta encontrada: ${urlDireta}`);
+            try {
+                await ensureStagehand();
+                const stagehand = getStagehand();
+                const page = (stagehand as any).page;
+                if (page && typeof page.goto === 'function') {
+                    // waitUntil:'domcontentloaded' — não espera recursos externos (mais rápido e mais seguro)
+                    // timeout:15000 — se não carregar em 15s, cai no fallback
+                    await page.goto(urlDireta, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    const finalUrl: string = page.url?.() ?? urlDireta;
+                    // Verifica se foi redirecionado para login (não está logado)
+                    if (finalUrl.includes('login') || finalUrl.includes('Login')) {
+                        return {
+                            sucesso: false,
+                            erro: 'Redirecionado para login',
+                            mensagem: `Você precisa fazer login no PJe antes de navegar para ${destino}.`
+                        };
+                    }
+                    saveRoute(tribunal, destino, finalUrl);
+                    return {
+                        sucesso: true,
+                        dados: { destino, tribunal, url: finalUrl, modo: 'url_direta' },
+                        mensagem: `Navegado diretamente para ${destino}.`
+                    };
+                }
+            } catch (err: any) {
+                console.warn(`[pje_navegar] Falha na URL direta, tentando agent: ${err.message}`);
+            }
+        }
+
+        // Fallback: agent visual (apenas para destinos sem URL conhecida)
+        const instrucao = `Você está no PJe ${tribunal ? `(${tribunal})` : ''}.
+Navegue até "${destino}" o mais diretamente possível.
+Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto sem explorar desnecessariamente.`;
+
         try {
-            const resultado = await runBrowserTask(instrucao, 15);
+            const resultado = await runBrowserTask(instrucao, 8);
+            // Salva a URL onde o agent chegou — aprende para a próxima vez
+            try {
+                const stagehand = getStagehand();
+                const page = (stagehand as any).page;
+                const finalUrl: string = page?.url?.() ?? '';
+                if (finalUrl && !finalUrl.includes('login')) {
+                    saveRoute(tribunal, destino, finalUrl);
+                }
+            } catch { /* best effort */ }
             return {
                 sucesso: true,
-                dados: { destino, tribunal, resultado },
+                dados: { destino, tribunal, resultado, modo: 'agent' },
                 mensagem: resultado
             };
         } catch (error: any) {

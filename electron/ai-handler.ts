@@ -13,6 +13,7 @@ interface CallAIOptions {
     temperature?: number;
     model?: string;
     maxTokens?: number;
+    onToken?: (token: string) => void;
 }
 
 export interface CallAIWithVisionOptions {
@@ -58,13 +59,13 @@ export async function callAI(options: CallAIOptions): Promise<string> {
     return withAIRetry(async () => {
         switch (aiConfig.provider) {
             case 'anthropic':
-                return await callAnthropic(options);
+                return await callAnthropic(options, options.onToken);
             case 'openai':
                 return await callOpenAI(options);
             case 'supabase':
                 return await callSupabase(options);
             default:
-                return await callAnthropic(options);
+                return await callAnthropic(options, options.onToken);
         }
     });
 }
@@ -237,9 +238,10 @@ async function callOpenAI(options: CallAIOptions): Promise<string> {
 }
 
 /**
- * Chama Anthropic Claude com streaming SSE
+ * Chama Anthropic Claude com streaming SSE.
+ * onToken é chamado para cada delta de texto recebido em tempo real.
  */
-async function callAnthropic(options: CallAIOptions): Promise<string> {
+async function callAnthropic(options: CallAIOptions, onToken?: (token: string) => void): Promise<string> {
     if (!aiConfig.apiKey) {
         throw new Error('Anthropic API key não configurada. Configure em Configurações.');
     }
@@ -288,7 +290,9 @@ async function callAnthropic(options: CallAIOptions): Promise<string> {
                         const parsed = JSON.parse(dataVal);
                         // Formato SSE do Claude: content_block_delta
                         if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                            fullText += parsed.delta.text;
+                            const delta: string = parsed.delta.text;
+                            fullText += delta;
+                            onToken?.(delta);
                         }
                     } catch {
                         // ignora linhas não-JSON

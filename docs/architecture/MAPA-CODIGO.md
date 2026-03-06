@@ -1,349 +1,371 @@
-# 🗺️ Mapa do Código - Extensão Lex
+# Mapa do Código — LEX v4.0
 
-## 📁 Arquivo Principal: content-simple.js
+> Referência técnica da arquitetura atual. Gerado em março de 2026.
 
-### 🧩 Estrutura Geral (1000+ linhas)
+---
 
-```javascript
-// Chat Lex - Versão Completa com Design Moderno
-(function() {
-  'use strict';
-  
-  // === SEÇÃO 1: INICIALIZAÇÃO E CONTROLE ===
-  // Linhas 1-25: Verificação de carregamento e variáveis globais
-  
-  // === SEÇÃO 2: OPENAI CLIENT INTEGRADO ===
-  // Linhas 26-170: Classe OpenAIClient completa
-  
-  // === SEÇÃO 3: INICIALIZAÇÃO E ESTILOS ===
-  // Linhas 171-485: Função inicializar() e adicionarEstilos()
-  
-  // === SEÇÃO 4: INTERFACE DO USUÁRIO ===
-  // Linhas 486-610: Criação de botões e interface do chat
-  
-  // === SEÇÃO 5: SISTEMA DE CHAT ===
-  // Linhas 611-750: Eventos, mensagens e interações
-  
-  // === SEÇÃO 6: EXTRAÇÃO DE DADOS ===
-  // Linhas 751-950: Extração de documentos e informações do processo
-  
-  // === SEÇÃO 7: INTELIGÊNCIA ARTIFICIAL ===
-  // Linhas 951-1000+: Geração de respostas e fallbacks
-  
-})();
+## Visão Geral
+
+LEX é um assistente jurídico agêntico para PJe construído como app Electron. O núcleo é um **Agent Loop** que itera Think → Critic → Act → Observe até resolver a intenção do usuário. O agente tem acesso a skills que controlam o browser (Stagehand v3), o sistema de arquivos (Node.js nativo) e o PC inteiro (Vision AI + nut-js).
+
+```
+Renderer (HTML/JS)
+    │ IPC (contextBridge)
+    ▼
+Main Process (Electron)
+    │
+    ├─ Agent Loop ──► Think ──► Critic ──► Act ──► Observe ──► (loop)
+    │                  │                    │
+    │               callLLM              execute skill
+    │              (streaming)
+    │
+    ├─ Skills
+    │   ├─ PJe (browser via Stagehand)
+    │   ├─ PC  (Vision AI + nut-js)
+    │   └─ OS  (filesystem/shell)
+    │
+    └─ Serviços
+        ├─ ai-handler.ts     (Anthropic API)
+        ├─ crypto-store.ts   (AES-256-GCM)
+        ├─ session.ts        (histórico em disco)
+        └─ stagehand-manager.ts (Chrome externo)
 ```
 
-## 🔍 Detalhamento por Seção
+---
 
-### 📋 SEÇÃO 1: Inicialização e Controle (Linhas 1-25)
+## Ponto de Entrada: `electron/main.ts`
 
-```javascript
-// Verificar se já foi carregado
-if (window.lexAssistantActive) {
-  return;
+Responsabilidades:
+- Cria a `BrowserWindow` e carrega `src/renderer/index.html`
+- Registra todos os handlers IPC (`ipcMain.handle`, `ipcMain.on`)
+- Lê/salva configurações via `electron-store`
+- Inicializa e repassa chamadas ao módulo `agent/`
+- Descriptografa API key do store antes de repassar ao `ai-handler`
+- Faz `getSessionManager().flush()` no `before-quit`
+
+**IPC handlers relevantes:**
+
+| Canal | Direção | Descrição |
+|-------|---------|-----------|
+| `agent-chat-message` | renderer→main | Dispara o agent loop |
+| `agent-event` | main→renderer | Eventos do loop (thinking, token, completed) |
+| `store-get-anthropic-key` | renderer→main | Lê key descriptografada |
+| `store-set-anthropic-key` | renderer→main | Salva key criptografada |
+| `pje-status-check` | renderer→main | Verifica se Chrome está ativo |
+
+---
+
+## Agent Loop: `electron/agent/loop.ts`
+
+Loop principal que itera até `estado.concluido = true` ou atingir `maxIteracoes`.
+
+### Fases por iteração
+
+```
+1. THINK   → think(estado, config, onStreamToken)
+             └─ callLLM → callAI → callAnthropic (SSE stream)
+             └─ createRespostaExtractor → emite tokens só do campo "resposta"
+
+2. CRITIC  → critica o plano do think (segunda chamada LLM)
+             └─ valida coerência, detecta loops, ajusta se necessário
+
+3. ACT     → parseia JSON do think → identifica skill a chamar
+             └─ executor.executeSkill(skillName, params, context)
+
+4. OBSERVE → atualiza estado com resultado da skill
+             └─ decide se continua ou encerra
+```
+
+### Eventos emitidos (`agentEmitter`)
+
+```typescript
+{ type: 'streaming_start' }               // antes do think — UI cria bubble vazia
+{ type: 'token', token: string }           // cada delta do campo "resposta"
+{ type: 'thinking', pensamento, iteracao } // raciocínio interno
+{ type: 'completed', resposta, runId }     // fim — UI finaliza bubble
+{ type: 'error', message }
+```
+
+---
+
+## Think + Streaming: `electron/agent/think.ts`
+
+### `think(estado, config, onToken?)`
+Constrói o system prompt com o contexto do agente (skills disponíveis, histórico, estado) e chama `callLLM`.
+
+### `callLLM(system, user, config, onToken?)`
+Chama `callAI()` com `onToken: createRespostaExtractor(onToken)`.
+
+### `createRespostaExtractor(onToken)`
+State machine que filtra o stream SSE de Claude:
+
+```
+Estados: SCANNING → IN_VALUE → DONE
+
+SCANNING:  acumula buffer, aguarda "resposta"\s*:\s*"
+IN_VALUE:  emite cada char recebido, processa escapes JSON (\n \t \" \\)
+DONE:      encontrou " não-escapado que fecha o valor — para de emitir
+
+Buffer window: últimos 40 chars (para detectar padrão cross-token)
+```
+
+Isso permite que o usuário veja o campo `resposta` do JSON sendo gerado em tempo real, sem ver o `pensamento` interno.
+
+---
+
+## AI Handler: `electron/ai-handler.ts`
+
+### Interface principal
+
+```typescript
+interface CallAIOptions {
+    system: string;
+    user: string;
+    temperature?: number;
+    model?: string;
+    maxTokens?: number;
+    onToken?: (token: string) => void;   // streaming callback
 }
-window.lexAssistantActive = true;
-
-// Variáveis globais
-let chatContainer = null;
-
-// Cache de elementos DOM para otimização
-const domCache = {
-  info: null,
-  lastUpdate: 0
-};
 ```
 
-**Função:** Evita carregamento duplo e define variáveis globais.
+### `callAnthropic(options, onToken?)`
+- Chama `POST https://api.anthropic.com/v1/messages` com `stream: true`
+- Lê SSE: para cada `content_block_delta` com `delta.text`, chama `onToken?.(delta)`
+- Retorna `fullText` acumulado ao final (compatibilidade com callers não-streaming)
 
-### 🤖 SEÇÃO 2: OpenAI Client Integrado (Linhas 26-170)
+### `callAIWithVision(options)`
+- Envia imagem base64 + prompt de texto para Claude
+- Usado pelo `computer-manager.ts` no Vision loop
 
-```javascript
-function criarOpenAIClient() {
-  // API Key configuration
-  const API_KEY = 'sua-chave-aqui';
-  
-  class OpenAIClient {
-    constructor() { /* ... */ }
-    async analisarDocumento() { /* ... */ }
-    criarPromptJuridico() { /* ... */ }
-    formatarContexto() { /* ... */ }
-    async fazerRequisicao() { /* ... */ }
-    respostaFallback() { /* ... */ }
-    isConfigured() { /* ... */ }
+---
+
+## Criptografia: `electron/crypto-store.ts`
+
+**Algoritmo:** AES-256-GCM (autenticado, sem padding attack)
+
+**Derivação de chave:** `scryptSync(hostname + "-" + username, 'lex-crypto-salt-v1', 32)`
+- Sem segredo hardcoded no binário
+- Vinculado à máquina — não funciona em outra máquina
+
+**Formato armazenado:** `enc:v1:<ivHex>:<tagHex>:<encryptedHex>`
+
+**API:**
+```typescript
+encryptApiKey(plaintext: string): string   // cifra
+decryptApiKey(stored: string): string      // decifra, lança se inválido
+isEncrypted(value: string): boolean        // detecta formato
+safeDecrypt(stored: string): string        // fallback para legado plain text
+```
+
+**Migração automática:** `main.ts` detecta key plain text no store → re-salva criptografada na inicialização.
+
+---
+
+## Sessões: `electron/agent/session.ts`
+
+### `SessionManager`
+
+```typescript
+class SessionManager {
+    getOrCreate(sessionId?): ChatSession
+    addMessage(sessionId, role, content, meta?): void
+    getHistory(sessionId, limit?): ChatMessage[]
+    formatHistoryForPrompt(sessionId, limit?): string
+    flush(): Promise<void>   // salvar imediatamente (no quit)
+}
+```
+
+**Persistência:**
+- Arquivo: `%APPDATA%\lex-test1\sessions.json`
+- Salva com debounce de 1s após cada `addMessage()`
+- Carrega no construtor, filtra sessões > 30 dias
+- Limite: 50 sessões armazenadas, 50 mensagens por sessão
+
+---
+
+## Browser Automation: `electron/stagehand-manager.ts`
+
+Gerencia um Chrome externo via chrome-launcher + Stagehand v3.
+
+**API pública:**
+```typescript
+initStagehand(): Promise<void>       // inicia Chrome (mutex: concurrent calls esperam)
+ensureStagehand(): Promise<void>     // garante init; auto-recupera se falhou
+getStagehand(): Stagehand            // retorna instance ou lança
+runBrowserTask(instruction, maxSteps, onStep): Promise<string>
+injectOverlay(text, done?): void     // overlay visual no Chrome
+closeStagehand(): Promise<void>      // força kill
+```
+
+**Modelo Stagehand:** `anthropic/claude-sonnet-4-6`
+
+---
+
+## PC Automation: `electron/computer-manager.ts`
+
+Controla o PC inteiro via loop de Vision AI.
+
+### Screenshot
+- PowerShell + `System.Drawing` + `System.Windows.Forms`
+- Script `.ps1` em arquivo temp (evita escaping de quotes)
+- Retorna: `{ buffer: Buffer, scaleX: number, scaleY: number }`
+- Escala máx 1280px para economizar tokens
+
+### Vision Loop: `runComputerTask(instrucao, maxSteps, onStep)`
+
+```
+1. takeScreenshot()
+2. callAIWithVision(screenshot, instrucao)
+   → Claude retorna JSON:
+     { raciocinio, acao, x, y, texto, teclas, direcao, quantidade, concluido, resultado }
+3. executeAction(decision, scaleX, scaleY)
+   → nut-js: click, double_click, right_click, type, key, scroll
+4. Se !concluido && passo < maxSteps → goto 1
+```
+
+**Coordenadas:** Claude vê imagem em 1280px → retorna x,y nessa escala → multiplicados por `scaleX/scaleY` para resolução real.
+
+---
+
+## Skills Registry: `electron/agent/executor.ts`
+
+```typescript
+registerSkill(skill: Skill): void
+getSkill(nome: string): Skill | undefined
+listSkills(): Skill[]
+executeSkill(nome, params, context): Promise<SkillResult>
+```
+
+Todas as skills são registradas em `electron/agent/index.ts` via `initializeAgent()`.
+
+---
+
+## Skills Disponíveis
+
+### PJe (`electron/skills/pje/`)
+
+| Skill | Arquivo | Descrição |
+|-------|---------|-----------|
+| `pje_abrir` | `abrir.ts` | Navega para login do tribunal via `page.goto()` |
+| `pje_agir` | `agir.ts` | Ação livre via `runBrowserTask()`, emite `🌐` |
+| `pje_consultar` | `consultar.ts` | Consulta processo por número |
+| `pje_movimentacoes` | `movimentacoes.ts` | Lista movimentações do processo |
+| `pje_documentos` | `documentos.ts` | Acessa documentos anexados |
+
+### PC (`electron/skills/pc/`)
+
+| Skill | Arquivo | Descrição |
+|-------|---------|-----------|
+| `pc_agir` | `agir.ts` | Controla Windows via Vision loop, emite `🖥️` |
+
+Caso especial: queries de observação ("o que está na tela?") → só screenshot + descrição, sem actions.
+
+### OS (`electron/skills/os/`)
+
+| Skill | Arquivo | Descrição |
+|-------|---------|-----------|
+| `os_listar` | `listar.ts` | Lista diretórios (aliases: downloads, desktop, documentos) |
+| `os_arquivos` | `arquivos.ts` | ler/mover/copiar/deletar/buscar/info |
+| `os_escrever` | `escrever.ts` | Cria arquivos e pastas |
+| `os_sistema` | `sistema.ts` | Shell com HITL (`confirmado: true` obrigatório) |
+
+### Camada base: `electron/tools/os-tools.ts`
+Node.js puro (`fs`, `path`, `child_process`, `os`). Inclui blocklist de comandos perigosos.
+
+---
+
+## Renderer: `src/renderer/js/app.js`
+
+Vanilla JS. Toda a lógica da UI está aqui (~1200 linhas).
+
+**Fluxo de mensagem:**
+
+```
+User digita → sendMessage()
+  → ipcRenderer.invoke('agent-chat-message', { message, sessionId })
+  → escuta 'agent-event':
+      streaming_start → createStreamingBubble() → currentStreamingMsg
+      token           → currentStreamingMsg.querySelector('.stream-text').textContent += token
+      thinking        → accordion de raciocínio (colapsado)
+      completed       → finalizeStreamingBubble(fullText) → renderMarkdownSafe()
+      error           → bubble de erro
+```
+
+**Funções principais:**
+
+| Função | Descrição |
+|--------|-----------|
+| `createStreamingBubble()` | Cria `.message.ai.streaming` com `.stream-text` e cursor ▋ |
+| `finalizeStreamingBubble(div, text)` | Remove `.streaming`, aplica Markdown |
+| `renderMarkdownSafe(text)` | marked + DOMPurify |
+| `addMessageToUI(role, content)` | Adiciona bubble estática |
+| `createNewChat()` | Nova sessão UUID |
+| `loadConversation(id)` | Restaura histórico da sidebar |
+
+---
+
+## Fluxo de API Key
+
+```
+Primeira configuração:
+  User digita key → renderer
+    → IPC: store-set-anthropic-key
+    → main.ts: encryptApiKey(key) → store.set('anthropicApiKey', encrypted)
+
+Uso:
+  main.ts initStore():
+    → key = store.get('anthropicApiKey')
+    → if !isEncrypted(key): re-salva criptografado (migração)
+    → safeDecrypt(key) → initAI({ apiKey: plain })
+
+Proteção:
+  - Arquivo: %APPDATA%\lex-test1\config.json
+  - Valor: enc:v1:... (hex, nunca plain text pós-migração)
+  - Chave criptográfica: derivada de hostname+username, não armazenada
+```
+
+---
+
+## Arquivo de Sessões
+
+**Localização:** `%APPDATA%\lex-test1\sessions.json`
+
+**Estrutura:**
+```json
+{
+  "uuid-da-sessao": {
+    "id": "uuid",
+    "messages": [
+      { "role": "user", "content": "...", "timestamp": 1234567890 },
+      { "role": "assistant", "content": "...", "timestamp": 1234567891, "skillsUsed": ["pje_agir"] }
+    ],
+    "createdAt": 1234567890,
+    "updatedAt": 1234567891
   }
-  
-  window.openaiClient = new OpenAIClient();
 }
 ```
 
-**Função:** Cliente OpenAI completo integrado no content script.
+---
 
-**Métodos Principais:**
-- `analisarDocumento()` - Função principal de análise
-- `criarPromptJuridico()` - Cria prompts especializados em direito
-- `formatarContexto()` - Formata dados do processo para a IA
-- `fazerRequisicao()` - Comunicação com API da OpenAI
-- `respostaFallback()` - Respostas quando IA não disponível
-- `isConfigured()` - Verifica se API key está configurada
+## Dependências Principais
 
-### 🎨 SEÇÃO 3: Inicialização e Estilos (Linhas 171-485)
+| Pacote | Versão | Uso |
+|--------|--------|-----|
+| `electron` | ^28 | Shell desktop |
+| `@browserbasehq/stagehand` | ^3 | Automação browser |
+| `@nut-tree-fork/nut-js` | ^4 | Controle mouse/teclado |
+| `electron-store` | ^8 | Persistência de config |
+| `marked` | (bundled) | Renderização Markdown |
+| `dompurify` | (bundled) | Sanitização HTML |
 
-```javascript
-function inicializar() {
-  // Aguardar DOM estar pronto
-  // Adicionar estilos
-  // Criar OpenAI Client integrado
-  // Criar botão flutuante
-}
+`node:crypto`, `fs`, `path`, `os`, `child_process` — apenas built-ins do Node.js.
 
-function adicionarEstilos() {
-  const styleSheet = document.createElement('style');
-  styleSheet.textContent = `
-    /* 300+ linhas de CSS inline */
-    .lex-chat { /* ... */ }
-    .lex-button { /* ... */ }
-    /* ... */
-  `;
-  document.head.appendChild(styleSheet);
-}
-```
+---
 
-**Função:** Inicialização da extensão e injeção de estilos CSS.
+## Convenções
 
-**Estilos Principais:**
-- `.lex-chat` - Container principal do chat
-- `.lex-button` - Botão flutuante
-- `.lex-message` - Mensagens do chat
-- `.lex-header` - Cabeçalho com informações do processo
-
-### 🔘 SEÇÃO 4: Interface do Usuário (Linhas 486-610)
-
-```javascript
-function criarBotaoChat() {
-  // Criar botão flutuante
-  // Aplicar estilos inline
-  // Adicionar event listeners
-}
-
-function abrirChat() {
-  // Abrir interface do chat
-}
-
-function criarInterfaceChat() {
-  // Extrair informações do processo
-  // Criar HTML do chat
-  // Configurar eventos
-  // Adicionar mensagem inicial
-}
-
-function atualizarStatusIA() {
-  // Atualizar indicador visual do status da IA
-}
-```
-
-**Função:** Criação e gerenciamento da interface visual.
-
-**Componentes:**
-- Botão flutuante (canto inferior direito)
-- Interface do chat (overlay)
-- Status da IA (verde/amarelo/vermelho)
-- Área de informações do processo
-
-### 💬 SEÇÃO 5: Sistema de Chat (Linhas 611-750)
-
-```javascript
-function configurarEventos() {
-  // Botão fechar
-  // Botão enviar
-  // Enter para enviar
-}
-
-function adicionarMensagemInicial() {
-  // Mensagem de boas-vindas
-  // Sugestões de comandos
-}
-
-function enviarMensagem(texto) {
-  // Adicionar mensagem do usuário
-  // Mostrar indicador "pensando"
-  // Gerar resposta com IA
-  // Exibir resposta
-}
-```
-
-**Função:** Gerenciamento de mensagens e interações do chat.
-
-**Fluxo:**
-1. Usuário digita mensagem
-2. Mensagem adicionada ao chat
-3. Indicador "pensando" exibido
-4. IA processa pergunta
-5. Resposta exibida no chat
-
-### 📄 SEÇÃO 6: Extração de Dados (Linhas 751-950)
-
-```javascript
-async function extrairConteudoDocumento() {
-  // Detectar iframe do documento
-  // Extrair URL do documento
-  // Fazer requisição autenticada
-  // Processar conteúdo (HTML/texto/PDF)
-}
-
-function extrairTextoDeHTML(html) {
-  // Limpar HTML
-  // Extrair texto puro
-  // Sanitizar conteúdo
-}
-
-function extrairInformacoesCompletas() {
-  // Extrair número do processo
-  // Extrair classe processual
-  // Extrair partes (autor/réu)
-  // Extrair ID do documento
-  // Identificar tribunal
-}
-
-function gerarInfoProcesso(info) {
-  // Gerar HTML com informações do processo
-}
-```
-
-**Função:** Extração de dados do PJe e documentos.
-
-**Dados Extraídos:**
-- Número do processo
-- Classe processual
-- Partes (autor, réu)
-- Tribunal
-- Conteúdo dos documentos
-- Metadados dos arquivos
-
-### 🧠 SEÇÃO 7: Inteligência Artificial (Linhas 951-1000+)
-
-```javascript
-async function gerarRespostaIA(pergunta) {
-  // Extrair contexto do processo
-  // Extrair conteúdo do documento
-  // Verificar disponibilidade da IA
-  // Gerar resposta ou usar fallback
-}
-
-function gerarRespostaFallback(pergunta) {
-  // Analisar tipo de pergunta
-  // Gerar resposta estruturada
-  // Incluir informações do processo
-}
-```
-
-**Função:** Processamento inteligente de perguntas e geração de respostas.
-
-**Tipos de Resposta:**
-- Análise de processo
-- Informações sobre documentos
-- Prazos processuais
-- Guias de peticionamento
-- Comandos de ajuda
-
-## 🔗 Fluxo de Dados
-
-### 📊 Diagrama de Fluxo
-
-```
-Página PJe carrega
-        ↓
-content-simple.js injeta
-        ↓
-Inicialização (DOM ready)
-        ↓
-Criação do OpenAI Client
-        ↓
-Adição de estilos CSS
-        ↓
-Criação do botão flutuante
-        ↓
-Aguarda clique do usuário
-        ↓
-Extração de dados do processo ← Cache DOM
-        ↓
-Criação da interface do chat
-        ↓
-Usuário digita pergunta
-        ↓
-Extração de conteúdo do documento ← Requisição autenticada
-        ↓
-Montagem do contexto completo
-        ↓
-Envio para OpenAI API ← Prompt especializado
-        ↓
-Processamento da resposta
-        ↓
-Exibição no chat
-```
-
-## 🎯 Pontos de Entrada e Saída
-
-### 📥 Entradas (Inputs)
-
-1. **DOM do PJe:** Informações do processo
-2. **Iframes:** Conteúdo dos documentos
-3. **Usuário:** Perguntas e comandos
-4. **OpenAI API:** Respostas da IA
-
-### 📤 Saídas (Outputs)
-
-1. **Interface Visual:** Botão e chat
-2. **Requisições HTTP:** Para documentos e OpenAI
-3. **Logs Console:** Para debug
-4. **Respostas:** Análises e informações
-
-## 🔧 Variáveis Globais Importantes
-
-```javascript
-// Controle de estado
-window.lexAssistantActive = true;
-
-// Interface
-let chatContainer = null;
-
-// Cache de performance
-const domCache = {
-  info: null,
-  lastUpdate: 0
-};
-
-// Cliente IA
-window.openaiClient = new OpenAIClient();
-```
-
-## 🎨 Classes CSS Principais
-
-```css
-.lex-chat          /* Container principal do chat */
-.lex-button        /* Botão flutuante */
-.lex-header        /* Cabeçalho com info do processo */
-.lex-messages      /* Área de mensagens */
-.lex-message       /* Mensagem individual */
-.lex-bubble        /* Balão da mensagem */
-.lex-input-area    /* Área de input */
-.lex-send          /* Botão enviar */
-```
-
-## 🚀 Funções de Alto Nível
-
-### 🎯 Funções Principais
-
-1. **`inicializar()`** - Ponto de entrada principal
-2. **`criarBotaoChat()`** - Cria interface visual
-3. **`enviarMensagem()`** - Processa interações
-4. **`gerarRespostaIA()`** - Gera respostas inteligentes
-5. **`extrairInformacoesCompletas()`** - Extrai dados do PJe
-
-### 🔧 Funções Utilitárias
-
-1. **`adicionarEstilos()`** - Injeta CSS
-2. **`configurarEventos()`** - Configura listeners
-3. **`atualizarStatusIA()`** - Atualiza indicadores
-4. **`extrairTextoDeHTML()`** - Processa documentos
-5. **`gerarInfoProcesso()`** - Formata informações
+- Todos os logs usam prefixo `[NomeModulo]` para filtragem no DevTools
+- Skills retornam `SkillResult { sucesso, dados?, mensagem, erro? }`
+- Eventos do agente emitidos via `agentEmitter` (EventEmitter singleton em `loop.ts`)
+- Skills com efeitos destrutivos exigem `confirmado: true` nos params (HITL pattern)
+- Paths usam `path.join()` — nunca concatenação de strings

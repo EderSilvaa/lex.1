@@ -181,7 +181,15 @@ export async function runAgentLoop(
             log(cfg.verbose, `🧠 Pensando...`);
             const thinkStart = Date.now();
 
-            const decisao = await think(state, cfg);
+            // Sinaliza UI para criar bubble vazia antes de receber tokens
+            emit({ type: 'streaming_start' as any });
+
+            // Callback de token: emitido apenas para tokens do campo "resposta" do JSON
+            const onStreamToken = (token: string) => {
+                emit({ type: 'token' as any, token });
+            };
+
+            const decisao = await think(state, cfg, onStreamToken);
 
             const thinkDuration = Date.now() - thinkStart;
 

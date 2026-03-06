@@ -74,24 +74,33 @@ export async function ensureStagehand(): Promise<void> {
 // Overlay visual no Chrome — mostra ação atual ao usuário
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Retorna a Playwright Page ativa do Stagehand (tenta .page, depois context.pages()) */
+function getActivePage(): any | null {
+  if (!instance) return null
+  // Stagehand v3 expõe .page diretamente
+  const direct = (instance as any).page
+  if (direct) return direct
+  // Fallback: via browserContext
+  const ctx = (instance as any).context ?? (instance as any).browserContext ?? (instance as any).ctx
+  const pages: any[] = ctx?.pages?.() ?? []
+  return pages[0] ?? null
+}
+
 const OVERLAY_CSS = `
   position:fixed;top:16px;right:16px;z-index:2147483647;
-  background:rgba(10,20,40,0.90);color:#e2e8f0;
-  padding:10px 16px;border-radius:10px;
-  font-family:-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.4;
-  max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  box-shadow:0 4px 24px rgba(0,0,0,0.55);
+  background:rgba(8,15,30,0.93);color:#e2e8f0;
+  padding:10px 16px;border-radius:12px;
+  font-family:-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.5;
+  max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 0 1px rgba(96,165,250,0.2);
   border:1px solid rgba(96,165,250,0.35);
-  transition:border-color 0.3s ease,opacity 0.4s ease;
-  pointer-events:none;
+  transition:border-color 0.25s ease;
+  pointer-events:none;backdrop-filter:blur(8px);
 `.replace(/\n\s+/g, '')
 
 /**
  * Injeta/atualiza overlay de status no Chrome.
  * Fire-and-forget — erros ignorados (page pode ter navegado).
- *
- * @param text  - Texto a exibir
- * @param done  - true = estado de conclusão (verde, auto-remove em 2.5s)
  */
 export function injectOverlay(text: string, done = false): void {
   void _injectOverlay(text, done)
@@ -99,10 +108,7 @@ export function injectOverlay(text: string, done = false): void {
 
 async function _injectOverlay(text: string, done: boolean): Promise<void> {
   try {
-    if (!instance) return
-    const ctx = (instance as any).context ?? (instance as any).ctx
-    const pages: any[] = ctx?.pages?.() ?? []
-    const page = pages[0]
+    const page = getActivePage()
     if (!page) return
 
     await page.evaluate(
@@ -116,17 +122,71 @@ async function _injectOverlay(text: string, done: boolean): Promise<void> {
           document.body?.appendChild(el)
         }
         if (done) {
-          el.style.borderColor = 'rgba(52,211,153,0.5)'
-          el.innerHTML = `<span style="color:#34d399;margin-right:6px">✓</span>${text}`
-          setTimeout(() => { const e = document.getElementById('__lex_overlay__'); if (e) e.remove() }, 2500)
+          el.style.borderColor = 'rgba(52,211,153,0.6)'
+          el.innerHTML = `<span style="color:#34d399;margin-right:7px;font-size:14px">✓</span>${text}`
+          setTimeout(() => { document.getElementById('__lex_overlay__')?.remove() }, 2500)
         } else {
-          el.style.borderColor = 'rgba(96,165,250,0.35)'
-          el.innerHTML = `<span style="color:#60a5fa;margin-right:6px">⚡</span>${text}`
+          el.style.borderColor = 'rgba(96,165,250,0.4)'
+          el.innerHTML = `<span style="color:#60a5fa;margin-right:7px;font-size:14px;display:inline-block;animation:__lex_spin 1s linear infinite">⟳</span>${text}`
+          // Injeta keyframe de spin uma vez
+          if (!document.getElementById('__lex_style__')) {
+            const s = document.createElement('style')
+            s.id = '__lex_style__'
+            s.textContent = `@keyframes __lex_spin{to{transform:rotate(360deg)}} @keyframes __lex_ripple{0%{transform:scale(0.3);opacity:0.9}100%{transform:scale(2.5);opacity:0}}`
+            document.head?.appendChild(s)
+          }
         }
       },
       { text, done, css: OVERLAY_CSS }
     )
   } catch { /* page navegou — ignorar */ }
+}
+
+/**
+ * Mostra animação de cursor/ripple no ponto de clique.
+ * Injeta círculo azul animado nas coordenadas (x, y) da página.
+ */
+export function showCursorAt(x: number, y: number): void {
+  void _showCursorAt(x, y)
+}
+
+async function _showCursorAt(x: number, y: number): Promise<void> {
+  try {
+    const page = getActivePage()
+    if (!page) return
+
+    await page.evaluate(
+      ({ x, y }: { x: number; y: number }) => {
+        // Garante keyframe presente
+        if (!document.getElementById('__lex_style__')) {
+          const s = document.createElement('style')
+          s.id = '__lex_style__'
+          s.textContent = `@keyframes __lex_spin{to{transform:rotate(360deg)}} @keyframes __lex_ripple{0%{transform:scale(0.3);opacity:0.9}100%{transform:scale(2.5);opacity:0}}`
+          document.head?.appendChild(s)
+        }
+        // Ponto central fixo
+        const dot = document.createElement('div')
+        dot.setAttribute('style', `
+          position:fixed;left:${x - 6}px;top:${y - 6}px;
+          width:12px;height:12px;border-radius:50%;
+          background:#60a5fa;pointer-events:none;z-index:2147483646;
+          box-shadow:0 0 8px rgba(96,165,250,0.9);
+        `.replace(/\n\s+/g, ''))
+        // Onda de ripple
+        const ring = document.createElement('div')
+        ring.setAttribute('style', `
+          position:fixed;left:${x - 20}px;top:${y - 20}px;
+          width:40px;height:40px;border-radius:50%;
+          border:2px solid rgba(96,165,250,0.8);pointer-events:none;z-index:2147483646;
+          animation:__lex_ripple 0.7s ease-out forwards;
+        `.replace(/\n\s+/g, ''))
+        document.body?.appendChild(dot)
+        document.body?.appendChild(ring)
+        setTimeout(() => { dot.remove(); ring.remove() }, 750)
+      },
+      { x, y }
+    )
+  } catch { /* ignorar */ }
 }
 
 /** Traduz nomes de tools do Stagehand para português legível */
@@ -156,13 +216,19 @@ function humanizeTool(toolName: string, detail: string): string {
  */
 export async function runBrowserTask(
   instruction: string,
-  maxSteps = 20,
+  maxSteps = 10,
   onStep?: (step: string) => void
 ): Promise<string> {
   await ensureStagehand()
   const stagehand = getStagehand()
   const agent = stagehand.agent({
-    model: 'anthropic/claude-haiku-4-5-20251001',  // Haiku para automação, Sonnet fica só no LEX agent
+    model: 'anthropic/claude-haiku-4-5-20251001',
+    systemPrompt: `Você é um agente de automação de browser para sistemas judiciais brasileiros (PJe).
+REGRAS:
+- Seja assertivo: execute a primeira ação óbvia sem hesitar.
+- Prefira navegação direta por URL quando possível.
+- Não explore desnecessariamente — se está na tela certa, encerre.
+- Complete a tarefa no MENOR número de ações possível.`,
   } as any)
 
   const isLimitMsg = (s: string) => /limite|limit|max.?step|timeout/i.test(s)
@@ -182,18 +248,29 @@ export async function runBrowserTask(
       instruction,
       maxSteps,
       onStepFinish: (step: any) => {
-        // Extrai info das tool calls para feedback em tempo real
         const toolCall = step?.toolCalls?.[0]
         let label = ''
         if (toolCall && toolCall.toolName !== 'think' && toolCall.toolName !== 'done') {
-          const detail = String(toolCall?.args?.instruction ?? toolCall?.args?.url ?? toolCall?.args?.text ?? '')
+          const args = toolCall?.args ?? {}
+          const detail = String(args.instruction ?? args.url ?? args.text ?? args.action ?? '')
           label = humanizeTool(toolCall.toolName, detail)
+
+          // Cursor ripple no ponto de clique (coordenadas podem vir como array ou x/y separados)
+          const coord = args.coordinate ?? args.startCoordinate
+          if (coord) {
+            const [cx, cy] = Array.isArray(coord) ? coord : [coord.x, coord.y]
+            if (typeof cx === 'number' && typeof cy === 'number') {
+              showCursorAt(cx, cy)
+            }
+          } else if (typeof args.x === 'number' && typeof args.y === 'number') {
+            showCursorAt(args.x, args.y)
+          }
         } else if (step?.text) {
           label = String(step.text).slice(0, 100)
         }
         if (label) {
           onStep?.(label)
-          injectOverlay(label)   // visual no Chrome
+          injectOverlay(label)
         }
       },
     } as any)

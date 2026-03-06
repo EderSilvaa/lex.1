@@ -3,9 +3,13 @@
  *
  * Gerencia sessões de chat multi-turn.
  * Mantém histórico de mensagens por sessão para dar contexto ao Agent Loop.
+ * Persiste em disco: %APPDATA%/lex-test1/sessions.json (ou equivalente).
  */
 
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 // ============================================================================
 // TYPES
@@ -15,8 +19,8 @@ export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
     timestamp: number;
-    runId?: string;       // ID do agent loop que gerou esta mensagem
-    skillsUsed?: string[]; // Skills executadas nesta resposta
+    runId?: string;
+    skillsUsed?: string[];
 }
 
 export interface ChatSession {
@@ -31,23 +35,23 @@ export interface ChatSession {
 // SESSION MANAGER
 // ============================================================================
 
+const MAX_SESSION_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+const MAX_STORED_SESSIONS = 50;
+
 export class SessionManager {
     private sessions = new Map<string, ChatSession>();
     private maxMessagesPerSession: number;
     private maxSessions: number;
+    private sessionsFile: string;
+    private saveScheduled = false;
 
-    /**
-     * @param maxMessages - Máximo de mensagens por sessão (default: 50)
-     * @param maxSessions - Máximo de sessões ativas (default: 20)
-     */
-    constructor(maxMessages: number = 50, maxSessions: number = 20) {
+    constructor(maxMessages = 50, maxSessions = 20) {
         this.maxMessagesPerSession = maxMessages;
         this.maxSessions = maxSessions;
+        this.sessionsFile = getSessionsFilePath();
+        this.loadFromDisk();
     }
 
-    /**
-     * Obtém ou cria uma sessão
-     */
     getOrCreate(sessionId?: string): ChatSession {
         if (sessionId && this.sessions.has(sessionId)) {
             return this.sessions.get(sessionId)!;
@@ -61,7 +65,6 @@ export class SessionManager {
             updatedAt: Date.now()
         };
 
-        // Evict sessão mais antiga se necessário
         if (this.sessions.size >= this.maxSessions) {
             this.evictOldest();
         }
@@ -71,9 +74,6 @@ export class SessionManager {
         return session;
     }
 
-    /**
-     * Adiciona mensagem a uma sessão
-     */
     addMessage(
         sessionId: string,
         role: 'user' | 'assistant',
@@ -91,35 +91,28 @@ export class SessionManager {
             ...(meta?.skillsUsed ? { skillsUsed: meta.skillsUsed } : {})
         };
         session.messages.push(message);
-
         session.updatedAt = Date.now();
 
-        // Truncar se exceder limite (mantém as mais recentes)
         if (session.messages.length > this.maxMessagesPerSession) {
             const excess = session.messages.length - this.maxMessagesPerSession;
             session.messages.splice(0, excess);
         }
+
+        // Persiste de forma assíncrona com debounce (max 1x/s)
+        this.scheduleSave();
     }
 
-    /**
-     * Obtém histórico da sessão para injetar no prompt
-     */
-    getHistory(sessionId: string, limit: number = 10): ChatMessage[] {
+    getHistory(sessionId: string, limit = 10): ChatMessage[] {
         const session = this.sessions.get(sessionId);
         if (!session || session.messages.length === 0) return [];
-
         return session.messages.slice(-limit);
     }
 
-    /**
-     * Formata histórico como texto para injeção no prompt do Agent Loop
-     */
-    formatHistoryForPrompt(sessionId: string, limit: number = 8): string {
+    formatHistoryForPrompt(sessionId: string, limit = 8): string {
         const history = this.getHistory(sessionId, limit);
         if (history.length === 0) return '';
 
         let formatted = '\n--- HISTÓRICO DA CONVERSA ---\n';
-
         for (const msg of history) {
             const roleLabel = msg.role === 'user' ? 'Usuário' : 'Assistente';
             const truncated = msg.content.length > 500
@@ -127,30 +120,20 @@ export class SessionManager {
                 : msg.content;
             formatted += `[${roleLabel}]: ${truncated}\n`;
         }
-
         formatted += '--- FIM DO HISTÓRICO ---\n';
         formatted += 'Use o histórico acima como contexto. A mensagem atual do usuário é o objetivo principal.\n';
-
         return formatted;
     }
 
-    /**
-     * Verifica se sessão existe
-     */
     has(sessionId: string): boolean {
         return this.sessions.has(sessionId);
     }
 
-    /**
-     * Remove uma sessão
-     */
     delete(sessionId: string): void {
         this.sessions.delete(sessionId);
+        this.scheduleSave();
     }
 
-    /**
-     * Lista sessões ativas
-     */
     listSessions(): Array<{ id: string; messageCount: number; updatedAt: number }> {
         return Array.from(this.sessions.values()).map(s => ({
             id: s.id,
@@ -159,26 +142,88 @@ export class SessionManager {
         }));
     }
 
+    /** Salva imediatamente — chamar no quit do app */
+    async flush(): Promise<void> {
+        await this.saveToDisk();
+    }
+
     // ========================================================================
-    // PRIVATE
+    // Persistência
     // ========================================================================
+
+    private loadFromDisk(): void {
+        try {
+            if (!fs.existsSync(this.sessionsFile)) return;
+
+            const raw = fs.readFileSync(this.sessionsFile, 'utf-8');
+            const data: Record<string, ChatSession> = JSON.parse(raw);
+            const now = Date.now();
+            let loaded = 0;
+
+            for (const session of Object.values(data)) {
+                if (now - session.updatedAt > MAX_SESSION_AGE_MS) continue;
+                if (!session.id || !Array.isArray(session.messages)) continue;
+                this.sessions.set(session.id, session);
+                loaded++;
+                if (loaded >= MAX_STORED_SESSIONS) break;
+            }
+
+            console.log(`[Session] Carregadas ${loaded} sessões do disco`);
+        } catch (e: any) {
+            console.warn('[Session] Não foi possível carregar sessões:', e.message);
+        }
+    }
+
+    private async saveToDisk(): Promise<void> {
+        try {
+            const dir = path.dirname(this.sessionsFile);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+            const sorted = Array.from(this.sessions.values())
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .slice(0, MAX_STORED_SESSIONS);
+
+            const data: Record<string, ChatSession> = {};
+            for (const s of sorted) data[s.id] = s;
+
+            fs.writeFileSync(this.sessionsFile, JSON.stringify(data), 'utf-8');
+        } catch (e: any) {
+            console.warn('[Session] Falha ao salvar sessões:', e.message);
+        }
+    }
+
+    private scheduleSave(): void {
+        if (this.saveScheduled) return;
+        this.saveScheduled = true;
+        setTimeout(() => {
+            this.saveScheduled = false;
+            this.saveToDisk().catch(() => {});
+        }, 1000);
+    }
 
     private evictOldest(): void {
         let oldestId: string | null = null;
         let oldestTime = Infinity;
-
         for (const [id, session] of this.sessions) {
             if (session.updatedAt < oldestTime) {
                 oldestTime = session.updatedAt;
                 oldestId = id;
             }
         }
-
         if (oldestId) {
             this.sessions.delete(oldestId);
             console.log(`[Session] Evicted sessão mais antiga: ${oldestId}`);
         }
     }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function getSessionsFilePath(): string {
+    const appData = process.env['APPDATA'] || os.homedir();
+    return path.join(appData, 'lex-test1', 'sessions.json');
 }
 
 // ============================================================================

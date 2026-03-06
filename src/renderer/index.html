@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co ws://127.0.0.1:* http://127.0.0.1:*;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co ws://127.0.0.1:* http://127.0.0.1:*;">
     <title>Lex - AI Legal Agent</title>
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/file-manager.css">
@@ -27,29 +27,26 @@
                     </svg>
                     <span class="label">Chat</span>
                 </button>
-                <button class="nav-item" id="nav-pje" title="PJe">
-                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
-                        fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
-                    </svg>
-                    <span class="label">PJe</span>
-                </button>
-                <button class="nav-item" id="nav-files" title="Arquivos">
+<button class="nav-item" id="nav-files" title="Arquivos">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span class="label">Arquivos</span>
                 </button>
-                <button class="nav-item" id="nav-history" title="Historico">
-                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
-                        fill="none" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    <span class="label">Historico</span>
-                </button>
             </nav>
+
+            <div class="conv-section">
+                <div class="conv-section-header">
+                    <span class="conv-section-title">Conversas</span>
+                    <button class="icon-btn" id="btn-new-conv" title="Nova conversa">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="conv-list" class="conv-list"></div>
+            </div>
 
             <div class="sidebar-footer">
                 <button class="nav-item" id="nav-settings" title="Configuracoes">
@@ -72,6 +69,10 @@
                     <div class="greeting-section">
                         <h1>Ola, Eder Silva</h1>
                         <p class="subtitle">Como posso ajudar voce hoje?</p>
+                    <div id="pje-status-pill" class="pje-status-pill disconnected">
+                        <span class="pje-dot"></span>
+                        <span class="pje-label">PJe desconectado</span>
+                    </div>
                     </div>
 
                     <div id="chat-messages" class="chat-messages">
@@ -79,6 +80,13 @@
                     </div>
 
                     <div class="input-area">
+                        <div id="attachment-chip" class="attachment-chip hidden">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                            </svg>
+                            <span class="attachment-name" id="attachment-name"></span>
+                            <button class="attachment-remove" id="btn-remove-attachment" title="Remover arquivo">×</button>
+                        </div>
                         <div class="input-wrapper">
                             <textarea placeholder="Responder..."></textarea>
                             <button class="stop-btn" title="Parar agente" style="display:none">
@@ -93,6 +101,73 @@
                                 </svg>
                             </button>
                         </div>
+                        <div class="input-toolbar">
+                            <div class="toolbar-left">
+                                <button class="toolbar-btn" id="btn-attach" title="Anexar arquivo">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                                    </svg>
+                                    Anexar
+                                </button>
+                            </div>
+                            <div class="toolbar-right">
+                                <span class="input-hint">Shift+Enter para nova linha</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="suggestion-cards" id="suggestion-cards">
+                        <button class="suggestion-card" data-prompt="Abrir o PJe do TRT8">
+                            <div class="sc-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
+                                    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
+                                    <path d="M7 21h10"/><path d="M12 3v18"/>
+                                    <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>
+                                </svg>
+                            </div>
+                            <div class="sc-body">
+                                <span class="sc-title">Abrir PJe</span>
+                                <span class="sc-desc">Acessar o sistema do TRT8</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="Quero consultar um processo no PJe">
+                            <div class="sc-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8"/>
+                                    <path d="m21 21-4.35-4.35"/>
+                                </svg>
+                            </div>
+                            <div class="sc-body">
+                                <span class="sc-title">Consultar processo</span>
+                                <span class="sc-desc">Buscar por numero no PJe</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="Ver as movimentacoes recentes de um processo no PJe">
+                            <div class="sc-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                                    <rect x="9" y="3" width="6" height="4" rx="2"/>
+                                    <path d="M9 12h6M9 16h4"/>
+                                </svg>
+                            </div>
+                            <div class="sc-body">
+                                <span class="sc-title">Movimentacoes</span>
+                                <span class="sc-desc">Ultimas atualizacoes do processo</span>
+                            </div>
+                        </button>
+                        <button class="suggestion-card" data-prompt="Verificar prazos nos meus processos no PJe">
+                            <div class="sc-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                            </div>
+                            <div class="sc-body">
+                                <span class="sc-title">Verificar prazos</span>
+                                <span class="sc-desc">Processos com prazo proximo</span>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -135,6 +210,8 @@
         </main>
     </div>
 
+    <script src="js/marked.min.js"></script>
+    <script src="js/purify.min.js"></script>
     <script src="js/app.js"></script>
     <script src="js/file-manager.js"></script>
 </body>

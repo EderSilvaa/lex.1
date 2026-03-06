@@ -19,9 +19,13 @@
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^3.1.0",
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "@supabase/supabase-js": "^2.98.0",
     "@types/pdf-parse": "^1.1.5",
+    "dompurify": "^3.3.2",
     "electron-store": "^8.1.0",
     "mammoth": "^1.11.0",
+    "marked": "^17.0.4",
     "node-fetch": "^3.3.2",
     "pdf-parse": "^2.4.5",
     "playwright-core": "^1.58.1"

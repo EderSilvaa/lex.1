@@ -82,6 +82,23 @@
     color: #e8e0d4;
 }
 
+/* Cursor piscante durante streaming */
+.stream-cursor {
+    display: inline-block;
+    color: #7b8fa1;
+    animation: blink 0.8s step-end infinite;
+    margin-left: 1px;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+}
+
+.message.streaming .msg-content {
+    white-space: pre-wrap;
+}
+
 .message.user .msg-content {
     border: 0;
     background: transparent;

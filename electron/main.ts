@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
 import { initStagehand, closeStagehand, getStagehand } from './stagehand-manager';
+import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
+import { encryptApiKey, safeDecrypt, isEncrypted } from './crypto-store';
 
 // Agent module loaded dynamically after app ready
 let agentModule: {
@@ -12,6 +14,7 @@ let agentModule: {
     cancelAgentLoop: (runId?: string) => boolean;
     agentEmitter: import('events').EventEmitter;
     getDefaultTenantConfig: () => any;
+    getSessionManager: () => any;
 } | null = null;
 const AGENT_SESSION_ID = randomUUID();
 
@@ -357,12 +360,17 @@ async function initStore() {
     store = new Store();
 
     const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
-    const storeKey = String(store.get('anthropicKey', '') || '').trim();
+    const rawStoreKey = String(store.get('anthropicKey', '') || '').trim();
+
+    // Descriptografa (ou retorna plain se legado)
+    const storeKey = rawStoreKey ? safeDecrypt(rawStoreKey) : '';
     const resolvedKey = storeKey || envKey;
 
-    // Persiste a chave resolvida para manter consistência entre inicializações.
-    if (!store.has('anthropicKey') || storeKey !== resolvedKey) {
-        store.set('anthropicKey', resolvedKey);
+    // Persiste criptografado (migra plain text legado automaticamente)
+    if (resolvedKey && !isEncrypted(rawStoreKey)) {
+        store.set('anthropicKey', encryptApiKey(resolvedKey));
+    } else if (!store.has('anthropicKey') && resolvedKey) {
+        store.set('anthropicKey', encryptApiKey(resolvedKey));
     }
 
     await syncAnthropicKey(resolvedKey);
@@ -372,7 +380,8 @@ async function initStore() {
 ipcMain.handle('store-set-anthropic-key', async (_event, key: string) => {
     if (!store) return { error: 'Store not initialized' };
     const normalizedKey = String(key || '').trim();
-    store.set('anthropicKey', normalizedKey);
+    // Salva sempre criptografado
+    store.set('anthropicKey', normalizedKey ? encryptApiKey(normalizedKey) : '');
     await syncAnthropicKey(normalizedKey);
     return { success: true, configured: normalizedKey.length > 0 };
 });
@@ -789,6 +798,8 @@ app.whenReady().then(async () => {
     createWindow();
     registerCrawlerHandlers(); // LOGIN CRAWLER
 
+    initRouteMemory();
+
     // Inicia Stagehand + Chrome externo em background (não bloqueia o app)
     initStagehand().catch(err => console.error('[Stagehand] Falha ao iniciar:', err));
 
@@ -798,7 +809,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', async function () {
+    flushRouteMemory();
     await closeStagehand();
+    // Persiste sessões antes de sair
+    try {
+        if (agentModule) {
+            const sm = agentModule.getSessionManager();
+            if (sm?.flush) await sm.flush();
+        }
+    } catch (e) { /* non-critical */ }
     if (process.platform !== 'darwin') app.quit();
 });
 
@@ -810,6 +829,49 @@ ipcMain.handle('save-history', async (_event, messages) => {
 
 ipcMain.handle('get-history', async () => {
     return store ? store.get('chatHistory', []) : [];
+});
+
+// ============================================================================
+// CONVERSATIONS (multi-session persistence)
+// ============================================================================
+
+ipcMain.handle('conversations-list', async () => {
+    const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
+    return Object.values(convs)
+        .map((c: any) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, messageCount: c.messages?.length || 0 }))
+        .sort((a: any, b: any) => b.updatedAt - a.updatedAt)
+        .slice(0, 50);
+});
+
+ipcMain.handle('conversations-save', async (_event, conv) => {
+    const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
+    convs[conv.id] = conv;
+    store?.set('conversations', convs);
+    return { success: true };
+});
+
+ipcMain.handle('conversations-load', async (_event, id: string) => {
+    const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
+    return convs[id] || null;
+});
+
+ipcMain.handle('conversations-delete', async (_event, id: string) => {
+    const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
+    delete convs[id];
+    store?.set('conversations', convs);
+    return { success: true };
+});
+
+// Pre-seed agent session with saved messages (for context on conversation reload)
+ipcMain.handle('session-seed', async (_event, sessionId: string, messages: any[]) => {
+    const agent = await loadAgentModule();
+    const sm = agent.getSessionManager();
+    sm.getOrCreate(sessionId);
+    for (const msg of messages.slice(-8)) {
+        const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
+        sm.addMessage(sessionId, role, msg.content);
+    }
+    return { success: true };
 });
 
 ipcMain.handle('save-preferences', async (_event, prefs) => {

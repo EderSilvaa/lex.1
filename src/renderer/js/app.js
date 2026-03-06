@@ -16,6 +16,7 @@ const mainChatContainer = document.querySelector('.chat-container');
 let currentAgentMessageId = null;
 let agentThinkingElement = null;
 let isAgentWaitingUser = false; // Tracks if agent session is active and waiting for reply
+let currentStreamingMsg = null; // Elemento da bubble sendo populada via streaming
 let routingLoadingId = null;    // Loading bubble shown while routing/starting agent
 
 function showStopBtn() {
@@ -81,8 +82,31 @@ function setupAgentEvents() {
                 console.log('[Agent] Observing:', event.observacao);
                 break;
 
+            case 'streaming_start':
+                // Cria bubble vazia antecipadamente para o streaming
+                currentStreamingMsg = createStreamingBubble();
+                break;
+
+            case 'token':
+                // Appenda token na bubble de streaming
+                if (currentStreamingMsg) {
+                    const span = currentStreamingMsg.querySelector('.stream-text');
+                    if (span) {
+                        span.textContent += event.token;
+                        const ml = document.getElementById('chat-messages');
+                        if (ml) ml.scrollTop = ml.scrollHeight;
+                    }
+                }
+                break;
+
             case 'completed':
-                finalizeAgentResponse(event.resposta);
+                if (currentStreamingMsg && event.resposta) {
+                    // Re-renderiza a bubble com markdown completo
+                    finalizeStreamingBubble(currentStreamingMsg, event.resposta);
+                    currentStreamingMsg = null;
+                } else {
+                    finalizeAgentResponse(event.resposta);
+                }
                 isAgentWaitingUser = false;
                 completeAgentSession();
                 break;
@@ -122,6 +146,38 @@ function setupAgentEvents() {
                 break;
         }
     });
+}
+
+// Cria bubble vazia de streaming (antes dos tokens chegarem)
+function createStreamingBubble() {
+    const messageList = document.getElementById('chat-messages');
+    const greeting = document.querySelector('.greeting-section');
+    if (!messageList) return null;
+
+    if (greeting && greeting.style.display !== 'none') greeting.style.display = 'none';
+    if (mainChatContainer) mainChatContainer.classList.add('has-messages');
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message ai streaming';
+    msgDiv.innerHTML = '<div class="message-body"><div class="msg-content markdown-body"><span class="stream-text"></span><span class="stream-cursor">▋</span></div></div>';
+    messageList.appendChild(msgDiv);
+    messageList.scrollTop = messageList.scrollHeight;
+    return msgDiv;
+}
+
+// Finaliza bubble de streaming: aplica markdown completo e remove cursor
+function finalizeStreamingBubble(msgDiv, fullText) {
+    if (!msgDiv) return;
+    msgDiv.classList.remove('streaming');
+    const body = msgDiv.querySelector('.message-body');
+    if (!body) return;
+
+    const rawText = typeof fullText === 'string' ? fullText : String(fullText || '');
+    const htmlContent = renderMarkdownSafe(rawText);
+    body.innerHTML = `<div class="msg-content markdown-body">${htmlContent}</div>`;
+
+    const messageList = document.getElementById('chat-messages');
+    if (messageList) messageList.scrollTop = messageList.scrollHeight;
 }
 
 // Create or update the agent's thinking bubble
@@ -294,6 +350,8 @@ function finalizeAgentResponse(resposta) {
 
     // 2. Add the final response as a SEPARATE standard message
     addMessageToUI(resposta, 'ai');
+    trackMessage('assistant', resposta);
+    saveCurrentConversation();
 }
 
 // Show agent error
@@ -385,7 +443,12 @@ if (chatInput) {
 }
 
 // Generate a unique session ID for this window/user session
-const currentSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+let currentSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+
+// ── Conversation state ──────────────────────────────────────────────────────
+let convId = currentSessionId;
+let convTitle = null;
+let convMessages = []; // { role, content, timestamp }
 
 // Mode Routing: use Agent Loop only for operational/automation intents.
 const USE_AGENT_LOOP = true;
@@ -398,6 +461,7 @@ if (sendBtn) {
         if (!text.trim()) return;
 
         addMessageToUI(text, 'user');
+        trackMessage('user', text);
 
         chatInput.value = '';
         sendBtn.setAttribute('disabled', 'true');
@@ -463,6 +527,8 @@ if (sendBtn) {
                     } else if (response.plan) {
                         const aiText = response.plan.intent?.description || "Plano recebido.";
                         addMessageToUI(aiText, 'ai');
+                        trackMessage('assistant', aiText);
+                        saveCurrentConversation();
 
                         if (response.plan.steps && response.plan.steps.length > 0) {
                             // Automation Card message
@@ -623,35 +689,24 @@ function updateAutomationCardStatus(cardId, status) {
 const navItems = document.querySelectorAll('.nav-item');
 const views = {
     'nav-chat': document.querySelector('.chat-wrapper'),
-    'nav-pje': null,
     'nav-files': document.querySelector('.file-manager-wrapper'),
-    'nav-history': null, // Todo
-    'nav-settings': null // Todo
+    'nav-history': null,
+    'nav-settings': null
 };
 
 navItems.forEach(item => {
     item.addEventListener('click', () => {
         const viewId = item.id;
 
-        // 1. Update Active State
+        // Update Active State
         navItems.forEach(n => n.classList.remove('active'));
         item.classList.add('active');
 
-        // 2. Handle Views
-        if (viewId === 'nav-pje') {
-            showChatView();
-            return;
-        }
-
-        if (isWidgetVisible) {
-        }
-
-        // Standard Tab Switching
-        // Hide all main views
+        // Hide all switchable views
         if (views['nav-chat']) views['nav-chat'].classList.add('hidden');
         if (views['nav-files']) views['nav-files'].classList.add('hidden');
 
-        // Show target
+        // Show target view
         if (views[viewId]) {
             views[viewId].classList.remove('hidden');
         }
@@ -808,6 +863,269 @@ function addMessageToUI(text, type) {
 
 function addLoadingToUI() {
     return addMessageToUI('Analisando...', 'loading');
+}
+
+// ============================================================================
+// PJe STATUS PILL
+// ============================================================================
+
+async function updatePjeStatus() {
+    const pill = document.getElementById('pje-status-pill');
+    if (!pill || !window.lexApi?.checkPje) return;
+    try {
+        const status = await window.lexApi.checkPje();
+        const label = pill.querySelector('.pje-label');
+        if (status.isPje) {
+            pill.className = 'pje-status-pill connected';
+            if (label) label.textContent = 'TRT8 conectado';
+        } else if (status.connected) {
+            pill.className = 'pje-status-pill active';
+            if (label) label.textContent = 'Navegador ativo';
+        } else {
+            pill.className = 'pje-status-pill disconnected';
+            if (label) label.textContent = 'PJe desconectado';
+        }
+    } catch {
+        const pill = document.getElementById('pje-status-pill');
+        if (pill) pill.className = 'pje-status-pill disconnected';
+    }
+}
+
+// ============================================================================
+// SUGGESTION CARDS + INPUT TOOLBAR + ATTACHMENT
+// ============================================================================
+
+let attachedFile = null;
+
+function sendPrompt(text) {
+    if (!text || !chatInput || !sendBtn) return;
+    chatInput.value = text;
+    chatInput.dispatchEvent(new Event('input'));
+    sendBtn.click();
+}
+
+function setDynamicGreeting() {
+    const h1 = document.querySelector('.greeting-section h1');
+    const subtitle = document.querySelector('.greeting-section .subtitle');
+
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
+
+    // Extrai o nome do texto atual do h1
+    const currentText = h1?.textContent || '';
+    const name = currentText.replace(/^(Ola|Bom dia|Boa tarde|Boa noite),?\s*/i, '').trim() || 'Eder Silva';
+
+    if (h1) h1.textContent = `${greeting}, ${name}`;
+
+    const subtitles = [
+        'Como posso ajudar voce hoje?',
+        'Algum processo para consultar?',
+        'O que vamos resolver hoje?',
+        'Pronto para sua jornada juridica.',
+        'Seus processos aguardam.',
+        'Em que posso ser util?',
+        'Vamos trabalhar?',
+    ];
+    if (subtitle) {
+        subtitle.textContent = subtitles[Math.floor(Math.random() * subtitles.length)];
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setDynamicGreeting();
+
+    // PJe status polling
+    updatePjeStatus();
+    setInterval(updatePjeStatus, 5000);
+
+    // Pill click -> abrir PJe
+    const pill = document.getElementById('pje-status-pill');
+    if (pill) {
+        pill.addEventListener('click', () => {
+            if (pill.classList.contains('connected') || pill.classList.contains('active')) {
+                sendPrompt('Abrir o PJe do TRT8');
+            }
+        });
+    }
+
+    // Suggestion cards
+    document.querySelectorAll('.suggestion-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const prompt = card.dataset.prompt;
+            if (prompt) sendPrompt(prompt);
+        });
+    });
+
+    // Attachment chip remove
+    const btnRemove = document.getElementById('btn-remove-attachment');
+    const attachChip = document.getElementById('attachment-chip');
+    if (btnRemove) {
+        btnRemove.addEventListener('click', () => {
+            attachedFile = null;
+            if (attachChip) attachChip.classList.add('hidden');
+        });
+    }
+
+    // Attach button
+    const btnAttach = document.getElementById('btn-attach');
+    if (btnAttach) {
+        btnAttach.addEventListener('click', async () => {
+            if (!window.filesApi?.selectFile) return;
+            const filePath = await window.filesApi.selectFile();
+            if (!filePath) return;
+            const result = await window.filesApi.readFile(filePath);
+            if (!result?.success) return;
+            const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
+            attachedFile = { path: filePath, name: fileName, content: result.text || '' };
+            const nameEl = document.getElementById('attachment-name');
+            if (nameEl) nameEl.textContent = fileName;
+            if (attachChip) attachChip.classList.remove('hidden');
+        });
+    }
+
+    // Inject attachment content into textarea before send
+    if (sendBtn) {
+        sendBtn.addEventListener('mousedown', () => {
+            if (!attachedFile) return;
+            const existing = chatInput.value.trim();
+            const snippet = attachedFile.content.slice(0, 3000);
+            const prefix = `[Arquivo: ${attachedFile.name}]\n${snippet}`;
+            chatInput.value = existing ? `${prefix}\n\n${existing}` : prefix;
+            chatInput.dispatchEvent(new Event('input'));
+            attachedFile = null;
+            const chip = document.getElementById('attachment-chip');
+            if (chip) chip.classList.add('hidden');
+        });
+    }
+
+    // Conversations
+    renderConvList();
+    document.getElementById('btn-new-conv')?.addEventListener('click', newConversation);
+});
+
+// ============================================================================
+// MULTI-CONVERSATION MANAGEMENT
+// ============================================================================
+
+function formatRelativeTime(ts) {
+    const d = Date.now() - ts;
+    if (d < 60000) return 'agora';
+    if (d < 3600000) return Math.floor(d / 60000) + 'm';
+    if (d < 86400000) return Math.floor(d / 3600000) + 'h';
+    if (d < 604800000) return Math.floor(d / 86400000) + 'd';
+    return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function trackMessage(role, content) {
+    convMessages.push({ role, content, timestamp: Date.now() });
+    if (role === 'user' && !convTitle) {
+        convTitle = content.replace(/\n/g, ' ').slice(0, 50);
+    }
+}
+
+async function saveCurrentConversation() {
+    if (!window.lexApi?.saveConversation || convMessages.length === 0) return;
+    await window.lexApi.saveConversation({
+        id: convId,
+        title: convTitle || 'Nova conversa',
+        createdAt: convMessages[0].timestamp,
+        updatedAt: Date.now(),
+        messages: convMessages
+    });
+    renderConvList();
+}
+
+async function renderConvList() {
+    const list = document.getElementById('conv-list');
+    if (!list || !window.lexApi?.listConversations) return;
+    const convs = await window.lexApi.listConversations();
+    if (convs.length === 0) {
+        list.innerHTML = '<div style="padding:8px 10px;font-size:11px;color:var(--text-muted)">Nenhuma conversa</div>';
+        return;
+    }
+    list.innerHTML = convs.map(c => `
+        <button class="conv-item${c.id === convId ? ' active' : ''}" data-id="${escapeHtml(c.id)}">
+            <span class="conv-title">${escapeHtml(c.title || 'Nova conversa')}</span>
+            <span class="conv-time">${formatRelativeTime(c.updatedAt)}</span>
+            <button class="conv-delete" data-id="${escapeHtml(c.id)}" title="Excluir">×</button>
+        </button>
+    `).join('');
+
+    list.querySelectorAll('.conv-item').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (e.target.closest('.conv-delete')) return;
+            switchConversation(btn.dataset.id);
+        });
+    });
+    list.querySelectorAll('.conv-delete').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            await window.lexApi.deleteConversation(id);
+            if (id === convId) newConversation();
+            else renderConvList();
+        });
+    });
+}
+
+async function switchConversation(id) {
+    if (id === convId) return;
+    if (convMessages.length > 0) await saveCurrentConversation();
+
+    const conv = await window.lexApi.loadConversation(id);
+    if (!conv) return;
+
+    // Clear UI
+    const msgList = document.getElementById('chat-messages');
+    if (msgList) msgList.innerHTML = '';
+    if (agentThinkingElement) agentThinkingElement = null;
+    if (mainChatContainer) mainChatContainer.classList.remove('has-messages');
+    const greeting = document.querySelector('.greeting-section');
+    if (greeting) greeting.style.display = '';
+
+    // Restore state
+    convId = conv.id;
+    currentSessionId = conv.id;
+    convTitle = conv.title;
+    convMessages = conv.messages || [];
+
+    // Seed agent session with history for context
+    if (window.lexApi?.seedSession && convMessages.length > 0) {
+        await window.lexApi.seedSession(conv.id, convMessages);
+    }
+
+    // Render saved messages (suppress tracking/auto-save)
+    if (convMessages.length > 0) {
+        if (mainChatContainer) mainChatContainer.classList.add('has-messages');
+        if (greeting) greeting.style.display = 'none';
+        for (const msg of convMessages) {
+            addMessageToUI(msg.content, msg.role === 'user' ? 'user' : 'ai');
+        }
+    }
+
+    renderConvList();
+}
+
+async function newConversation() {
+    if (convMessages.length > 0) await saveCurrentConversation();
+
+    // Clear UI
+    const msgList = document.getElementById('chat-messages');
+    if (msgList) msgList.innerHTML = '';
+    if (agentThinkingElement) agentThinkingElement = null;
+    if (mainChatContainer) mainChatContainer.classList.remove('has-messages');
+    const greeting = document.querySelector('.greeting-section');
+    if (greeting) greeting.style.display = '';
+    setDynamicGreeting();
+
+    // New session
+    const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+    convId = newId;
+    currentSessionId = newId;
+    convTitle = null;
+    convMessages = [];
+
+    await renderConvList();
 }
 
 function addAutomationCardToUI() {

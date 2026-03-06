@@ -1,0 +1,123 @@
+/**
+ * Route Memory — aprende e persiste mapeamentos destino → URL que funcionaram.
+ *
+ * Persiste em: userData/pje-route-memory.json
+ * Chave: "tribunal:destino_normalizado"  ex: "trt8:peticionamento"
+ *
+ * Prioridade de consulta em pje_navegar:
+ *   1. Route Memory (aprendido, confirmado pelo uso)
+ *   2. tribunal-urls.ts (estático)
+ *   3. Stagehand agent (visual)
+ */
+
+import { app } from 'electron'
+import path from 'path'
+import fs from 'fs'
+
+interface RouteEntry {
+  url: string
+  lastUsed: number
+  successCount: number
+}
+
+interface RouteStore {
+  version: number
+  routes: Record<string, RouteEntry>
+}
+
+let storePath: string | null = null
+let store: RouteStore = { version: 1, routes: {} }
+let dirty = false
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+function getStorePath(): string {
+  if (!storePath) {
+    storePath = path.join(app.getPath('userData'), 'pje-route-memory.json')
+  }
+  return storePath
+}
+
+export function initRouteMemory(): void {
+  try {
+    const p = getStorePath()
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, 'utf8')
+      const parsed = JSON.parse(raw) as RouteStore
+      if (parsed?.version === 1 && parsed.routes) {
+        store = parsed
+        console.log(`[RouteMemory] Carregado ${Object.keys(store.routes).length} rotas aprendidas`)
+      }
+    }
+  } catch { /* arquivo corrompido — começa do zero */ }
+}
+
+/** Normaliza destino para chave consistente */
+function normalizeDestino(destino: string): string {
+  return String(destino)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')  // remove acentos
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function makeKey(tribunal: string, destino: string): string {
+  const t = String(tribunal || 'default').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return `${t}:${normalizeDestino(destino)}`
+}
+
+/** Consulta URL aprendida para um destino. Retorna null se não encontrado. */
+export function lookupRoute(tribunal: string, destino: string): string | null {
+  const key = makeKey(tribunal, destino)
+  const entry = store.routes[key]
+  if (entry) {
+    console.log(`[RouteMemory] Hit: "${key}" → ${entry.url} (usado ${entry.successCount}x)`)
+    return entry.url
+  }
+
+  // Busca parcial — se a chave contém o destino normalizado
+  const norm = normalizeDestino(destino)
+  const t = String(tribunal || 'default').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const prefix = `${t}:`
+  for (const [k, v] of Object.entries(store.routes)) {
+    if (k.startsWith(prefix) && (k.includes(norm) || norm.includes(k.replace(prefix, '')))) {
+      console.log(`[RouteMemory] Partial hit: "${k}" para "${destino}"`)
+      return v.url
+    }
+  }
+
+  return null
+}
+
+/** Salva uma rota bem-sucedida. Chama após navegação confirmada. */
+export function saveRoute(tribunal: string, destino: string, url: string): void {
+  if (!url || url.includes('login') || url.includes('Login')) return  // não salva redirecionamentos de login
+
+  const key = makeKey(tribunal, destino)
+  const existing = store.routes[key]
+  store.routes[key] = {
+    url,
+    lastUsed: Date.now(),
+    successCount: (existing?.successCount ?? 0) + 1
+  }
+  dirty = true
+  scheduleSave()
+  console.log(`[RouteMemory] Salvo: "${key}" → ${url}`)
+}
+
+/** Persiste debounced (evita I/O excessivo) */
+function scheduleSave(): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(flush, 2000)
+}
+
+export function flush(): void {
+  if (!dirty) return
+  try {
+    fs.writeFileSync(getStorePath(), JSON.stringify(store, null, 2), 'utf8')
+    dirty = false
+  } catch (err) {
+    console.error('[RouteMemory] Erro ao salvar:', err)
+  }
+}

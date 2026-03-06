@@ -10,22 +10,17 @@ import { getSkillsForPrompt } from './executor';
 import { buildPromptLayerSystem } from './prompt-layer';
 
 /**
- * Decide prÃ³ximo passo baseado no estado atual
+ * Decide próximo passo baseado no estado atual.
+ * onToken: callback chamado para cada token do campo "resposta" no JSON gerado.
  */
 export async function think(
     state: AgentState,
-    config: AgentConfig
+    config: AgentConfig,
+    onToken?: (token: string) => void
 ): Promise<ThinkDecision> {
-    // Monta system prompt (Prompt-Layer + Skills + Contexto)
     const systemPrompt = buildSystemPrompt(state);
-
-    // Monta user prompt (objetivo + histÃ³rico)
     const userPrompt = buildUserPrompt(state);
-
-    // Chama LLM
-    const response = await callLLM(systemPrompt, userPrompt, config);
-
-    // Parse resposta
+    const response = await callLLM(systemPrompt, userPrompt, config, onToken);
     return parseThinkResponse(response);
 }
 
@@ -296,23 +291,104 @@ Analise o objetivo e o contexto. Decida o prÃ³ximo passo e responda em JSON.`)
 async function callLLM(
     systemPrompt: string,
     userPrompt: string,
-    config: AgentConfig
+    config: AgentConfig,
+    onToken?: (token: string) => void
 ): Promise<string> {
-    // Importa dinamicamente para evitar dependÃªncia circular
     const { callAI } = await import('../ai-handler');
 
     try {
         const response = await callAI({
             system: systemPrompt,
             user: userPrompt,
-            temperature: config.temperature ?? 0.3, // Mais determinÃ­stico
-            ...(config.model ? { model: config.model } : {})
+            temperature: config.temperature ?? 0.3,
+            ...(config.model ? { model: config.model } : {}),
+            // Filtra tokens: só emite o conteúdo do campo "resposta" do JSON
+            ...(onToken ? { onToken: createRespostaExtractor(onToken) } : {})
         });
 
         return response;
     } catch (error: any) {
         console.error('[Think] Erro ao chamar LLM:', error);
-        throw new Error(`Falha ao processar raciocÃ­nio: ${error.message}`);
+        throw new Error(`Falha ao processar raciocínio: ${error.message}`);
+    }
+}
+
+/**
+ * State machine que filtra o stream JSON e emite apenas os tokens
+ * dentro do campo "resposta": "...".
+ *
+ * Estados:
+ *   SCANNING     → procura pela chave "resposta" no buffer acumulado
+ *   IN_VALUE     → emite cada char (desescapando JSON) até fechar as aspas
+ *   DONE         → ignora o resto
+ */
+function createRespostaExtractor(onToken: (token: string) => void): (token: string) => void {
+    type State = 'SCANNING' | 'IN_VALUE' | 'DONE';
+    let state: State = 'SCANNING';
+    let buffer = '';      // buffer para detecção da chave
+    let prevChar = '';    // para detectar escape (\")
+
+    return function extractor(token: string): void {
+        if (state === 'DONE') return;
+
+        if (state === 'SCANNING') {
+            buffer += token;
+            // Procura por: "resposta"\s*:\s*" (com aspas de abertura do valor)
+            const match = buffer.match(/"resposta"\s*:\s*"([\s\S]*)$/);
+            if (match) {
+                state = 'IN_VALUE';
+                // Emite o que já veio após a aspas de abertura
+                const partial = match[1] ?? '';
+                buffer = '';
+                emitChars(partial);
+            } else {
+                // Mantém apenas os últimos 40 chars para detecção cross-token
+                if (buffer.length > 40) buffer = buffer.slice(-40);
+            }
+            return;
+        }
+
+        if (state === 'IN_VALUE') {
+            emitChars(token);
+        }
+    };
+
+    function emitChars(text: string): void {
+        let i = 0;
+        while (i < text.length) {
+            const ch = text[i]!;
+
+            if (prevChar === '\\') {
+                // Caractere escapado
+                switch (ch) {
+                    case 'n':  onToken('\n'); break;
+                    case 't':  onToken('\t'); break;
+                    case '"':  onToken('"'); break;
+                    case '\\': onToken('\\'); break;
+                    case 'r':  break; // ignora \r
+                    default:   onToken(ch);
+                }
+                prevChar = ch === '\\' ? '' : ch;
+                i++;
+                continue;
+            }
+
+            if (ch === '\\') {
+                prevChar = '\\';
+                i++;
+                continue;
+            }
+
+            // Aspas não-escapadas fecham o valor
+            if (ch === '"') {
+                state = 'DONE';
+                return;
+            }
+
+            onToken(ch);
+            prevChar = ch;
+            i++;
+        }
     }
 }
 

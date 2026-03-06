@@ -50,6 +50,8 @@ export * from './types';
 import { loadMockSkills } from '../skills/mock';
 import { loadSkillsFromDir } from './executor';
 import { registerPJeSkills } from '../skills/pje';
+import { registerOsSkills } from '../skills/os';
+import { registerPcSkills } from '../skills/pc';
 
 // Inicialização
 let initialized = false;
@@ -62,9 +64,10 @@ export async function initializeAgent(): Promise<void> {
     // Carrega skills mock (para desenvolvimento/teste)
     loadMockSkills();
 
-    // Garante registro imediato das skills reais de PJe em runtime.
-    // Isso evita cair em respostas de "skill nao disponivel" quando o loader dinamico falha.
+    // Garante registro imediato das skills reais em runtime.
     registerPJeSkills();
+    registerOsSkills();
+    registerPcSkills();
 
     // C1: Carregar skills reais (substituem mocks de mesmo nome)
     try {
@@ -73,9 +76,17 @@ export async function initializeAgent(): Promise<void> {
         console.warn('[Agent] Erro ao carregar skills PJe:', e.message);
     }
 
-    // Futuro: mais diretórios de skills
-    // await loadSkillsFromDir('skills/documentos');
-    // await loadSkillsFromDir('skills/pesquisa');
+    try {
+        await loadSkillsFromDir('skills/os');
+    } catch (e: any) {
+        console.warn('[Agent] Erro ao carregar skills OS:', e.message);
+    }
+
+    try {
+        await loadSkillsFromDir('skills/pc');
+    } catch (e: any) {
+        console.warn('[Agent] Erro ao carregar skills PC:', e.message);
+    }
 
     initialized = true;
     console.log('[Agent] Inicializado com sucesso');

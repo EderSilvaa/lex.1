@@ -1,5 +1,6 @@
 @import 'chat.css';
 @import 'thinking.css';
+@import url('https://fonts.googleapis.com/css2?family=Michroma&display=swap');
 
 :root {
     --bg-canvas: #080808;
@@ -74,15 +75,15 @@ body {
 }
 
 .logo {
-    font-family: var(--font-brand);
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-family: 'Michroma', var(--font-brand);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
     color: #f2ede2;
 }
 
 .nav-menu {
-    flex: 1;
+    flex: none;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -121,6 +122,100 @@ body {
     border-color: rgba(141, 106, 87, 0.34);
     color: #f0e3d8;
 }
+
+.conv-section {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 10px;
+    margin-top: 4px;
+}
+
+.conv-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px 8px;
+}
+
+.conv-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.conv-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.conv-list::-webkit-scrollbar { width: 4px; }
+.conv-list::-webkit-scrollbar-track { background: transparent; }
+.conv-list::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.conv-list:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); }
+
+.conv-item {
+    position: relative;
+    width: 100%;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: background 0.15s;
+    font-family: var(--font-system);
+}
+
+.conv-item:hover { background: rgba(255, 255, 255, 0.04); }
+.conv-item.active { background: rgba(141, 106, 87, 0.14); }
+
+.conv-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 18px;
+}
+
+.conv-item.active .conv-title { color: #f0e3d8; }
+
+.conv-time {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.conv-delete {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.conv-item:hover .conv-delete { opacity: 1; }
+.conv-delete:hover { color: var(--danger-color); }
 
 .sidebar-footer {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -274,11 +369,11 @@ body {
 }
 
 .greeting-section h1 {
-    font-family: var(--font-brand);
-    font-size: clamp(28px, 3.5vw, 40px);
-    line-height: 1.08;
-    font-weight: 650;
-    letter-spacing: -0.01em;
+    font-family: 'Michroma', var(--font-brand);
+    font-size: clamp(22px, 2.8vw, 32px);
+    line-height: 1.15;
+    font-weight: 400;
+    letter-spacing: 0.03em;
     color: #f2ede2;
 }
 
@@ -448,4 +543,228 @@ body {
     .greeting-section {
         margin-bottom: 34px;
     }
+}
+
+/* ============================================================
+   PJe STATUS PILL
+   ============================================================ */
+.pje-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 5px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: default;
+    user-select: none;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
+}
+
+.pje-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: background 0.3s;
+    flex-shrink: 0;
+}
+
+.pje-status-pill.connected {
+    border-color: rgba(121, 170, 138, 0.35);
+    background: rgba(121, 170, 138, 0.08);
+    color: var(--success-color);
+    cursor: pointer;
+}
+
+.pje-status-pill.connected .pje-dot {
+    background: var(--success-color);
+    animation: pje-pulse 2s ease-in-out infinite;
+}
+
+.pje-status-pill.active {
+    border-color: rgba(193, 154, 98, 0.3);
+    background: rgba(193, 154, 98, 0.07);
+    color: var(--warning-color);
+    cursor: pointer;
+}
+
+.pje-status-pill.active .pje-dot {
+    background: var(--warning-color);
+}
+
+@keyframes pje-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+/* ============================================================
+   SUGGESTION CARDS
+   ============================================================ */
+.suggestion-cards {
+    width: min(960px, 100%);
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    padding-top: 12px;
+}
+
+.chat-container.has-messages .suggestion-cards {
+    display: none;
+}
+
+.suggestion-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 13px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+
+.suggestion-card:hover {
+    border-color: rgba(141, 106, 87, 0.42);
+    background: rgba(141, 106, 87, 0.07);
+    transform: translateY(-1px);
+}
+
+.suggestion-card:active {
+    transform: translateY(0);
+}
+
+.sc-icon {
+    color: var(--accent-color);
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+}
+
+.sc-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.sc-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sc-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+
+.sc-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+/* ============================================================
+   INPUT TOOLBAR
+   ============================================================ */
+.input-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 4px 0;
+}
+
+.toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-system);
+    padding: 5px 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.toolbar-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+}
+
+.toolbar-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.input-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.55;
+}
+
+/* ============================================================
+   ATTACHMENT CHIP
+   ============================================================ */
+.attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    margin-bottom: 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(141, 106, 87, 0.3);
+    background: rgba(141, 106, 87, 0.08);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.attachment-chip svg {
+    color: var(--accent-color);
+    flex-shrink: 0;
+}
+
+.attachment-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.attachment-remove {
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 0.15s;
+    flex-shrink: 0;
+}
+
+.attachment-remove:hover {
+    color: var(--text-primary);
 }

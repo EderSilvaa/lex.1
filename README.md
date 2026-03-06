@@ -1,9 +1,9 @@
 # LEX — Assistente Jurídico Agêntico para PJe
 
-> Aplicativo Desktop (Electron + TypeScript) com IA Claude da Anthropic para automação e análise no PJe. Combina um agente autônomo com loop de raciocínio (Think → Critic → Act → Observe), automação real de navegador via Stagehand v3, e interface de chat com múltiplas conversas persistentes.
+> Aplicativo Desktop (Electron + TypeScript) com IA Claude da Anthropic para automação jurídica completa. Agente autônomo com loop Think → Critic → Act → Observe, automação de browser via Stagehand v3, controle de PC via Vision AI + nut-js, e acesso ao sistema de arquivos.
 
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
-![Versão](https://img.shields.io/badge/versão-3.0-blue)
+![Versão](https://img.shields.io/badge/versão-4.0-blue)
 ![Electron](https://img.shields.io/badge/platform-windows-blueviolet)
 ![IA](https://img.shields.io/badge/IA-Claude%20Sonnet%204.6-orange)
 
@@ -27,26 +27,40 @@ Configure a chave da API Anthropic na primeira tela do app e pronto.
 ### Agente Autônomo
 - Loop de raciocínio em 4 etapas: **Think → Critic → Act → Observe**
 - Roteamento automático: decide se usa o agente ou resposta direta
-- Memória persistente de sessão com contexto de histórico
+- **Streaming em tempo real**: tokens aparecem progressivamente na UI enquanto Claude raciocina
+- Sessões persistentes em disco — histórico não se perde ao fechar o app
 
-### Automação PJe
-- Controla o Chrome externamente via Stagehand v3
+### Automação PJe (Browser)
+- Controla Chrome externamente via Stagehand v3
 - Executa ações em linguagem natural ("consultar processo 0001234-56.2024")
 - Overlay visual no navegador mostrando a ação em tempo real
 - Suporte ao TRT8 (PJe 1º grau e painel do usuário externo)
 
+### Controle de PC (Vision AI + nut-js)
+- Tira screenshots e envia ao Claude Vision para análise
+- Loop autônomo: vê → decide → age → verifica (até concluir)
+- Executa: cliques, duplo-clique, digitação, atalhos de teclado, scroll
+- Skills: `pc_agir` — qualquer tarefa no Windows em linguagem natural
+
+### Acesso ao Sistema de Arquivos
+- `os_listar` — lista diretórios com aliases amigáveis (downloads, desktop, documentos)
+- `os_arquivos` — ler, mover, copiar, deletar, buscar arquivos
+- `os_escrever` — criar arquivos e pastas
+- `os_sistema` — executar comandos shell com confirmação humana (HITL)
+
+### Segurança
+- **Chave API criptografada**: AES-256-GCM com chave derivada da máquina (hostname+username via scrypt)
+- Migração automática de keys antigas (plain text → criptografado na primeira execução)
+- Blocklist de comandos perigosos no `os_sistema`
+- Confirmação humana obrigatória para comandos shell (`confirmado: true`)
+
 ### Interface de Chat
-- Múltiplas conversas salvas na sidebar (como Claude.ai)
+- Múltiplas conversas na sidebar (como Claude.ai)
 - Renderização de Markdown completa (marked + DOMPurify)
+- Streaming progressivo com cursor animado
 - Cards de sugestão de prompt na tela inicial
 - Saudação dinâmica baseada no horário
 - Pill de status do PJe em tempo real
-- Anexo de arquivos no input
-
-### Múltiplas Conversas
-- Conversas persistidas localmente via electron-store
-- Contexto do agente restaurado ao retomar uma conversa (últimas 8 mensagens)
-- Título gerado automaticamente pelo primeiro input do usuário
 
 ---
 
@@ -56,19 +70,37 @@ Configure a chave da API Anthropic na primeira tela do app e pronto.
 electron/
 ├── main.ts                  # Main process: IPC handlers, store, inicialização
 ├── preload.ts               # Bridge segura renderer ↔ main (contextBridge)
-├── stagehand-manager.ts     # Gerencia Chrome externo + Stagehand v3
+├── ai-handler.ts            # Wrapper Anthropic API (texto + Vision + streaming)
+├── crypto-store.ts          # AES-256-GCM para criptografar API keys em repouso
+├── stagehand-manager.ts     # Chrome externo + Stagehand v3 (browser automation)
+├── computer-manager.ts      # Vision loop: screenshot → Claude → nut-js (PC control)
+│
 ├── agent/
-│   ├── loop.ts              # Loop agêntico (Think → Critic → Act → Observe)
-│   ├── session.ts           # SessionManager: histórico de mensagens por UUID
-│   ├── memory.ts            # Memória persistente
-│   ├── cache.ts             # Cache de respostas
-│   └── index.ts             # Exports públicos do módulo agent
-├── skills/pje/
-│   ├── abrir.ts             # Navega para login do tribunal
-│   ├── agir.ts              # Ação livre em linguagem natural
-│   ├── consultar.ts         # Consulta de processo
-│   ├── movimentacoes.ts     # Listagem de movimentações
-│   └── documentos.ts        # Acesso a documentos
+│   ├── loop.ts              # Loop agêntico Think → Critic → Act → Observe
+│   ├── think.ts             # LLM call + extrator de stream JSON ("resposta":"...")
+│   ├── session.ts           # SessionManager: histórico multi-turn persistido em disco
+│   ├── executor.ts          # Registra e executa skills
+│   ├── types.ts             # Interfaces: Skill, AgentContext, AgentConfig, etc.
+│   └── index.ts             # Inicialização: registra todas as skills
+│
+├── skills/
+│   ├── pje/
+│   │   ├── abrir.ts         # pje_abrir — navega para login do tribunal
+│   │   ├── agir.ts          # pje_agir — ação livre em linguagem natural
+│   │   ├── consultar.ts     # pje_consultar — consulta de processo
+│   │   ├── movimentacoes.ts # pje_movimentacoes — listagem de movimentações
+│   │   └── documentos.ts    # pje_documentos — acesso a documentos
+│   ├── pc/
+│   │   └── agir.ts          # pc_agir — controla Windows via Vision AI + nut-js
+│   └── os/
+│       ├── listar.ts        # os_listar — lista diretórios
+│       ├── arquivos.ts      # os_arquivos — operações em arquivos
+│       ├── escrever.ts      # os_escrever — cria arquivos/pastas
+│       └── sistema.ts       # os_sistema — shell com HITL
+│
+├── tools/
+│   └── os-tools.ts          # Camada base: Node.js fs/child_process (sem deps)
+│
 └── pje/
     ├── tribunal-urls.ts     # URLs dos tribunais suportados
     └── route-memory.ts      # Memória de rotas visitadas
@@ -77,12 +109,29 @@ src/renderer/
 ├── index.html               # Shell da UI
 ├── styles/
 │   ├── main.css             # Estilos globais + fonte Michroma
-│   ├── chat.css             # Mensagens, markdown, thinking accordion
+│   ├── chat.css             # Mensagens, markdown, streaming cursor
 │   └── thinking.css         # Animações do processo de raciocínio
 └── js/
-    ├── app.js               # Toda a lógica do renderer (chat, conversas, agente)
+    ├── app.js               # Toda a lógica do renderer (chat, conversas, streaming)
     ├── marked.min.js        # Renderização de Markdown
     └── purify.min.js        # Sanitização HTML (DOMPurify)
+```
+
+---
+
+## Fluxo de Streaming
+
+```
+User → app.js
+  → IPC: agent-chat-message
+  → loop.ts: emit streaming_start
+  → think.ts: callLLM(onToken)
+     → ai-handler.ts: callAnthropic(onToken)
+        → SSE chunk → content_block_delta
+        → createRespostaExtractor: filtra campo "resposta" do JSON
+        → onToken(delta) → emit type:'token'
+  → app.js: token chega → appenda na bubble
+  → completed → re-renderiza com Markdown
 ```
 
 ---
@@ -94,8 +143,10 @@ src/renderer/
 | Desktop | Electron |
 | Linguagem | TypeScript |
 | IA | Claude Sonnet 4.6 (Anthropic) |
-| Automação | Stagehand v3 + Chrome externo |
-| Persistência | electron-store |
+| Automação Browser | Stagehand v3 + Chrome externo |
+| Controle PC | nut-js (@nut-tree-fork) + Vision AI |
+| Segurança | AES-256-GCM (node:crypto) |
+| Persistência | electron-store + JSON em disco |
 | Markdown | marked + DOMPurify |
 | Frontend | Vanilla JS + CSS |
 
@@ -115,7 +166,7 @@ npm run build:watch     # Watch mode do renderer
 ## Configuração
 
 Toda a configuração é feita pela própria UI do app:
-- **Chave Anthropic**: salva localmente via electron-store
+- **Chave Anthropic**: salva localmente criptografada com AES-256-GCM
 - **Tribunal**: selecionado via skill `pje_abrir`
 
 Não há `.env` necessário.
@@ -139,6 +190,7 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 - [ ] Minutas automáticas com base nos autos
 - [ ] RAG com jurisprudência indexada
 - [ ] Notificações de movimentação processual
+- [ ] Geração automática de petições
 
 ---
 
@@ -148,4 +200,4 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 
 ---
 
-*Última atualização: março de 2026 — v3.0 (Stagehand v3 + multi-conversas + markdown)*
+*Última atualização: março de 2026 — v4.0 (OS/PC automation + criptografia + streaming + sessões persistentes)*
