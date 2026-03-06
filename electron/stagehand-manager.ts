@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import { getStagehandModelConfig } from './provider-config'
 
 // Dynamic import necessário: Stagehand v3 usa chrome-launcher (ESM-only)
 // CJS não pode fazer require() de módulos ESM, mas dynamic import() funciona
@@ -16,6 +17,17 @@ export async function initStagehand(): Promise<void> {
   return initPromise
 }
 
+/**
+ * Re-inicializa o Stagehand com a configuração de provider atual.
+ * Chamado quando o usuário troca de provider/modelo nas configurações.
+ */
+export async function reInitStagehand(): Promise<void> {
+  if (instance) {
+    await closeStagehand()
+  }
+  await initStagehand()
+}
+
 async function _doInit(): Promise<void> {
   const { Stagehand } = await import('@browserbasehq/stagehand')
 
@@ -26,14 +38,18 @@ async function _doInit(): Promise<void> {
   // (keepAlive: true deixa Chrome vivo após fechar o app — precisa matar antes de reusar o perfil)
   killPreviousChrome(userDataDir)
 
+  // Obtém config dinâmica do provider ativo
+  const modelConfig = getStagehandModelConfig()
+  console.log('[Stagehand] Iniciando com modelo:', modelConfig.modelName)
+
   // instance = null enquanto init não completar — getStagehand() lança erro se chamado antes
   instance = null
   const sh = new Stagehand({
     env: 'LOCAL',
-    // modelo no formato "provider/model" — API key carregada de ANTHROPIC_API_KEY
     model: {
-      modelName: 'anthropic/claude-haiku-4-5-20251001',  // Haiku: 80% mais barato, suficiente para automação de browser
-      apiKey: process.env['ANTHROPIC_API_KEY'],
+      modelName: modelConfig.modelName,
+      apiKey: modelConfig.apiKey,
+      ...(modelConfig.baseURL ? { baseURL: modelConfig.baseURL } : {}),
     } as any,
     // keepAlive: true evita o shutdown-supervisor matar o Chrome prematuramente
     // (em Electron, o pipe stdin do supervisor fecha antes da hora por GC)
@@ -222,7 +238,8 @@ export async function runBrowserTask(
   await ensureStagehand()
   const stagehand = getStagehand()
   const agent = stagehand.agent({
-    model: 'anthropic/claude-haiku-4-5-20251001',
+    // Herda o modelo configurado na instância (_doInit) — não sobrescreve para evitar
+    // problemas com baseURL de providers como OpenRouter/Groq
     systemPrompt: `Você é um agente de automação de browser para sistemas judiciais brasileiros (PJe).
 REGRAS:
 - Seja assertivo: execute a primeira ação óbvia sem hesitar.

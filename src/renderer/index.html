@@ -172,6 +172,103 @@
                 </div>
             </div>
 
+            <!-- Settings View -->
+            <div class="settings-wrapper hidden">
+                <div class="settings-container">
+                    <div class="settings-header">
+                        <h2 class="settings-title">Configuracoes</h2>
+                        <p class="settings-subtitle">Gerencie seu perfil e preferencias</p>
+                    </div>
+
+                    <div class="settings-sections">
+                        <!-- Perfil -->
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Perfil</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="pref-display-name">Como quer ser chamado</label>
+                                    <input class="settings-input" type="text" id="pref-display-name" placeholder="Ex: Eder" autocomplete="off">
+                                    <span class="settings-hint">Usado na saudacao do chat</span>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="pref-full-name">Nome completo</label>
+                                    <input class="settings-input" type="text" id="pref-full-name" placeholder="Ex: Eder Silva" autocomplete="off">
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field">
+                                        <label class="settings-label" for="pref-role">Cargo / Funcao</label>
+                                        <select class="settings-input settings-select" id="pref-role">
+                                            <option value="">Selecionar...</option>
+                                            <option value="Advogado">Advogado(a)</option>
+                                            <option value="Estagiario">Estagiario(a)</option>
+                                            <option value="Promotor">Promotor(a)</option>
+                                            <option value="Juiz">Juiz / Juiza</option>
+                                            <option value="Assessor">Assessor(a) Juridico</option>
+                                            <option value="Outro">Outro</option>
+                                        </select>
+                                    </div>
+                                    <div class="settings-field">
+                                        <label class="settings-label" for="pref-oab">Numero OAB</label>
+                                        <input class="settings-input" type="text" id="pref-oab" placeholder="Ex: 123456/PA" autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="pref-tribunal">Tribunal padrao</label>
+                                    <input class="settings-input" type="text" id="pref-tribunal" placeholder="Ex: TRT8" autocomplete="off">
+                                    <span class="settings-hint">Usado ao abrir o PJe automaticamente</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Provedor de IA -->
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Provedor de IA</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="ai-provider">Provedor</label>
+                                    <select class="settings-input settings-select" id="ai-provider">
+                                        <option value="anthropic">Anthropic (Claude)</option>
+                                        <option value="openai">OpenAI (GPT)</option>
+                                        <option value="openrouter">OpenRouter (multi-modelo)</option>
+                                        <option value="google">Google AI (Gemini)</option>
+                                        <option value="groq">Groq (ultra-rapido)</option>
+                                    </select>
+                                    <span class="settings-hint">
+                                        Obter chave: <a id="ai-provider-key-link" href="#" target="_blank" style="color:#60a5fa">console.anthropic.com</a>
+                                    </span>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="ai-api-key">Chave API</label>
+                                    <div style="display:flex;gap:8px;align-items:center">
+                                        <input class="settings-input" type="password" id="ai-api-key" placeholder="Cole sua chave aqui" autocomplete="off" style="flex:1">
+                                        <button class="settings-save-btn" id="btn-test-api" style="white-space:nowrap;padding:8px 14px;font-size:12px">Testar</button>
+                                        <span id="ai-key-status" style="font-size:12px;color:#64748b"></span>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field">
+                                        <label class="settings-label" for="ai-agent-model">Modelo agente (texto)</label>
+                                        <select class="settings-input settings-select" id="ai-agent-model"></select>
+                                        <span class="settings-hint">Usado no raciocinio do agente</span>
+                                    </div>
+                                    <div class="settings-field">
+                                        <label class="settings-label" for="ai-vision-model">Modelo browser (vision)</label>
+                                        <select class="settings-input settings-select" id="ai-vision-model"></select>
+                                        <span class="settings-hint">Deve suportar vision para automacao PJe</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Salvar -->
+                        <div class="settings-actions">
+                            <button class="settings-save-btn" id="btn-save-settings">Salvar alteracoes</button>
+                            <span class="settings-save-feedback hidden" id="settings-save-feedback">Salvo!</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- File Manager View (Originally Hidden) -->
             <div class="file-manager-wrapper hidden">
                 <div class="fm-sidebar">

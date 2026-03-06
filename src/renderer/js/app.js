@@ -691,7 +691,7 @@ const views = {
     'nav-chat': document.querySelector('.chat-wrapper'),
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null,
-    'nav-settings': null
+    'nav-settings': document.querySelector('.settings-wrapper')
 };
 
 navItems.forEach(item => {
@@ -703,8 +703,7 @@ navItems.forEach(item => {
         item.classList.add('active');
 
         // Hide all switchable views
-        if (views['nav-chat']) views['nav-chat'].classList.add('hidden');
-        if (views['nav-files']) views['nav-files'].classList.add('hidden');
+        Object.values(views).forEach(v => { if (v) v.classList.add('hidden'); });
 
         // Show target view
         if (views[viewId]) {
@@ -904,16 +903,15 @@ function sendPrompt(text) {
     sendBtn.click();
 }
 
-function setDynamicGreeting() {
+let _userDisplayName = 'Eder Silva';
+
+function setDynamicGreeting(displayName) {
     const h1 = document.querySelector('.greeting-section h1');
     const subtitle = document.querySelector('.greeting-section .subtitle');
 
     const hour = new Date().getHours();
     const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
-
-    // Extrai o nome do texto atual do h1
-    const currentText = h1?.textContent || '';
-    const name = currentText.replace(/^(Ola|Bom dia|Boa tarde|Boa noite),?\s*/i, '').trim() || 'Eder Silva';
+    const name = displayName || _userDisplayName;
 
     if (h1) h1.textContent = `${greeting}, ${name}`;
 
@@ -931,8 +929,224 @@ function setDynamicGreeting() {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider / API Key settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PROVIDER_KEY_LINKS = {
+    anthropic: 'https://console.anthropic.com/settings/keys',
+    openai: 'https://platform.openai.com/api-keys',
+    openrouter: 'https://openrouter.ai/keys',
+    google: 'https://aistudio.google.com/app/apikey',
+    groq: 'https://console.groq.com/keys',
+};
+
+let _providerPresets = null;
+
+async function loadProviderSettings() {
+    try {
+        _providerPresets = await window.lexApi.getProviderPresets();
+        const current = await window.lexApi.getProvider();
+
+        const providerSelect = document.getElementById('ai-provider');
+        if (providerSelect && current?.providerId) {
+            providerSelect.value = current.providerId;
+        }
+
+        populateModelSelects(current?.providerId || 'anthropic');
+
+        const agentSelect = document.getElementById('ai-agent-model');
+        const visionSelect = document.getElementById('ai-vision-model');
+        if (agentSelect && current?.agentModel) agentSelect.value = current.agentModel;
+        if (visionSelect && current?.visionModel) visionSelect.value = current.visionModel;
+
+        // Status da chave
+        if (current?.providerId) {
+            const status = await window.lexApi.getApiKeyStatus(current.providerId);
+            updateKeyStatusBadge(status);
+        }
+
+        // Link de docs
+        updateProviderLink(current?.providerId || 'anthropic');
+    } catch (_) {}
+}
+
+function populateModelSelects(providerId) {
+    if (!_providerPresets || !_providerPresets[providerId]) return;
+    const preset = _providerPresets[providerId];
+    const models = preset.models || [];
+
+    const agentSelect = document.getElementById('ai-agent-model');
+    const visionSelect = document.getElementById('ai-vision-model');
+
+    if (agentSelect) {
+        agentSelect.innerHTML = models.map(m =>
+            `<option value="${m.id}">${m.name}</option>`
+        ).join('');
+    }
+    if (visionSelect) {
+        const visionModels = models.filter(m => m.vision);
+        visionSelect.innerHTML = visionModels.map(m =>
+            `<option value="${m.id}">${m.name}</option>`
+        ).join('');
+        // Fallback: se não houver vision, mostra todos
+        if (visionModels.length === 0) {
+            visionSelect.innerHTML = models.map(m =>
+                `<option value="${m.id}">${m.name}</option>`
+            ).join('');
+        }
+    }
+}
+
+function updateProviderLink(providerId) {
+    const link = document.getElementById('ai-provider-key-link');
+    if (!link) return;
+    const url = PROVIDER_KEY_LINKS[providerId] || '#';
+    link.href = url;
+    link.textContent = url.replace('https://', '');
+}
+
+function updateKeyStatusBadge(status) {
+    const el = document.getElementById('ai-key-status');
+    if (!el) return;
+    if (status?.configured) {
+        el.textContent = '✓ ' + (status.preview || 'Configurada');
+        el.style.color = '#34d399';
+    } else {
+        el.textContent = 'Nao configurada';
+        el.style.color = '#f87171';
+    }
+}
+
+async function saveProviderSettings() {
+    const providerId = document.getElementById('ai-provider')?.value;
+    const apiKey = document.getElementById('ai-api-key')?.value?.trim();
+    const agentModel = document.getElementById('ai-agent-model')?.value;
+    const visionModel = document.getElementById('ai-vision-model')?.value;
+
+    if (!providerId) return;
+
+    try {
+        if (apiKey) {
+            await window.lexApi.setApiKey(providerId, apiKey);
+            document.getElementById('ai-api-key').value = '';
+        }
+        if (agentModel && visionModel) {
+            await window.lexApi.setProvider({ providerId, agentModel, visionModel });
+        }
+        const status = await window.lexApi.getApiKeyStatus(providerId);
+        updateKeyStatusBadge(status);
+    } catch (e) {
+        console.error('[Settings] Erro ao salvar provider:', e);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preferences (perfil)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadPreferences() {
+    try {
+        const prefs = await window.lexApi.getPreferences();
+        if (!prefs) return;
+
+        if (prefs.displayName) {
+            _userDisplayName = prefs.displayName;
+            setDynamicGreeting(prefs.displayName);
+        }
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+        set('pref-display-name', prefs.displayName);
+        set('pref-full-name', prefs.fullName);
+        set('pref-role', prefs.role);
+        set('pref-oab', prefs.oab);
+        set('pref-tribunal', prefs.tribunal);
+    } catch (_) {}
+}
+
+async function saveSettings() {
+    const get = id => document.getElementById(id)?.value?.trim() || '';
+    const prefs = {
+        displayName: get('pref-display-name'),
+        fullName: get('pref-full-name'),
+        role: get('pref-role'),
+        oab: get('pref-oab'),
+        tribunal: get('pref-tribunal'),
+    };
+
+    if (prefs.displayName) {
+        _userDisplayName = prefs.displayName;
+        setDynamicGreeting(prefs.displayName);
+    }
+
+    // Salva provider junto
+    await saveProviderSettings();
+
+    try {
+        await window.lexApi.savePreferences(prefs);
+        const feedback = document.getElementById('settings-save-feedback');
+        if (feedback) {
+            feedback.classList.remove('hidden');
+            setTimeout(() => feedback.classList.add('hidden'), 2500);
+        }
+    } catch (_) {}
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setDynamicGreeting();
+    loadPreferences();
+    loadProviderSettings();
+
+    // Settings save button
+    const btnSaveSettings = document.getElementById('btn-save-settings');
+    if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
+
+    // Provider selector — re-popula modelos e atualiza link
+    const providerSelect = document.getElementById('ai-provider');
+    if (providerSelect) {
+        providerSelect.addEventListener('change', () => {
+            const pid = providerSelect.value;
+            populateModelSelects(pid);
+            updateProviderLink(pid);
+            window.lexApi.getApiKeyStatus(pid).then(updateKeyStatusBadge).catch(() => {});
+        });
+    }
+
+    // Botão testar chave
+    const btnTest = document.getElementById('btn-test-api');
+    if (btnTest) {
+        btnTest.addEventListener('click', async () => {
+            const providerId = document.getElementById('ai-provider')?.value;
+            const apiKey = document.getElementById('ai-api-key')?.value?.trim();
+            const statusEl = document.getElementById('ai-key-status');
+            if (!providerId) return;
+
+            // Salva temporariamente para testar
+            if (apiKey) await window.lexApi.setApiKey(providerId, apiKey);
+            await window.lexApi.setProvider({
+                providerId,
+                agentModel: document.getElementById('ai-agent-model')?.value || '',
+                visionModel: document.getElementById('ai-vision-model')?.value || '',
+            });
+
+            if (statusEl) { statusEl.textContent = 'Testando...'; statusEl.style.color = '#94a3b8'; }
+            btnTest.disabled = true;
+
+            try {
+                const res = await window.lexApi.sendChat('ping — responda apenas "ok"');
+                if (res && !res.error) {
+                    if (statusEl) { statusEl.textContent = '✓ Funcionando'; statusEl.style.color = '#34d399'; }
+                    if (apiKey) document.getElementById('ai-api-key').value = '';
+                } else {
+                    throw new Error(res?.error || 'Sem resposta');
+                }
+            } catch (e) {
+                if (statusEl) { statusEl.textContent = '✗ ' + (e.message || 'Erro'); statusEl.style.color = '#f87171'; }
+            } finally {
+                btnTest.disabled = false;
+            }
+        });
+    }
 
     // PJe status polling
     updatePjeStatus();

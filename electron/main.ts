@@ -3,9 +3,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
-import { initStagehand, closeStagehand, getStagehand } from './stagehand-manager';
+import { initStagehand, closeStagehand, getStagehand, reInitStagehand } from './stagehand-manager';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
 import { encryptApiKey, safeDecrypt, isEncrypted } from './crypto-store';
+import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } from './provider-config';
 
 // Agent module loaded dynamically after app ready
 let agentModule: {
@@ -339,19 +340,46 @@ function criarPromptJuridico(contexto: any, pergunta: string): string {
     return `${promptBase}\n\nCONTEXTO DO PROCESSO:\n${contextStr}\n\nPERGUNTA: ${pergunta}\n\n${obterInstrucoesEspecificas(tipoConversa)}`;
 }
 
-async function syncAnthropicKey(rawKey: string): Promise<string> {
-    const key = String(rawKey || '').trim();
+/**
+ * Sincroniza o provider ativo no runtime (ai-handler + env vars).
+ */
+async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?: string, visionModel?: string): Promise<void> {
+    const preset = PROVIDER_PRESETS[providerId];
+    const resolvedAgent = agentModel || preset.defaultAgentModel;
+    const resolvedVision = visionModel || preset.defaultVisionModel;
 
-    // Keep a single source of truth for all Anthropic callers in-process.
-    process.env['ANTHROPIC_API_KEY'] = key;
+    // Compatibilidade: ANTHROPIC_API_KEY ainda é lido pelo Stagehand legado
+    if (providerId === 'anthropic') {
+        process.env['ANTHROPIC_API_KEY'] = apiKey;
+    }
 
     const { initAI } = await import('./ai-handler');
     initAI({
-        provider: 'anthropic',
-        apiKey: key
+        providerId,
+        apiKey,
+        agentModel: resolvedAgent,
+        visionModel: resolvedVision,
     });
+}
 
-    return key;
+/**
+ * Carrega chave encriptada do store para um provider.
+ */
+function loadApiKey(providerId: ProviderId): string {
+    if (!store) return '';
+    const apiKeys = (store.get('apiKeys', {}) as Record<string, string>);
+    const raw = String(apiKeys[providerId] || '').trim();
+    return raw ? safeDecrypt(raw) : '';
+}
+
+/**
+ * Persiste chave encriptada no store para um provider.
+ */
+function saveApiKey(providerId: ProviderId, key: string): void {
+    if (!store) return;
+    const apiKeys = (store.get('apiKeys', {}) as Record<string, string>);
+    apiKeys[providerId] = key ? encryptApiKey(key) : '';
+    store.set('apiKeys', apiKeys);
 }
 
 async function initStore() {
@@ -359,41 +387,112 @@ async function initStore() {
     const { default: Store } = await import('electron-store');
     store = new Store();
 
-    const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
-    const rawStoreKey = String(store.get('anthropicKey', '') || '').trim();
-
-    // Descriptografa (ou retorna plain se legado)
-    const storeKey = rawStoreKey ? safeDecrypt(rawStoreKey) : '';
-    const resolvedKey = storeKey || envKey;
-
-    // Persiste criptografado (migra plain text legado automaticamente)
-    if (resolvedKey && !isEncrypted(rawStoreKey)) {
-        store.set('anthropicKey', encryptApiKey(resolvedKey));
-    } else if (!store.has('anthropicKey') && resolvedKey) {
-        store.set('anthropicKey', encryptApiKey(resolvedKey));
+    // ── Migração legada: anthropicKey → apiKeys.anthropic ──
+    const legacyRaw = String(store.get('anthropicKey', '') || '').trim();
+    if (legacyRaw) {
+        const legacyKey = safeDecrypt(legacyRaw);
+        if (legacyKey) {
+            saveApiKey('anthropic', legacyKey);
+            store.delete('anthropicKey');
+        }
     }
 
-    await syncAnthropicKey(resolvedKey);
+    // ── Carrega config do provider ──
+    const savedProvider = store.get('aiProvider', null) as {
+        providerId: ProviderId;
+        agentModel: string;
+        visionModel: string;
+    } | null;
+
+    // Fallback: anthropic com chave do env
+    const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
+    const providerId: ProviderId = savedProvider?.providerId ?? 'anthropic';
+    const apiKey = loadApiKey(providerId) || (providerId === 'anthropic' ? envKey : '');
+    const preset = PROVIDER_PRESETS[providerId];
+
+    // Persiste chave do env se ainda não estava no store
+    if (apiKey && !loadApiKey(providerId)) {
+        saveApiKey(providerId, apiKey);
+    }
+
+    await syncProvider(
+        providerId,
+        apiKey,
+        savedProvider?.agentModel ?? preset.defaultAgentModel,
+        savedProvider?.visionModel ?? preset.defaultVisionModel,
+    );
 }
 
-// Configura chave Anthropic via IPC (para UI de configurações)
+// ─────────────────────────────────────────────────────────────────────────────
+// IPC — Configuração de Provider/API Keys
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Define provider ativo + modelos. Re-inicia Stagehand em background. */
+ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderId; agentModel: string; visionModel: string }) => {
+    if (!store) return { error: 'Store not initialized' };
+    store.set('aiProvider', cfg);
+    const apiKey = loadApiKey(cfg.providerId);
+    await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
+    reInitStagehand().catch(e => console.error('[Stagehand] Erro ao re-inicializar após troca de provider:', e));
+    return { success: true };
+});
+
+/** Retorna provider ativo + status da chave. */
+ipcMain.handle('store-get-provider', async () => {
+    const cfg = getActiveConfig();
+    const hasKey = cfg.apiKey.length > 0;
+    return { ...cfg, hasKey };
+});
+
+/** Salva chave API para um provider. */
+ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { providerId: ProviderId; key: string }) => {
+    if (!store) return { error: 'Store not initialized' };
+    const normalizedKey = String(key || '').trim();
+    saveApiKey(providerId, normalizedKey);
+
+    // Se é o provider ativo, re-sincroniza imediatamente
+    const current = getActiveConfig();
+    if (current.providerId === providerId) {
+        await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
+        reInitStagehand().catch(e => console.error('[Stagehand] Erro ao re-inicializar após nova chave:', e));
+    }
+    return { success: true, configured: normalizedKey.length > 0 };
+});
+
+/** Retorna status da chave para um provider. */
+ipcMain.handle('store-get-api-key-status', async (_event, providerId: ProviderId) => {
+    const key = loadApiKey(providerId);
+    return {
+        configured: key.length > 0,
+        preview: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : '',
+    };
+});
+
+/** Retorna catálogo de providers/modelos para a UI de configurações. */
+ipcMain.handle('store-get-provider-presets', () => {
+    return PROVIDER_PRESETS;
+});
+
+// ── Aliases legados (retrocompat com código antigo) ──
 ipcMain.handle('store-set-anthropic-key', async (_event, key: string) => {
     if (!store) return { error: 'Store not initialized' };
     const normalizedKey = String(key || '').trim();
-    // Salva sempre criptografado
-    store.set('anthropicKey', normalizedKey ? encryptApiKey(normalizedKey) : '');
-    await syncAnthropicKey(normalizedKey);
+    saveApiKey('anthropic', normalizedKey);
+    const current = getActiveConfig();
+    if (current.providerId === 'anthropic') {
+        await syncProvider('anthropic', normalizedKey, current.agentModel, current.visionModel);
+    }
     return { success: true, configured: normalizedKey.length > 0 };
 });
 
 ipcMain.handle('store-get-anthropic-key-status', async () => {
-    if (!store) return { configured: false };
-    const key = String(store.get('anthropicKey', '') || '').trim();
+    const key = loadApiKey('anthropic');
     return {
         configured: key.length > 0,
-        preview: key ? `${key.slice(0, 7)}...${key.slice(-4)}` : ''
+        preview: key ? `${key.slice(0, 7)}...${key.slice(-4)}` : '',
     };
 });
+
 
 // AI Chat Handler
 ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
@@ -879,6 +978,10 @@ ipcMain.handle('save-preferences', async (_event, prefs) => {
     return { success: true };
 });
 
+ipcMain.handle('get-preferences', async () => {
+    return store ? store.get('userPreferences', {}) : {};
+});
+
 // Workspace Management
 ipcMain.handle('workspace-get', async () => {
     return store ? getWorkspaceRoots() : [];
@@ -963,6 +1066,35 @@ function normalizeIntentText(raw: string): string {
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .trim();
+}
+
+/**
+ * Detects ambiguous objectives (PC vs PJe) and injects a disambiguation
+ * instruction directly into the objective text so Claude is forced to ask
+ * before acting. This works regardless of system prompt encoding issues.
+ */
+function injectDisambiguationIfNeeded(objetivo: string): string {
+    const lower = normalizeIntentText(objetivo);
+
+    const pjeSignals = ['pje', 'processo', 'tribunal', 'trt', 'trf', 'tj', 'peticao', 'despacho', 'audiencia', 'expediente', 'cnj', 'publicacao', 'intimacao'];
+    const pcSignals = ['download', 'desktop', 'area de trabalho', 'c:', 'd:', 'meu computador', 'minha maquina', '.pdf', '.docx', '.xlsx', '.txt', '.png', '.jpg', 'pasta downloads', 'pasta documentos'];
+
+    const hasPjeContext = pjeSignals.some(t => lower.includes(t));
+    const hasPcContext = pcSignals.some(t => lower.includes(t));
+
+    // File/folder/document ambiguity: could be PC or PJe
+    const fileAmbiguous = ['pasta', 'pastas', 'arquivo', 'arquivos', 'documento', 'documentos'];
+    if (fileAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
+        return `[INSTRUCAO OBRIGATORIA: Este pedido contem termo ambiguo. Use tipo=pergunta perguntando ao usuario se quer acessar o PC (computador local, usando os_listar ou os_arquivos) ou o PJe (sistema judicial, usando pje_agir). NAO execute nenhuma skill antes de perguntar.] ${objetivo}`;
+    }
+
+    // Screen/tela ambiguity: could be PC screen or PJe screen
+    const screenAmbiguous = ['minha tela', 'minha area', 'o que ta na tela', 'o que esta na tela', 'ver a tela', 'ver tela', 'capturar tela'];
+    if (screenAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
+        return `[INSTRUCAO OBRIGATORIA: Use tipo=pergunta perguntando se o usuario quer ver a tela do computador (pc_agir) ou algo no PJe (pje_agir).] ${objetivo}`;
+    }
+
+    return objetivo;
 }
 
 type ModeRouteDecision = {
@@ -1086,25 +1218,28 @@ function heuristicRouteForObjective(
 
     const hasQuestionOnly = questionOnlySignals.some(token => objetivo.includes(token));
     const hasActionSignal = actionSignals.some(token => objetivo.includes(token));
-    const hasPjeSignal = pjeSignals.some(token => objetivo.includes(token));
     const hasCNJNumber = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/.test(objetivoRaw);
-    const hasImperativePJeSignal = /\b(vai|va|abre|abra|entrar|entra|entre|clica|clique|navega|navegue|leva|acesse|consulte|busque)\b/.test(objetivo)
-        && /\b(pje|menu|aba|peticionamento|processo|trt|trf|tj)\b/.test(objetivo);
+
+    // Capability questions: "consegue X?", "pode Y?", "tem como Z?" → implicit action requests
+    const capabilitySignals = ['consegue', 'pode ', 'poderia', 'tem como', 'consigo', 'da pra', 'da para', 'e possivel'];
+    const hasCapabilitySignal = capabilitySignals.some(t => objetivo.includes(t));
+
+    // File/folder/screen queries always go to agent — it handles PC vs PJe disambiguation
+    const ambiguousTerms = ['pasta', 'pastas', 'arquivo', 'arquivos', 'documento', 'documentos', 'tela', 'desktop', 'area de trabalho'];
+    const hasAmbiguousTerm = ambiguousTerms.some(t => objetivo.includes(t));
 
     if (hasCNJNumber) {
         return { decided: true, useAgent: true, reason: 'numero_cnj_detectado' };
     }
 
-    if (hasActionSignal && (hasPjeSignal || isPJeActive)) {
-        return { decided: true, useAgent: true, reason: 'acao_operacional_pje' };
+    // Any action signal → agent (agent decides PJe vs PC vs OS)
+    if (hasActionSignal) {
+        return { decided: true, useAgent: true, reason: 'acao_operacional' };
     }
 
-    if (hasImperativePJeSignal && (hasPjeSignal || isPJeActive)) {
-        return { decided: true, useAgent: true, reason: 'comando_imperativo_pje' };
-    }
-
-    if (isPJeActive && hasActionSignal) {
-        return { decided: true, useAgent: true, reason: 'acao_com_pje_ativo' };
+    // Capability questions with ambiguous terms → agent to disambiguate
+    if (hasCapabilitySignal && hasAmbiguousTerm) {
+        return { decided: true, useAgent: true, reason: 'capability_question_needs_agent' };
     }
 
     if (hasQuestionOnly && !hasActionSignal) {
@@ -1155,15 +1290,15 @@ async function semanticRouteForObjective(
 
     try {
         const { callAI } = await import('./ai-handler');
-        const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico.
+        const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico com acesso ao PJe (sistema judicial), ao Windows/PC e ao sistema de arquivos.
 
 Decida o modo:
-- "agent": quando a mensagem pede ACAO operacional (clicar, navegar, abrir tela, preencher, consultar no sistema, executar fluxo no PJe).
-- "chat": quando a mensagem pede explicacao, opiniao, resumo, orientacao geral, conversa.
+- "agent": quando a mensagem pede ACAO em qualquer sistema — PJe judicial, Windows/PC, arquivos, browser, mouse/teclado. Exemplos: abrir, acessar, navegar, clicar, listar, controlar, executar, ver a tela, mover arquivo, consultar processo, preencher formulario. Inclui perguntas de capacidade ("consegue X?", "pode Y?") quando X e uma acao.
+- "chat": quando a mensagem pede explicacao juridica, opiniao, analise de texto, calculo de prazo, estrategia processual, resumo, conversa geral sem acao em sistema.
 
 Regras:
 - Considere intencao semantica, nao apenas palavras-chave.
-- Se houver duvida e a mensagem parecer comando de execucao em sistema, prefira "agent".
+- Se a mensagem parecer pedido de acao em qualquer sistema (nao so PJe), use "agent".
 - Responda APENAS JSON valido:
 {"mode":"agent|chat","confidence":0.0,"reason":"curto"}`;
 
@@ -1227,8 +1362,11 @@ ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessi
         // Load tenant config (for now use default)
         const tenantConfig = agent.getDefaultTenantConfig();
 
+        // Detect ambiguous objectives (PC vs PJe) and inject disambiguation instruction
+        const objetivoFinal = injectDisambiguationIfNeeded(objetivo);
+
         // Run the agent loop
-        const resposta = await agent.runAgentLoop(objetivo, {
+        const resposta = await agent.runAgentLoop(objetivoFinal, {
             maxIterations: config?.maxIterations || 5,
             timeoutMs: config?.timeoutMs || 60000
         }, tenantConfig, sessionId || AGENT_SESSION_ID);

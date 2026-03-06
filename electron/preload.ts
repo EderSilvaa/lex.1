@@ -24,6 +24,17 @@ contextBridge.exposeInMainWorld('lexApi', {
     getHistory: () => ipcRenderer.invoke('get-history'),
     sendChat: (message: string, context?: any) => ipcRenderer.invoke('ai-chat-send', { message, context }),
     savePreferences: (prefs: any) => ipcRenderer.invoke('save-preferences', prefs),
+    getPreferences: () => ipcRenderer.invoke('get-preferences'),
+    // Provider / API Keys — BYOK multi-provider
+    setProvider: (cfg: { providerId: string; agentModel: string; visionModel: string }) =>
+        ipcRenderer.invoke('store-set-provider', cfg),
+    getProvider: () => ipcRenderer.invoke('store-get-provider'),
+    setApiKey: (providerId: string, key: string) =>
+        ipcRenderer.invoke('store-set-api-key', { providerId, key }),
+    getApiKeyStatus: (providerId: string) =>
+        ipcRenderer.invoke('store-get-api-key-status', providerId),
+    getProviderPresets: () => ipcRenderer.invoke('store-get-provider-presets'),
+    // Aliases legados (retrocompat)
     setAnthropicKey: (key: string) => ipcRenderer.invoke('store-set-anthropic-key', key),
     getAnthropicKeyStatus: () => ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => ipcRenderer.invoke('check-pje'),

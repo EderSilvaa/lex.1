@@ -1,11 +1,11 @@
 # LEX — Assistente Jurídico Agêntico para PJe
 
-> Aplicativo Desktop (Electron + TypeScript) com IA Claude da Anthropic para automação jurídica completa. Agente autônomo com loop Think → Critic → Act → Observe, automação de browser via Stagehand v3, controle de PC via Vision AI + nut-js, e acesso ao sistema de arquivos.
+> Aplicativo Desktop (Electron + TypeScript) com IA agnóstica e BYOK (Bring Your Own Key). Agente autônomo com loop Think → Critic → Act → Observe, automação de browser via Stagehand v3, controle de PC via Vision AI + nut-js, e acesso ao sistema de arquivos. Suporta Anthropic, OpenAI, OpenRouter, Google AI e Groq.
 
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
-![Versão](https://img.shields.io/badge/versão-4.0-blue)
+![Versão](https://img.shields.io/badge/versão-5.0-blue)
 ![Electron](https://img.shields.io/badge/platform-windows-blueviolet)
-![IA](https://img.shields.io/badge/IA-Claude%20Sonnet%204.6-orange)
+![IA](https://img.shields.io/badge/IA-multi--provider%20BYOK-orange)
 
 ---
 
@@ -18,7 +18,23 @@ npm install
 npm run electron:dev
 ```
 
-Configure a chave da API Anthropic na primeira tela do app e pronto.
+Abra **Configurações → Provedor de IA**, selecione seu provider, cole a chave e clique em **Testar**.
+
+---
+
+## BYOK — Traga Sua Própria Chave
+
+O Lex não requer chave própria. O usuário conecta o provider de sua escolha:
+
+| Provider | Modelos | Vision | Grátis |
+|---|---|---|---|
+| **Anthropic** | Claude Haiku/Sonnet/Opus | ✅ | ❌ pago |
+| **OpenAI** | GPT-4o, GPT-4o Mini | ✅ | ❌ pago |
+| **OpenRouter** | 200+ modelos | ✅ | ✅ 200 req/dia |
+| **Google AI** | Gemini 2.0/2.5 | ✅ | ✅ limitado |
+| **Groq** | Llama 4, Llama 3.3 | ✅ | ✅ limitado |
+
+> **Opção gratuita recomendada:** OpenRouter com `qwen/qwen2.5-vl-32b-instruct:free` — modelo vision capaz de automação de browser sem custo.
 
 ---
 
@@ -27,40 +43,31 @@ Configure a chave da API Anthropic na primeira tela do app e pronto.
 ### Agente Autônomo
 - Loop de raciocínio em 4 etapas: **Think → Critic → Act → Observe**
 - Roteamento automático: decide se usa o agente ou resposta direta
-- **Streaming em tempo real**: tokens aparecem progressivamente na UI enquanto Claude raciocina
+- **Streaming em tempo real**: tokens aparecem progressivamente na UI
 - Sessões persistentes em disco — histórico não se perde ao fechar o app
 
 ### Automação PJe (Browser)
-- Controla Chrome externamente via Stagehand v3
+- Controla Chrome externamente via Stagehand v3 com qualquer provider vision
 - Executa ações em linguagem natural ("consultar processo 0001234-56.2024")
 - Overlay visual no navegador mostrando a ação em tempo real
-- Suporte ao TRT8 (PJe 1º grau e painel do usuário externo)
+- Suporte ao TRT8 e demais tribunais PJe
 
 ### Controle de PC (Vision AI + nut-js)
-- Tira screenshots e envia ao Claude Vision para análise
+- Tira screenshots e envia ao modelo vision para análise
 - Loop autônomo: vê → decide → age → verifica (até concluir)
 - Executa: cliques, duplo-clique, digitação, atalhos de teclado, scroll
-- Skills: `pc_agir` — qualquer tarefa no Windows em linguagem natural
 
 ### Acesso ao Sistema de Arquivos
-- `os_listar` — lista diretórios com aliases amigáveis (downloads, desktop, documentos)
+- `os_listar` — lista diretórios com aliases amigáveis
 - `os_arquivos` — ler, mover, copiar, deletar, buscar arquivos
 - `os_escrever` — criar arquivos e pastas
 - `os_sistema` — executar comandos shell com confirmação humana (HITL)
 
 ### Segurança
-- **Chave API criptografada**: AES-256-GCM com chave derivada da máquina (hostname+username via scrypt)
-- Migração automática de keys antigas (plain text → criptografado na primeira execução)
+- **Chaves API criptografadas**: AES-256-GCM com chave derivada da máquina (hostname+username via scrypt)
+- Múltiplas chaves armazenadas simultaneamente (uma por provider)
+- Migração automática de chaves legadas na primeira execução
 - Blocklist de comandos perigosos no `os_sistema`
-- Confirmação humana obrigatória para comandos shell (`confirmado: true`)
-
-### Interface de Chat
-- Múltiplas conversas na sidebar (como Claude.ai)
-- Renderização de Markdown completa (marked + DOMPurify)
-- Streaming progressivo com cursor animado
-- Cards de sugestão de prompt na tela inicial
-- Saudação dinâmica baseada no horário
-- Pill de status do PJe em tempo real
 
 ---
 
@@ -70,68 +77,65 @@ Configure a chave da API Anthropic na primeira tela do app e pronto.
 electron/
 ├── main.ts                  # Main process: IPC handlers, store, inicialização
 ├── preload.ts               # Bridge segura renderer ↔ main (contextBridge)
-├── ai-handler.ts            # Wrapper Anthropic API (texto + Vision + streaming)
+├── provider-config.ts       # ★ Registro BYOK: presets, ActiveProviderConfig
+├── ai-handler.ts            # Roteador multi-provider (texto + Vision + streaming)
 ├── crypto-store.ts          # AES-256-GCM para criptografar API keys em repouso
 ├── stagehand-manager.ts     # Chrome externo + Stagehand v3 (browser automation)
-├── computer-manager.ts      # Vision loop: screenshot → Claude → nut-js (PC control)
+├── computer-manager.ts      # Vision loop: screenshot → LLM → nut-js (PC control)
 │
 ├── agent/
 │   ├── loop.ts              # Loop agêntico Think → Critic → Act → Observe
-│   ├── think.ts             # LLM call + extrator de stream JSON ("resposta":"...")
-│   ├── session.ts           # SessionManager: histórico multi-turn persistido em disco
+│   ├── think.ts             # LLM call + extrator de stream JSON
+│   ├── session.ts           # SessionManager: histórico multi-turn persistido
 │   ├── executor.ts          # Registra e executa skills
 │   ├── types.ts             # Interfaces: Skill, AgentContext, AgentConfig, etc.
 │   └── index.ts             # Inicialização: registra todas as skills
 │
 ├── skills/
-│   ├── pje/
-│   │   ├── abrir.ts         # pje_abrir — navega para login do tribunal
-│   │   ├── agir.ts          # pje_agir — ação livre em linguagem natural
-│   │   ├── consultar.ts     # pje_consultar — consulta de processo
-│   │   ├── movimentacoes.ts # pje_movimentacoes — listagem de movimentações
-│   │   └── documentos.ts    # pje_documentos — acesso a documentos
-│   ├── pc/
-│   │   └── agir.ts          # pc_agir — controla Windows via Vision AI + nut-js
-│   └── os/
-│       ├── listar.ts        # os_listar — lista diretórios
-│       ├── arquivos.ts      # os_arquivos — operações em arquivos
-│       ├── escrever.ts      # os_escrever — cria arquivos/pastas
-│       └── sistema.ts       # os_sistema — shell com HITL
-│
-├── tools/
-│   └── os-tools.ts          # Camada base: Node.js fs/child_process (sem deps)
+│   ├── pje/                 # pje_abrir, pje_agir, pje_consultar, etc.
+│   ├── pc/                  # pc_agir — controla Windows via Vision AI
+│   └── os/                  # os_listar, os_arquivos, os_escrever, os_sistema
 │
 └── pje/
     ├── tribunal-urls.ts     # URLs dos tribunais suportados
     └── route-memory.ts      # Memória de rotas visitadas
 
 src/renderer/
-├── index.html               # Shell da UI
+├── index.html               # Shell da UI (inclui seção Provedor de IA)
 ├── styles/
-│   ├── main.css             # Estilos globais + fonte Michroma
+│   ├── main.css             # Estilos globais
 │   ├── chat.css             # Mensagens, markdown, streaming cursor
 │   └── thinking.css         # Animações do processo de raciocínio
 └── js/
-    ├── app.js               # Toda a lógica do renderer (chat, conversas, streaming)
+    ├── app.js               # Lógica do renderer: chat, conversas, provider settings
     ├── marked.min.js        # Renderização de Markdown
     └── purify.min.js        # Sanitização HTML (DOMPurify)
 ```
 
 ---
 
-## Fluxo de Streaming
+## Fluxo BYOK — Troca de Provider em Runtime
 
 ```
-User → app.js
-  → IPC: agent-chat-message
-  → loop.ts: emit streaming_start
-  → think.ts: callLLM(onToken)
-     → ai-handler.ts: callAnthropic(onToken)
-        → SSE chunk → content_block_delta
-        → createRespostaExtractor: filtra campo "resposta" do JSON
-        → onToken(delta) → emit type:'token'
-  → app.js: token chega → appenda na bubble
-  → completed → re-renderiza com Markdown
+Settings UI
+  → user seleciona OpenRouter + cola chave
+  → lexApi.setApiKey('openrouter', key)      → store encriptado
+  → lexApi.setProvider({ providerId, ... })  → setActiveConfig()
+                                             → reInitStagehand() [background]
+
+Agent loop (think.ts)
+  → callAI() → getActiveConfig() → switch(providerId)
+     anthropic  → callAnthropic()   (SSE nativo)
+     openai     → callOpenAICompat() (openai.com)
+     openrouter → callOpenAICompat() (openrouter.ai/api/v1)
+     google     → callGoogle()      (Gemini REST)
+     groq       → callOpenAICompat() (api.groq.com)
+
+Browser automation (stagehand-manager)
+  → getStagehandModelConfig()
+     → modelName: 'openrouter/qwen2.5-vl-32b-instruct:free'
+     → apiKey: <chave do usuário>
+  → Stagehand inicia Chrome com modelo vision do provider ativo
 ```
 
 ---
@@ -142,7 +146,7 @@ User → app.js
 |--------|-----------|
 | Desktop | Electron |
 | Linguagem | TypeScript |
-| IA | Claude Sonnet 4.6 (Anthropic) |
+| IA (multi-provider) | Anthropic / OpenAI / OpenRouter / Google AI / Groq |
 | Automação Browser | Stagehand v3 + Chrome externo |
 | Controle PC | nut-js (@nut-tree-fork) + Vision AI |
 | Segurança | AES-256-GCM (node:crypto) |
@@ -158,16 +162,19 @@ User → app.js
 npm run electron:dev    # Watch TS + lança Electron (desenvolvimento)
 npm run electron:start  # Lança Electron sem recompilar
 npm run electron:build  # Compila TypeScript para dist-electron/
-npm run build:watch     # Watch mode do renderer
 ```
 
 ---
 
 ## Configuração
 
-Toda a configuração é feita pela própria UI do app:
-- **Chave Anthropic**: salva localmente criptografada com AES-256-GCM
-- **Tribunal**: selecionado via skill `pje_abrir`
+Toda a configuração é feita pela própria UI do app em **Configurações → Provedor de IA**:
+
+1. Selecione o provider (Anthropic, OpenAI, OpenRouter, Google AI, Groq)
+2. Cole sua chave API (link direto para obter a chave é exibido)
+3. Escolha o **modelo agente** (para raciocínio) e **modelo browser** (deve ter vision)
+4. Clique em **Testar** para validar a conexão
+5. Salve — o app troca de provider instantaneamente, sem reiniciar
 
 Não há `.env` necessário.
 
@@ -190,7 +197,7 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 - [ ] Minutas automáticas com base nos autos
 - [ ] RAG com jurisprudência indexada
 - [ ] Notificações de movimentação processual
-- [ ] Geração automática de petições
+- [ ] Modelos locais (Ollama) via OpenAI-compatible
 
 ---
 
@@ -200,4 +207,4 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 
 ---
 
-*Última atualização: março de 2026 — v4.0 (OS/PC automation + criptografia + streaming + sessões persistentes)*
+*Última atualização: março de 2026 — v5.0 (BYOK multi-provider: Anthropic, OpenAI, OpenRouter, Google AI, Groq)*

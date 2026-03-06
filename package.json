@@ -20,6 +20,7 @@
   "dependencies": {
     "@browserbasehq/stagehand": "^3.1.0",
     "@nut-tree-fork/nut-js": "^4.2.6",
+    "@openrouter/ai-sdk-provider": "^2.2.3",
     "@supabase/supabase-js": "^2.98.0",
     "@types/pdf-parse": "^1.1.5",
     "dompurify": "^3.3.2",

@@ -1,6 +1,7 @@
 # Lex Agent Architecture
 
 > Arquitetura do agente autônomo do Lex, inspirada no OpenClaw, especializada em Direito brasileiro.
+> **v5.0** — BYOK multi-provider: Anthropic, OpenAI, OpenRouter, Google AI, Groq.
 
 ---
 
@@ -17,7 +18,8 @@
 │   Agente genérico         →         Agente jurídico        │
 │   Qualquer tarefa         →         Especialista em PJe    │
 │   Multi-canal             →         Desktop-first          │
-│   Puppeteer               →         Playwright             │
+│   Puppeteer               →         Playwright/Stagehand   │
+│   Provider fixo           →         BYOK multi-provider    │
 │   MIT License ✓           →         Podemos usar ✓         │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -1747,13 +1749,72 @@ window.lexApi.onAgentEvent((event) => {
 
 ---
 
-## 9. Referências
+## 9. BYOK — Camada Multi-Provider (v5.0)
+
+### Motivação
+
+O Lex é vendido como **infraestrutura jurídica**. O usuário traz sua própria chave de IA — não depende de conta Anthropic exclusiva.
+
+### Providers suportados
+
+| Provider | Endpoint | Vision | Stagehand |
+|---|---|---|---|
+| Anthropic | `api.anthropic.com` | ✅ nativo | ✅ `anthropic/model` |
+| OpenAI | `api.openai.com` | ✅ `image_url` | ✅ `openai/model` |
+| OpenRouter | `openrouter.ai/api/v1` | ✅ `image_url` | ✅ `openrouter/model` |
+| Google AI | `generativelanguage.googleapis.com` | ✅ `inline_data` | ✅ `google/model` |
+| Groq | `api.groq.com/openai/v1` | ✅ `image_url` | ✅ via OpenAI compat |
+
+### Arquivos centrais
+
+```
+electron/provider-config.ts   ← registro de presets + ActiveProviderConfig
+electron/ai-handler.ts        ← roteador callAI() + callAIWithVision()
+electron/stagehand-manager.ts ← getStagehandModelConfig() → init dinâmico
+electron/main.ts              ← store multi-key + IPC: store-set-provider, store-set-api-key
+electron/preload.ts           ← bridge: setProvider(), setApiKey(), getProviderPresets()
+src/renderer/js/app.js        ← loadProviderSettings(), saveProviderSettings()
+```
+
+### Fluxo de dados
+
+```
+App start
+  initStore()
+    → store.get('aiProvider')        # provider + modelos salvos
+    → store.get('apiKeys')[provider] # chave encriptada AES-256-GCM
+    → setActiveConfig()              # singleton runtime
+    → initStagehand()                # Chrome com modelo do provider ativo
+
+Settings change
+  UI → setApiKey(providerId, key)   → store encriptado
+  UI → setProvider({ providerId })  → setActiveConfig() + reInitStagehand()
+
+callAI() / callAIWithVision()
+  → getActiveConfig().providerId
+  → switch: callAnthropic / callOpenAICompat / callGoogle
+  (OpenRouter e Groq reusam callOpenAICompat com baseUrl diferente)
+```
+
+### Modelos gratuitos recomendados (OpenRouter)
+
+| Uso | Modelo | Vision |
+|---|---|---|
+| Browser/PJe | `qwen/qwen2.5-vl-32b-instruct:free` | ✅ |
+| Browser/PJe | `google/gemma-3-27b-it:free` | ✅ |
+| Agente texto | `qwen/qwen3-30b-a3b:free` | ❌ |
+| Agente texto | `meta-llama/llama-3.3-70b-instruct:free` | ❌ |
+
+---
+
+## 10. Referências
 
 - [OpenClaw GitHub](https://github.com/openclaw/openclaw)
-- [OpenClaw Agent Loop Docs](https://docs.molt.bot/concepts/agent-loop)
 - [ReAct Pattern Paper](https://arxiv.org/abs/2210.03629)
+- [Stagehand Models](https://docs.stagehand.dev/v3/configuration/models)
+- [OpenRouter Free Models](https://openrouter.ai/collections/free-models)
 
 ---
 
 *Documento criado em: Janeiro 2026*
-*Versão: 1.0*
+*Versão: 5.0 — março 2026 (BYOK multi-provider)*
