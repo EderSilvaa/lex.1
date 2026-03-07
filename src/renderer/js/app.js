@@ -1092,6 +1092,84 @@ async function saveSettings() {
     } catch (_) {}
 }
 
+// ── Telegram 24/7 ───────────────────────────────────────────────────────────
+
+async function initTelegramSettings() {
+    const tokenInput = document.getElementById('telegram-token');
+    const userIdInput = document.getElementById('telegram-userid');
+    const btnSave = document.getElementById('btn-telegram-save');
+    const btnToggle = document.getElementById('btn-telegram-toggle');
+    const statusEl = document.getElementById('telegram-status');
+    if (!tokenInput || !userIdInput || !btnSave || !btnToggle || !statusEl) return;
+
+    function setStatus(msg, color = '#888') {
+        statusEl.textContent = msg;
+        statusEl.style.color = color;
+    }
+
+    async function refreshUI() {
+        try {
+            const cfg = await window.lexApi.telegramGetConfig();
+            if (cfg.hasToken) tokenInput.placeholder = cfg.tokenPreview || '(token salvo)';
+            if (cfg.userId) userIdInput.value = cfg.userId;
+
+            if (cfg.running) {
+                btnToggle.textContent = 'Desativar 24/7';
+                btnToggle.style.background = '#dc2626';
+                setStatus('Bot ativo — aguardando mensagens no Telegram', '#4ade80');
+            } else {
+                btnToggle.textContent = 'Ativar 24/7';
+                btnToggle.style.background = '';
+                setStatus(cfg.hasToken ? 'Bot configurado. Clique em "Ativar 24/7" para ligar.' : 'Configure o token e seu ID para ativar.');
+            }
+        } catch (e) {
+            setStatus('Erro ao carregar config: ' + e.message, '#f87171');
+        }
+    }
+
+    btnSave.addEventListener('click', async () => {
+        const token = tokenInput.value.trim();
+        const userId = parseInt(userIdInput.value.trim(), 10);
+        if (!token && !userId) { setStatus('Preencha pelo menos um campo.', '#f87171'); return; }
+        btnSave.disabled = true;
+        try {
+            await window.lexApi.telegramSetConfig({ token: token || '', userId: userId || 0 });
+            setStatus('Config salva!', '#4ade80');
+            tokenInput.value = '';
+            await refreshUI();
+        } catch (e) {
+            setStatus('Erro: ' + e.message, '#f87171');
+        } finally {
+            btnSave.disabled = false;
+        }
+    });
+
+    btnToggle.addEventListener('click', async () => {
+        btnToggle.disabled = true;
+        try {
+            const status = await window.lexApi.telegramGetStatus();
+            if (status.running) {
+                setStatus('Desativando...', '#94a3b8');
+                const r = await window.lexApi.telegramDisable();
+                if (r.error) { setStatus('Erro: ' + r.error, '#f87171'); return; }
+                setStatus('Bot desativado.', '#94a3b8');
+            } else {
+                setStatus('Ativando...', '#94a3b8');
+                const r = await window.lexApi.telegramEnable();
+                if (r.error) { setStatus('Erro: ' + r.error, '#f87171'); return; }
+                setStatus('Bot ativo! Mande /start para o bot no Telegram.', '#4ade80');
+            }
+            await refreshUI();
+        } catch (e) {
+            setStatus('Erro: ' + e.message, '#f87171');
+        } finally {
+            btnToggle.disabled = false;
+        }
+    });
+
+    await refreshUI();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setDynamicGreeting();
     loadPreferences();
@@ -1147,6 +1225,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Telegram 24/7
+    initTelegramSettings();
 
     // PJe status polling
     updatePjeStatus();

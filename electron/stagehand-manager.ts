@@ -9,6 +9,7 @@ type StagehandType = import('@browserbasehq/stagehand').Stagehand
 
 let instance: StagehandType | null = null
 let initPromise: Promise<void> | null = null  // mutex — evita dois inits concorrentes
+let heartbeatTimer: NodeJS.Timeout | null = null
 
 export async function initStagehand(): Promise<void> {
   // Se já está inicializando, espera o mesmo promise em vez de criar outro Chrome
@@ -36,7 +37,7 @@ async function _doInit(): Promise<void> {
 
   // Mata Chrome anterior usando PID salvo pelo chrome-launcher
   // (keepAlive: true deixa Chrome vivo após fechar o app — precisa matar antes de reusar o perfil)
-  killPreviousChrome(userDataDir)
+  await killPreviousChrome(userDataDir)
 
   // Obtém config dinâmica do provider ativo
   const modelConfig = getStagehandModelConfig()
@@ -57,6 +58,11 @@ async function _doInit(): Promise<void> {
     localBrowserLaunchOptions: {
       headless: false,    // Chrome visível sempre
       userDataDir,        // login salvo entre sessões
+      args: [
+        '--restore-last-session',   // restaura sessão anterior (cookies, abas)
+        '--no-first-run',           // evita diálogo de boas-vindas
+        '--no-default-browser-check',
+      ],
     } as any,
     logger: (msg: any) => {
       if (process.env['NODE_ENV'] === 'development') {
@@ -68,6 +74,7 @@ async function _doInit(): Promise<void> {
   await sh.init()
   instance = sh   // só seta após init bem-sucedido
   console.log('[Stagehand] Chrome iniciado com perfil em:', userDataDir)
+  startHeartbeat()
 }
 
 export function getStagehand(): StagehandType {
@@ -319,7 +326,32 @@ REGRAS:
   return finalMsg
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Heartbeat — mantém sessão PJe viva com fetch silencioso a cada 6h
+// ─────────────────────────────────────────────────────────────────────────────
+
+function startHeartbeat(): void {
+  stopHeartbeat()
+  heartbeatTimer = setInterval(async () => {
+    try {
+      const page = getActivePage()
+      if (!page) return
+      const url: string = await page.evaluate(() => window.location.href)
+      if (!url.includes('.jus.br') && !url.includes('pje')) return
+      await page.evaluate(async (u: string) => {
+        try { await fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' }) } catch { /* ignora */ }
+      }, url)
+      console.log('[Stagehand] Heartbeat PJe —', new Date().toLocaleTimeString('pt-BR'))
+    } catch { /* page indisponível, ignora */ }
+  }, 6 * 60 * 60 * 1000) // 6 horas
+}
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+}
+
 export async function closeStagehand(): Promise<void> {
+  stopHeartbeat()
   if (instance) {
     // Force-kill Chrome via internal state (keepAlive: true faz close() ignorar kill)
     try {
@@ -339,21 +371,29 @@ export async function closeStagehand(): Promise<void> {
 /**
  * Mata o Chrome anterior pelo PID salvo pelo chrome-launcher em chrome.pid.
  * keepAlive: true deixa Chrome vivo após fechar — precisa matar antes de reusar o perfil.
- * Sem isso, Chrome diz "Abrindo em sessão existente" e não abre porta de debug.
+ * Usa shutdown gracioso (taskkill no Windows / SIGTERM no Linux) para que o Chrome
+ * salve cookies de sessão antes de encerrar — essencial para manter login no PJe.
  */
-function killPreviousChrome(userDataDir: string): void {
+async function killPreviousChrome(userDataDir: string): Promise<void> {
   const pidFile = path.join(userDataDir, 'chrome.pid')
   try {
-    if (fs.existsSync(pidFile)) {
-      const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10)
-      if (pid && !isNaN(pid)) {
-        try {
-          process.kill(pid, 0)  // verifica se processo existe
-          process.kill(pid)     // SIGTERM
-          console.log('[Stagehand] Chrome anterior encerrado (PID:', pid, ')')
-        } catch { /* processo já não existe */ }
-      }
-      fs.unlinkSync(pidFile)
+    if (!fs.existsSync(pidFile)) return
+    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10)
+    if (!pid || isNaN(pid)) { fs.unlinkSync(pidFile); return }
+
+    try { process.kill(pid, 0) } catch { fs.unlinkSync(pidFile); return }  // já não existe
+
+    if (process.platform === 'win32') {
+      // taskkill sem /F envia WM_CLOSE — Chrome salva sessão graciosamente
+      const { exec } = await import('child_process')
+      await new Promise<void>((resolve) => exec(`taskkill /PID ${pid}`, () => resolve()))
+    } else {
+      process.kill(pid, 'SIGTERM')
     }
+
+    // Aguarda Chrome salvar estado de sessão (cookies, localStorage)
+    await new Promise(r => setTimeout(r, 700))
+    console.log('[Stagehand] Chrome anterior encerrado graciosamente (PID:', pid, ')')
+    fs.unlinkSync(pidFile)
   } catch { /* ignore */ }
 }

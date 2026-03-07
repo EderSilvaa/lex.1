@@ -5,11 +5,11 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { infoSistema, executarComando, abrirComSistema, pastasConhecidas } from '../../tools/os-tools';
+import { infoSistema, executarComando, abrirComSistema, pastasConhecidas, listarProcessos, encerrarProcesso } from '../../tools/os-tools';
 
 export const osSistema: Skill = {
     nome: 'os_sistema',
-    descricao: 'Informações do sistema operacional, pastas conhecidas, abrir programas/arquivos, executar comandos shell. SEMPRE exige confirmação do usuário antes de executar comandos.',
+    descricao: 'Informações do SO, pastas conhecidas, abrir programas/arquivos, executar comandos shell, listar processos em execução, encerrar processo. Confirmação exigida antes de executar comandos ou encerrar processos.',
     categoria: 'os',
 
     parametros: {
@@ -17,7 +17,7 @@ export const osSistema: Skill = {
             tipo: 'string',
             descricao: 'Operação a executar',
             obrigatorio: true,
-            enum: ['info', 'pastas', 'abrir', 'comando']
+            enum: ['info', 'pastas', 'abrir', 'comando', 'processos', 'encerrar']
         },
         alvo: {
             tipo: 'string',
@@ -116,10 +116,49 @@ export const osSistema: Skill = {
                 };
             }
 
+            case 'processos': {
+                const resultado = await listarProcessos(alvo || undefined);
+                if (!resultado.sucesso) return { sucesso: false, erro: resultado.erro, mensagem: resultado.erro };
+                const { processos, total, filtro } = resultado.dados;
+                const lista = processos.slice(0, 50).map((p: any) =>
+                    `  PID ${p.pid.toString().padStart(6)} | ${p.nome.padEnd(30)} | ${p.memoria}`
+                ).join('\n');
+                const header = filtro ? `Processos "${filtro}"` : 'Processos em execução';
+                return {
+                    sucesso: true,
+                    dados: resultado.dados,
+                    mensagem: `💻 ${header}: ${total} processo(s)\n\n${lista}${total > 50 ? `\n... e mais ${total - 50}` : ''}`
+                };
+            }
+
+            case 'encerrar': {
+                if (!alvo) return { sucesso: false, erro: 'Parâmetro "alvo" (PID ou nome do processo) obrigatório.', mensagem: 'Informe o PID ou nome do processo.' };
+
+                if (!confirmado) {
+                    return {
+                        sucesso: false,
+                        dados: {
+                            requiresUserAction: true,
+                            question: `Posso encerrar o processo **${alvo}**?\n\nResponda "sim, encerre" para confirmar ou "não" para cancelar.`
+                        },
+                        mensagem: `Aguardando confirmação para encerrar: ${alvo}`
+                    };
+                }
+
+                const alvoParsed = /^\d+$/.test(alvo) ? Number(alvo) : alvo;
+                const resultado = await encerrarProcesso(alvoParsed);
+                if (!resultado.sucesso) return { sucesso: false, erro: resultado.erro, mensagem: resultado.erro };
+                return {
+                    sucesso: true,
+                    dados: resultado.dados,
+                    mensagem: `✅ Processo "${alvo}" encerrado.${resultado.dados.stdout ? `\n${resultado.dados.stdout}` : ''}`
+                };
+            }
+
             default:
                 return {
                     sucesso: false,
-                    erro: `Operação desconhecida: "${operacao}". Use: info, pastas, abrir, comando`,
+                    erro: `Operação desconhecida: "${operacao}". Use: info, pastas, abrir, comando, processos, encerrar`,
                     mensagem: 'Operação inválida.'
                 };
         }

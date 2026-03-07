@@ -260,6 +260,28 @@
                             </div>
                         </section>
 
+                        <!-- Modo 24/7 — Telegram -->
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Modo 24/7 — Telegram</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="telegram-token">Token do Bot</label>
+                                    <input class="settings-input" type="password" id="telegram-token" placeholder="Ex: 123456789:AAF..." autocomplete="off">
+                                    <span class="settings-hint">Crie um bot em @BotFather e cole o token aqui</span>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="telegram-userid">Seu ID do Telegram</label>
+                                    <input class="settings-input" type="number" id="telegram-userid" placeholder="Ex: 123456789" autocomplete="off">
+                                    <span class="settings-hint">Envie /start para @userinfobot para descobrir seu ID</span>
+                                </div>
+                                <div class="settings-row" style="gap:10px;margin-top:8px">
+                                    <button class="settings-save-btn" id="btn-telegram-save" style="flex:1">Salvar config</button>
+                                    <button class="settings-save-btn" id="btn-telegram-toggle" style="flex:1;background:var(--accent,#1a73e8)">Ativar 24/7</button>
+                                </div>
+                                <div id="telegram-status" style="margin-top:8px;font-size:12px;color:#888"></div>
+                            </div>
+                        </section>
+
                         <!-- Salvar -->
                         <div class="settings-actions">
                             <button class="settings-save-btn" id="btn-save-settings">Salvar alteracoes</button>

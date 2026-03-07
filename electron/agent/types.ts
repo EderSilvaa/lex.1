@@ -56,6 +56,7 @@ export interface MemoriaContext {
     processosRecentes: string[];
     aprendizados: string[];
     preferencias: Record<string, any>;
+    interacoesSimilares?: Array<{ objetivo: string; sucesso: boolean }>;
 }
 
 export interface ProcessoContext {
@@ -90,6 +91,7 @@ export interface UsuarioContext {
     email?: string;
     tribunal_preferido?: string;
     escritorio?: string;
+    estilo_escrita?: 'formal' | 'semiformal' | 'informal';
 }
 
 // ============================================================================
@@ -153,7 +155,7 @@ export interface CriticDecision {
 export interface Skill {
     nome: string;
     descricao: string;
-    categoria: 'pje' | 'documentos' | 'pesquisa' | 'utils';
+    categoria: 'pje' | 'documentos' | 'pesquisa' | 'utils' | 'os' | 'pc';
 
     // Schema de parâmetros
     parametros: Record<string, SkillParametro>;
@@ -202,7 +204,9 @@ export type AgentEvent =
     | { type: 'error'; erro: string; recuperavel: boolean }
     | { type: 'waiting_user'; pergunta: string; opcoes?: string[] }
     | { type: 'cancelled' }
-    | { type: 'timeout' };
+    | { type: 'timeout' }
+    | { type: 'streaming_start' }
+    | { type: 'token'; token: string };
 
 // ============================================================================
 // CONFIG

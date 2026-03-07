@@ -79,4 +79,11 @@ contextBridge.exposeInMainWorld('lexApi', {
     saveConversation: (conv: any) => ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
+
+    // Modo 24/7 — Telegram Bot
+    telegramGetConfig: () => ipcRenderer.invoke('telegram-get-config'),
+    telegramSetConfig: (cfg: { token: string; userId: number }) => ipcRenderer.invoke('telegram-set-config', cfg),
+    telegramEnable: () => ipcRenderer.invoke('telegram-enable'),
+    telegramDisable: () => ipcRenderer.invoke('telegram-disable'),
+    telegramGetStatus: () => ipcRenderer.invoke('telegram-get-status'),
 });

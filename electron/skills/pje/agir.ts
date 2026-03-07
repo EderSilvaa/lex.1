@@ -12,7 +12,7 @@ import { agentEmitter } from '../../agent/loop';
 
 export const pjeAgir: Skill = {
     nome: 'pje_agir',
-    descricao: 'Executa qualquer ação no browser em linguagem natural: navegar, clicar, preencher formulários, extrair dados. Use para qualquer interação com PJe ou outros sistemas web.',
+    descricao: 'Executa ações no browser (Chrome) em linguagem natural: navegar no PJe, clicar, preencher formulários, extrair dados de processos judiciais. Use para interações com o sistema judicial. NÃO usar para operações no sistema de arquivos local do computador.',
     categoria: 'pje',
 
     parametros: {

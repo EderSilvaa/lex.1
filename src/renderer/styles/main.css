@@ -233,11 +233,10 @@ body {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background-image:
-        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
-    opacity: 0.16;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(ellipse at center, transparent 15%, rgba(255, 255, 255, 0.9) 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, transparent 15%, rgba(255, 255, 255, 0.9) 75%);
     z-index: 0;
 }
 
@@ -543,6 +542,163 @@ body {
     .greeting-section {
         margin-bottom: 34px;
     }
+}
+
+/* ============================================================
+   SETTINGS VIEW
+   ============================================================ */
+.settings-wrapper {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    padding: 40px 32px;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.settings-wrapper:hover {
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.settings-container {
+    max-width: 680px;
+    margin: 0 auto;
+}
+
+.settings-header {
+    margin-bottom: 36px;
+}
+
+.settings-title {
+    font-family: 'Michroma', var(--font-brand);
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: 0.03em;
+    color: #f2ede2;
+    margin-bottom: 6px;
+}
+
+.settings-subtitle {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.settings-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.settings-section {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 24px;
+}
+
+.settings-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+}
+
+.settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.settings-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.settings-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.settings-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 14px;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-input:focus {
+    border-color: rgba(141, 106, 87, 0.6);
+    box-shadow: 0 0 0 3px rgba(141, 106, 87, 0.12);
+}
+
+.settings-select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23878074' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+
+.settings-select option {
+    background: #1a1a1a;
+    color: var(--text-primary);
+}
+
+.settings-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.settings-save-btn {
+    padding: 10px 22px;
+    border-radius: var(--radius-sm);
+    border: 0;
+    background: linear-gradient(180deg, var(--accent-color) 0%, var(--accent-strong) 100%);
+    color: #fff;
+    font-family: var(--font-system);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: filter 0.2s, transform 0.15s;
+}
+
+.settings-save-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+.settings-save-btn:active {
+    transform: translateY(0);
+}
+
+.settings-save-feedback {
+    font-size: 13px;
+    color: var(--success-color);
+    transition: opacity 0.3s;
 }
 
 /* ============================================================

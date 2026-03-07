@@ -165,9 +165,11 @@ function applyDefaults(
 }
 
 /**
- * Gera descrição das skills para o prompt do LLM
+ * Gera descrição das skills para o prompt do LLM.
+ * Na primeira iteração (iteracao <= 1), formato completo com parâmetros e exemplos.
+ * A partir da 2ª iteração, formato compacto (nome + descrição) para economizar tokens.
  */
-export function getSkillsForPrompt(): string {
+export function getSkillsForPrompt(iteracao = 1): string {
     const skills = Object.values(skillRegistry);
 
     if (skills.length === 0) {
@@ -185,18 +187,34 @@ export function getSkillsForPrompt(): string {
         categorias[cat].push(skill);
     }
 
+    const compacto = iteracao > 1;
+
     // Formata
-    const partes: string[] = ['# Skills Disponíveis'];
+    const partes: string[] = [
+        compacto
+            ? '# Skills Disponíveis (resumo — use os nomes exatos)'
+            : '# Skills Disponíveis'
+    ];
 
     for (const [categoria, skillsCategoria] of Object.entries(categorias)) {
         partes.push(`\n## ${formatCategoria(categoria)}`);
 
         for (const skill of skillsCategoria) {
-            partes.push(formatSkillForPrompt(skill));
+            partes.push(compacto
+                ? formatSkillForPromptCompact(skill)
+                : formatSkillForPrompt(skill)
+            );
         }
     }
 
     return partes.join('\n');
+}
+
+/**
+ * Formato compacto: apenas nome e descrição curta (sem parâmetros/exemplos)
+ */
+function formatSkillForPromptCompact(skill: Skill): string {
+    return `- \`${skill.nome}\`: ${skill.descricao}`;
 }
 
 /**

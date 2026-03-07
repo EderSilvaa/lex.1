@@ -29,7 +29,9 @@
     "marked": "^17.0.4",
     "node-fetch": "^3.3.2",
     "pdf-parse": "^2.4.5",
-    "playwright-core": "^1.58.1"
+    "playwright-core": "^1.58.1",
+    "telegraf": "^4.16.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

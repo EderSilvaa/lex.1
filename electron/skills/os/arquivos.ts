@@ -1,23 +1,23 @@
 /**
  * Skill: os_arquivos
  *
- * Operações de arquivo: ler, escrever, mover, copiar, deletar, buscar, info.
+ * Operações de arquivo: ler (txt/pdf/docx), escrever, mover, copiar, deletar, buscar por nome, grep por conteúdo, info.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import {
     lerArquivo,
-    escreverArquivo,
     moverItem,
     copiarArquivo,
     deletarArquivo,
     infoItem,
-    buscarArquivos
+    buscarArquivos,
+    buscarConteudo
 } from '../../tools/os-tools';
 
 export const osArquivos: Skill = {
     nome: 'os_arquivos',
-    descricao: 'Operações em arquivos e pastas: ler conteúdo, mover, copiar, renomear, deletar, buscar por nome, verificar existência.',
+    descricao: 'Operações no sistema de arquivos local do Windows: ler arquivos (texto, PDF, DOCX), mover, copiar, renomear, deletar, buscar por nome, buscar por conteúdo (grep). NÃO usar para documentos ou expedientes do PJe.',
     categoria: 'os',
 
     parametros: {
@@ -25,7 +25,7 @@ export const osArquivos: Skill = {
             tipo: 'string',
             descricao: 'Operação a executar',
             obrigatorio: true,
-            enum: ['ler', 'mover', 'copiar', 'deletar', 'buscar', 'info']
+            enum: ['ler', 'mover', 'copiar', 'deletar', 'buscar', 'grep', 'info']
         },
         caminho: {
             tipo: 'string',
@@ -40,13 +40,19 @@ export const osArquivos: Skill = {
         },
         padrao: {
             tipo: 'string',
-            descricao: 'Padrão de nome para busca (para operação "buscar")',
+            descricao: 'Padrão de nome (para "buscar") ou texto a encontrar dentro dos arquivos (para "grep")',
+            obrigatorio: false,
+            default: ''
+        },
+        extensoes: {
+            tipo: 'string',
+            descricao: 'Extensões a filtrar no grep, separadas por vírgula. Ex: ".pdf,.docx,.txt". Vazio = todas as extensões de texto suportadas.',
             obrigatorio: false,
             default: ''
         },
         recursivo: {
             tipo: 'boolean',
-            descricao: 'Busca recursiva em subpastas (para operação "buscar")',
+            descricao: 'Busca recursiva em subpastas (para "buscar" e "grep")',
             obrigatorio: false,
             default: true
         }
@@ -55,9 +61,11 @@ export const osArquivos: Skill = {
     retorno: 'Resultado da operação com dados relevantes.',
 
     exemplos: [
-        '{ "skill": "os_arquivos", "parametros": { "operacao": "ler", "caminho": "C:\\\\relatorio.txt" } }',
-        '{ "skill": "os_arquivos", "parametros": { "operacao": "mover", "caminho": "C:\\\\Downloads\\\\doc.pdf", "destino": "C:\\\\Documents\\\\doc.pdf" } }',
+        '{ "skill": "os_arquivos", "parametros": { "operacao": "ler", "caminho": "C:\\\\relatorio.pdf" } }',
+        '{ "skill": "os_arquivos", "parametros": { "operacao": "ler", "caminho": "C:\\\\contrato.docx" } }',
+        '{ "skill": "os_arquivos", "parametros": { "operacao": "grep", "caminho": "C:\\\\Downloads", "padrao": "João Silva", "extensoes": ".pdf,.docx" } }',
         '{ "skill": "os_arquivos", "parametros": { "operacao": "buscar", "caminho": "C:\\\\Downloads", "padrao": ".pdf" } }',
+        '{ "skill": "os_arquivos", "parametros": { "operacao": "mover", "caminho": "C:\\\\Downloads\\\\doc.pdf", "destino": "C:\\\\Documents\\\\doc.pdf" } }',
         '{ "skill": "os_arquivos", "parametros": { "operacao": "deletar", "caminho": "C:\\\\temp\\\\lixo.txt" } }'
     ],
 
@@ -66,6 +74,7 @@ export const osArquivos: Skill = {
         const caminho = String(params['caminho'] || '').trim();
         const destino = String(params['destino'] || '').trim();
         const padrao = String(params['padrao'] || '').trim();
+        const extensoesRaw = String(params['extensoes'] || '').trim();
         const recursivo = params['recursivo'] !== false;
 
         if (!caminho) {
@@ -78,10 +87,12 @@ export const osArquivos: Skill = {
             case 'ler':
                 resultado = await lerArquivo(caminho);
                 if (!resultado.sucesso) return { sucesso: false, erro: resultado.erro, mensagem: resultado.erro };
+                const fmt = resultado.dados.formato ? ` [${resultado.dados.formato.toUpperCase()}]` : '';
+                const pags = resultado.dados.paginas ? `, ${resultado.dados.paginas} páginas` : '';
                 return {
                     sucesso: true,
                     dados: resultado.dados,
-                    mensagem: `📄 ${resultado.dados.caminho} (${resultado.dados.linhas} linhas)\n\n${resultado.dados.conteudo}`
+                    mensagem: `📄 ${resultado.dados.caminho}${fmt} (${resultado.dados.linhas} linhas${pags})\n\n${resultado.dados.conteudo}`
                 };
 
             case 'mover':
@@ -120,10 +131,31 @@ export const osArquivos: Skill = {
                 return {
                     sucesso: true,
                     dados: resultado.dados,
-                    mensagem: `🔍 Busca por "${padrao}" em ${resultado.dados.baseDir}:\n${resultado.dados.total} resultado(s)\n\n` +
+                    mensagem: `🔍 Busca por nome "${padrao}" em ${resultado.dados.baseDir}:\n${resultado.dados.total} resultado(s)\n\n` +
                         resultado.dados.resultados.slice(0, 50).join('\n') +
                         (resultado.dados.total > 50 ? `\n... e mais ${resultado.dados.total - 50}` : '')
                 };
+
+            case 'grep': {
+                if (!padrao) return { sucesso: false, erro: 'Parâmetro "padrao" obrigatório para grep.', mensagem: 'Informe o texto a buscar.' };
+                const extensoes = extensoesRaw
+                    ? extensoesRaw.split(',').map(e => e.trim()).filter(Boolean)
+                    : [];
+                resultado = await buscarConteudo(caminho, padrao, extensoes, recursivo);
+                if (!resultado.sucesso) return { sucesso: false, erro: resultado.erro, mensagem: resultado.erro };
+                const { total, resultados: res } = resultado.dados;
+                if (total === 0) {
+                    return { sucesso: true, dados: resultado.dados, mensagem: `🔍 Nenhum arquivo contém "${padrao}" em ${resultado.dados.baseDir}` };
+                }
+                const linhasResultado = res.map((r: any) =>
+                    `📄 ${r.arquivo} (${r.ocorrencias} ocorrência(s))\n${r.trechos.join('\n  ---\n')}`
+                ).join('\n\n');
+                return {
+                    sucesso: true,
+                    dados: resultado.dados,
+                    mensagem: `🔍 Grep "${padrao}" em ${resultado.dados.baseDir}:\n${total} arquivo(s) encontrado(s)\n\n${linhasResultado}`
+                };
+            }
 
             case 'info':
                 resultado = await infoItem(caminho);
@@ -139,7 +171,7 @@ export const osArquivos: Skill = {
             default:
                 return {
                     sucesso: false,
-                    erro: `Operação desconhecida: "${operacao}". Use: ler, mover, copiar, deletar, buscar, info`,
+                    erro: `Operação desconhecida: "${operacao}". Use: ler, mover, copiar, deletar, buscar, grep, info`,
                     mensagem: 'Operação inválida.'
                 };
         }

@@ -2,11 +2,9 @@
  * OS Tools
  *
  * Operações de sistema de arquivos e OS expostas ao agent.
- * Usa apenas APIs nativas do Node.js — sem dependências externas.
  */
 
 import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
@@ -16,6 +14,20 @@ const execAsync = promisify(exec);
 
 // Limite de tamanho de arquivo para leitura (2 MB)
 const MAX_READ_BYTES = 2 * 1024 * 1024;
+
+// Extensões binárias que não podem ser lidas como texto
+const BINARY_EXTENSIONS = new Set([
+    '.exe', '.dll', '.bin', '.zip', '.tar', '.gz', '.7z', '.rar',
+    '.mp3', '.mp4', '.avi', '.mkv', '.jpg', '.jpeg', '.png', '.gif',
+    '.bmp', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.db', '.sqlite'
+]);
+
+// Extensões suportadas para busca de conteúdo
+const TEXT_EXTENSIONS = new Set([
+    '.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm',
+    '.js', '.ts', '.py', '.java', '.cs', '.cpp', '.c', '.h',
+    '.pdf', '.docx', '.doc', '.rtf', '.odt', '.xlsx', '.xls'
+]);
 
 // Comandos bloqueados por segurança
 const BLOCKED_COMMANDS = [
@@ -73,32 +85,201 @@ export async function listarDiretorio(dirPath: string): Promise<OsToolResult> {
 }
 
 /**
- * Lê conteúdo de um arquivo texto
+ * Lê conteúdo de um arquivo — suporta texto, PDF e DOCX automaticamente
  */
 export async function lerArquivo(filePath: string): Promise<OsToolResult> {
     try {
         const resolved = path.resolve(filePath);
         const stat = await fs.stat(resolved);
+        const ext = path.extname(resolved).toLowerCase();
+
+        if (ext === '.pdf') return lerPDF(resolved, stat.size);
+        if (ext === '.docx' || ext === '.doc') return lerDocx(resolved, stat.size);
+        if (ext === '.xlsx' || ext === '.xls') return lerXlsx(resolved, stat.size);
+
+        if (BINARY_EXTENSIONS.has(ext)) {
+            return { sucesso: false, erro: `Arquivo binário (${ext}) não pode ser lido como texto.` };
+        }
 
         if (stat.size > MAX_READ_BYTES) {
-            return {
-                sucesso: false,
-                erro: `Arquivo muito grande (${(stat.size / 1024).toFixed(0)} KB). Limite: 2 MB.`
-            };
+            return { sucesso: false, erro: `Arquivo muito grande (${(stat.size / 1024).toFixed(0)} KB). Limite: 2 MB.` };
         }
 
         const conteudo = await fs.readFile(resolved, 'utf-8');
         return {
             sucesso: true,
-            dados: {
-                caminho: resolved,
-                conteudo,
-                tamanho: stat.size,
-                linhas: conteudo.split('\n').length
-            }
+            dados: { caminho: resolved, conteudo, tamanho: stat.size, linhas: conteudo.split('\n').length, formato: 'texto' }
         };
     } catch (error: any) {
         return { sucesso: false, erro: `Erro ao ler "${filePath}": ${error.message}` };
+    }
+}
+
+/**
+ * Extrai texto de um PDF via pdf-parse
+ */
+async function lerPDF(filePath: string, tamanho: number): Promise<OsToolResult> {
+    try {
+        // pdf-parse usa export = (CJS), require é mais direto que dynamic import
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pdfParse = require('pdf-parse') as (b: Buffer) => Promise<{ text: string; numpages: number }>;
+        const buffer = await fs.readFile(filePath);
+        const data = await pdfParse(buffer);
+        return {
+            sucesso: true,
+            dados: {
+                caminho: filePath,
+                conteudo: data.text,
+                tamanho,
+                linhas: data.text.split('\n').length,
+                paginas: data.numpages,
+                formato: 'pdf'
+            }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao ler PDF "${filePath}": ${error.message}` };
+    }
+}
+
+/**
+ * Extrai texto de um DOCX/DOC via mammoth
+ */
+async function lerDocx(filePath: string, tamanho: number): Promise<OsToolResult> {
+    try {
+        const mammoth = await import('mammoth');
+        const result = await mammoth.extractRawText({ path: filePath });
+        return {
+            sucesso: true,
+            dados: {
+                caminho: filePath,
+                conteudo: result.value,
+                tamanho,
+                linhas: result.value.split('\n').length,
+                formato: 'docx'
+            }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao ler DOCX "${filePath}": ${error.message}` };
+    }
+}
+
+/**
+ * Lê planilha XLSX/XLS via SheetJS — retorna todas as abas em CSV
+ */
+async function lerXlsx(filePath: string, tamanho: number): Promise<OsToolResult> {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const XLSX = require('xlsx') as typeof import('xlsx');
+        const workbook = XLSX.readFile(filePath);
+        const abas: Record<string, string> = {};
+        let conteudoTotal = '';
+
+        for (const nomAba of workbook.SheetNames) {
+            const sheet = workbook.Sheets[nomAba]!;
+            const csv = XLSX.utils.sheet_to_csv(sheet);
+            abas[nomAba] = csv;
+            conteudoTotal += `=== Aba: ${nomAba} ===\n${csv}\n\n`;
+        }
+
+        return {
+            sucesso: true,
+            dados: {
+                caminho: filePath,
+                conteudo: conteudoTotal.trim(),
+                tamanho,
+                linhas: conteudoTotal.split('\n').length,
+                abas: workbook.SheetNames,
+                formato: 'xlsx'
+            }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao ler planilha "${filePath}": ${error.message}` };
+    }
+}
+
+/**
+ * Busca texto dentro do conteúdo de arquivos (grep)
+ * Suporta .txt, .md, .csv, .json, .xml, .pdf, .docx e outros textos
+ */
+export async function buscarConteudo(
+    dirPath: string,
+    texto: string,
+    extensoes: string[] = [],
+    recursivo = true
+): Promise<OsToolResult> {
+    try {
+        const resolved = path.resolve(dirPath);
+        const textoBusca = texto.toLowerCase();
+        const extsFilter = extensoes.length > 0
+            ? new Set(extensoes.map(e => e.startsWith('.') ? e : '.' + e))
+            : TEXT_EXTENSIONS;
+
+        const resultados: Array<{ arquivo: string; ocorrencias: number; trechos: string[] }> = [];
+
+        async function varrer(dir: string, profundidade: number): Promise<void> {
+            if (profundidade > 8 || resultados.length >= 50) return;
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+
+            for (const e of entries) {
+                if (resultados.length >= 50) return;
+                const fullPath = path.join(dir, e.name);
+                const ext = path.extname(e.name).toLowerCase();
+
+                if (e.isDirectory()) {
+                    if (recursivo) {
+                        try { await varrer(fullPath, profundidade + 1); } catch { /* sem permissão */ }
+                    }
+                    continue;
+                }
+
+                if (!extsFilter.has(ext)) continue;
+
+                let conteudo = '';
+                try {
+                    const stat = await fs.stat(fullPath);
+                    if (ext === '.pdf') {
+                        const r = await lerPDF(fullPath, stat.size);
+                        if (r.sucesso) conteudo = r.dados.conteudo;
+                    } else if (ext === '.docx' || ext === '.doc') {
+                        const r = await lerDocx(fullPath, stat.size);
+                        if (r.sucesso) conteudo = r.dados.conteudo;
+                    } else if (ext === '.xlsx' || ext === '.xls') {
+                        const r = await lerXlsx(fullPath, stat.size);
+                        if (r.sucesso) conteudo = r.dados.conteudo;
+                    } else {
+                        if (stat.size > MAX_READ_BYTES) continue;
+                        conteudo = await fs.readFile(fullPath, 'utf-8');
+                    }
+                } catch { continue; }
+
+                if (!conteudo.toLowerCase().includes(textoBusca)) continue;
+
+                const linhas = conteudo.split('\n');
+                const trechos: string[] = [];
+                let ocorrencias = 0;
+
+                for (let i = 0; i < linhas.length; i++) {
+                    if (!linhas[i]!.toLowerCase().includes(textoBusca)) continue;
+                    ocorrencias++;
+                    if (trechos.length < 3) {
+                        const inicio = Math.max(0, i - 1);
+                        const fim = Math.min(linhas.length - 1, i + 1);
+                        trechos.push(
+                            linhas.slice(inicio, fim + 1)
+                                .map((l, idx) => `  L${inicio + idx + 1}: ${l.trim()}`)
+                                .join('\n')
+                        );
+                    }
+                }
+
+                resultados.push({ arquivo: fullPath, ocorrencias, trechos });
+            }
+        }
+
+        await varrer(resolved, 0);
+        return { sucesso: true, dados: { texto, baseDir: resolved, resultados, total: resultados.length } };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao buscar conteúdo em "${dirPath}": ${error.message}` };
     }
 }
 
@@ -315,8 +496,8 @@ export async function executarComando(
             sucesso: true,
             dados: {
                 comando,
-                stdout: stdout.trim(),
-                stderr: stderr.trim()
+                stdout: stdout.toString().trim(),
+                stderr: stderr.toString().trim()
             }
         };
     } catch (error: any) {
@@ -348,6 +529,153 @@ export async function abrirComSistema(alvo: string): Promise<OsToolResult> {
         return { sucesso: true, dados: { alvo } };
     } catch (error: any) {
         return { sucesso: false, erro: `Erro ao abrir "${alvo}": ${error.message}` };
+    }
+}
+
+// ============================================================================
+// CLIPBOARD
+// ============================================================================
+
+/**
+ * Lê texto da área de transferência via Electron clipboard API
+ */
+export function lerClipboard(): OsToolResult {
+    try {
+        const { clipboard } = require('electron') as typeof import('electron');
+        const texto = clipboard.readText();
+        return {
+            sucesso: true,
+            dados: { texto, vazio: texto.length === 0 }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao ler clipboard: ${error.message}` };
+    }
+}
+
+/**
+ * Escreve texto na área de transferência via Electron clipboard API
+ */
+export function escreverClipboard(texto: string): OsToolResult {
+    try {
+        const { clipboard } = require('electron') as typeof import('electron');
+        clipboard.writeText(texto);
+        return {
+            sucesso: true,
+            dados: { bytesEscritos: Buffer.byteLength(texto, 'utf-8') }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao escrever clipboard: ${error.message}` };
+    }
+}
+
+// ============================================================================
+// PROCESSOS DO SISTEMA
+// ============================================================================
+
+/**
+ * Lista processos em execução via tasklist (Windows)
+ */
+export async function listarProcessos(filtro?: string): Promise<OsToolResult> {
+    try {
+        const cmd = filtro
+            ? `tasklist /fo csv /nh /fi "IMAGENAME eq ${filtro}"`
+            : 'tasklist /fo csv /nh';
+        const { stdout } = await execAsync(cmd, { timeout: 10_000 });
+
+        const linhas = stdout.trim().split('\n').filter(Boolean);
+        const processos = linhas.map(linha => {
+            // CSV: "nome","pid","sessão","num","mem"
+            const partes = linha.split('","').map(p => p.replace(/"/g, '').trim());
+            return {
+                nome: partes[0] || '',
+                pid: Number(partes[1]) || 0,
+                sessao: partes[2] || '',
+                memoria: partes[4] || ''
+            };
+        });
+
+        return {
+            sucesso: true,
+            dados: { processos, total: processos.length, filtro: filtro || null }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao listar processos: ${error.message}` };
+    }
+}
+
+/**
+ * Encerra um processo pelo PID ou nome (sem /f — terminação graciosa)
+ * Requer confirmação explícita do usuário antes de chamar
+ */
+export async function encerrarProcesso(alvo: string | number): Promise<OsToolResult> {
+    try {
+        const cmd = typeof alvo === 'number'
+            ? `taskkill /pid ${alvo}`
+            : `taskkill /im "${alvo}"`;
+        const { stdout, stderr } = await execAsync(cmd, { timeout: 10_000 });
+        return {
+            sucesso: true,
+            dados: { alvo, stdout: stdout.trim(), stderr: stderr.trim() }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao encerrar processo "${alvo}": ${error.message}` };
+    }
+}
+
+// ============================================================================
+// WEB FETCH
+// ============================================================================
+
+/**
+ * Busca conteúdo de uma URL e retorna como texto
+ * Limite de 500 KB para evitar respostas enormes
+ */
+export async function fetchUrl(url: string, timeoutMs = 15_000): Promise<OsToolResult> {
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+        const resp = await fetch(url, {
+            signal: ctrl.signal,
+            headers: { 'User-Agent': 'LEX-Agent/1.0' }
+        });
+        clearTimeout(timer);
+
+        if (!resp.ok) {
+            return { sucesso: false, erro: `HTTP ${resp.status}: ${resp.statusText}` };
+        }
+
+        const contentType = resp.headers.get('content-type') || '';
+        const isHtml = contentType.includes('text/html');
+        let texto = await resp.text();
+
+        // Remove tags HTML para leitura pelo LLM
+        if (isHtml) {
+            texto = texto
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+        }
+
+        const MAX_FETCH = 500 * 1024;
+        if (texto.length > MAX_FETCH) {
+            texto = texto.substring(0, MAX_FETCH) + '\n\n[... conteúdo truncado]';
+        }
+
+        return {
+            sucesso: true,
+            dados: {
+                url,
+                status: resp.status,
+                contentType,
+                tamanho: texto.length,
+                conteudo: texto
+            }
+        };
+    } catch (error: any) {
+        return { sucesso: false, erro: `Erro ao buscar "${url}": ${error.message}` };
     }
 }
 

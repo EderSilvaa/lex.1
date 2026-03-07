@@ -6,14 +6,16 @@
         "module": "commonjs",
         "target": "es6",
         "lib": [
-            "es2020"
+            "es2020",
+            "dom"
         ],
         "types": [
             "node",
             "electron"
         ],
         "noUnusedLocals": false,
-        "noUnusedParameters": false
+        "noUnusedParameters": false,
+        "exactOptionalPropertyTypes": false
     },
     "include": [
         "electron/**/*"

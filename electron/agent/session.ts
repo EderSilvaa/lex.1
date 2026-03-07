@@ -115,8 +115,8 @@ export class SessionManager {
         let formatted = '\n--- HISTÓRICO DA CONVERSA ---\n';
         for (const msg of history) {
             const roleLabel = msg.role === 'user' ? 'Usuário' : 'Assistente';
-            const truncated = msg.content.length > 500
-                ? msg.content.substring(0, 500) + '...'
+            const truncated = msg.content.length > 1000
+                ? msg.content.substring(0, 1000) + '...'
                 : msg.content;
             formatted += `[${roleLabel}]: ${truncated}\n`;
         }

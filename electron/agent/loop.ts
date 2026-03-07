@@ -71,10 +71,16 @@ export async function runAgentLoop(
     const runId = randomUUID();
     const abort = new AbortController();
 
-    // Carrega memória persistente
+    // Carrega memória persistente em paralelo
     const memory = getMemory();
-    const memoriaData = await memory.carregar();
-    const preferredTribunal = normalizeTribunalCode(memoriaData.preferencias?.['tribunal_preferido']);
+    const [memoriaData, usuarioData, interacoesSimilares] = await Promise.all([
+        memory.carregar(),
+        memory.getUsuario(),
+        memory.buscarSimilares(objetivo, 3)
+    ]);
+    const preferredTribunal = normalizeTribunalCode(
+        memoriaData.preferencias?.['tribunal_preferido'] || usuarioData.tribunal_preferido
+    );
 
     // Inicializa estado
     const state: AgentState = {
@@ -84,9 +90,18 @@ export async function runAgentLoop(
         contexto: {
             documentos: [],
             resultados: new Map(),
-            ...(preferredTribunal ? { usuario: { tribunal_preferido: preferredTribunal } } : {}),
+            usuario: {
+                ...usuarioData,
+                ...(preferredTribunal ? { tribunal_preferido: preferredTribunal } : {})
+            },
             ...(tenantConfig ? { tenantConfig } : {}),
-            memoria: memoriaData
+            memoria: {
+                ...memoriaData,
+                interacoesSimilares: interacoesSimilares.map(i => ({
+                    objetivo: i.objetivo,
+                    sucesso: i.sucesso
+                }))
+            }
         },
         passos: [],
         iteracao: 0,
@@ -182,11 +197,11 @@ export async function runAgentLoop(
             const thinkStart = Date.now();
 
             // Sinaliza UI para criar bubble vazia antes de receber tokens
-            emit({ type: 'streaming_start' as any });
+            emit({ type: 'streaming_start' });
 
             // Callback de token: emitido apenas para tokens do campo "resposta" do JSON
             const onStreamToken = (token: string) => {
-                emit({ type: 'token' as any, token });
+                emit({ type: 'token', token });
             };
 
             const decisao = await think(state, cfg, onStreamToken);
@@ -236,6 +251,19 @@ export async function runAgentLoop(
                         duracao,
                         sucesso: true
                     });
+
+                    // Registra aprendizado quando skills PJe foram usadas
+                    const pjeSkills = state.passos
+                        .filter(p => p.tipo === 'act' && p.skill?.startsWith('pje_'))
+                        .map(p => p.skill!);
+                    if (pjeSkills.length > 0) {
+                        const tribunal = state.contexto.usuario?.tribunal_preferido || '';
+                        const skills = [...new Set(pjeSkills)].join(', ');
+                        const label = tribunal ? `[${tribunal}] ` : '';
+                        memory.addAprendizado(
+                            `${label}"${objetivo.substring(0, 60)}" → ${skills}`
+                        ).catch(() => {});
+                    }
 
                     emit({
                         type: 'completed',
@@ -299,6 +327,23 @@ export async function runAgentLoop(
                 case 'skill': {
                     let skillName = decisao.skill!;
                     let params = decisao.parametros || {};
+
+                    // Guard: detecta loop infinito (mesma skill + mesmos params que o último ACT)
+                    const lastAct = [...state.passos].reverse().find(p => p.tipo === 'act');
+                    if (
+                        lastAct &&
+                        lastAct.skill === skillName &&
+                        JSON.stringify(lastAct.parametros) === JSON.stringify(params)
+                    ) {
+                        state.status = 'waiting_user';
+                        const question = `Detectei que estou repetindo a mesma ação ("${skillName}") com os mesmos parâmetros. Quer tentar uma abordagem diferente ou devo tentar novamente?`;
+                        emit({ type: 'waiting_user', pergunta: question, opcoes: ['Tente novamente', 'Tente outra abordagem', 'Cancelar'] });
+                        if (activeSessionId) {
+                            sessionManager.addMessage(activeSessionId, 'assistant', question);
+                        }
+                        activeRuns.delete(runId);
+                        return `❓ ${question}`;
+                    }
 
                     if (cfg.enableCritic) {
                         log(cfg.verbose, 'Critic: revisando acao planejada...');
@@ -456,6 +501,12 @@ async function updateContext(state: AgentState, skill: string, resultado: SkillR
     // Atualiza contexto específico baseado no tipo de skill
     if (skill.startsWith('pje_') && resultado.dados.processo) {
         state.contexto.processo = resultado.dados.processo;
+
+        // Registra processo na memória persistente
+        const numero = resultado.dados.processo?.numero;
+        if (numero) {
+            getMemory().registrarProcesso(numero).catch(() => {});
+        }
     }
 
     if (skill.includes('documento') && resultado.dados.documento) {

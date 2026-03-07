@@ -9,7 +9,7 @@ import { listarDiretorio, pastasConhecidas } from '../../tools/os-tools';
 
 export const osListar: Skill = {
     nome: 'os_listar',
-    descricao: 'Lista arquivos e pastas de um diretório do PC. Use para explorar o sistema de arquivos do usuário.',
+    descricao: 'Lista arquivos e pastas do sistema de arquivos local do Windows (computador do usuário). Use quando o usuário quer ver arquivos em Downloads, Desktop, Documentos, ou qualquer caminho local como C:\\Users\\... NÃO usar para expedientes ou documentos do PJe.',
     categoria: 'os',
 
     parametros: {

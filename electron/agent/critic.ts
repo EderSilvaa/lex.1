@@ -11,10 +11,10 @@ interface PlannedSkillAction {
     parametros: Record<string, any>;
 }
 
+// Palavras-chave de alto risco — intencionalmente específicas para evitar falsos positivos.
+// "protocolo" e "protocolado" foram removidos pois aparecem em contextos de consulta legítimos.
+// Termos de ação irreversível real são detectados em isHighRiskAction() via lista explícita.
 const HIGH_RISK_KEYWORDS = [
-    'protocol',
-    'protocolo',
-    'enviar',
     'submit',
     'assinar',
     'finalizar',
@@ -28,15 +28,17 @@ const HIGH_RISK_KEYWORDS = [
  * Apenas heurísticas são suficientes para aprovação.
  */
 const READ_ONLY_SKILLS = new Set([
-    'pje_abrir',
-    'pje_navegar',
-    'pje_agir',
-    'pje_consultar',
-    'pje_movimentacoes',
-    'pje_documentos',
-    'pesquisa_jurisprudencia',
-    'doc_analisar',
-    'util_calcular_prazo'
+    // PJe
+    'pje_abrir', 'pje_navegar', 'pje_agir', 'pje_consultar',
+    'pje_movimentacoes', 'pje_documentos',
+    // Documentos / pesquisa
+    'pesquisa_jurisprudencia', 'doc_analisar', 'util_calcular_prazo',
+    // OS read-only
+    'os_listar', 'os_fetch', 'os_clipboard',
+    // OS com gate de confirmação próprio na skill (não precisa de LLM critic)
+    'os_arquivos', 'os_escrever', 'os_sistema',
+    // PC Vision
+    'pc_agir'
 ]);
 
 /**

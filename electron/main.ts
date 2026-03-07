@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -40,6 +40,8 @@ if (!app.isPackaged) {
 // We'll write it as standard import and rely on a possibly adapted environment or just fix it later.
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let trayModeActive = false;
 let store: any;
 const approvedWorkspaceSelections = new Set<string>();
 const approvedFileSelections = new Set<string>();
@@ -595,6 +597,47 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
     }
 });
 
+function createTray() {
+    // Usa ícone 16x16 do electron-builder (sempre presente como dep)
+    const iconPath = path.join(__dirname, '../node_modules/app-builder-lib/templates/icons/electron-linux/16x16.png');
+    const icon = fs.existsSync(iconPath)
+        ? nativeImage.createFromPath(iconPath)
+        : nativeImage.createEmpty();
+
+    tray = new Tray(icon);
+    tray.setToolTip('LEX — Assistente Jurídico');
+
+    const contextMenu = Menu.buildFromTemplate([
+        {
+            label: 'Abrir LEX',
+            click: () => {
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                } else {
+                    createWindow();
+                }
+            }
+        },
+        { type: 'separator' },
+        {
+            label: 'Encerrar',
+            click: () => {
+                trayModeActive = false;
+                app.quit();
+            }
+        }
+    ]);
+
+    tray.setContextMenu(contextMenu);
+    tray.on('double-click', () => {
+        if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400, // Wider for split view
@@ -627,6 +670,14 @@ function createWindow() {
 
     // Setup Agent event forwarding to renderer (async, no need to wait)
     setupAgentEventForwarding().catch(err => console.error('[Agent] Failed to setup events:', err));
+
+    // Modo 24/7: minimiza para bandeja em vez de fechar
+    mainWindow.on('close', (event) => {
+        if (trayModeActive) {
+            event.preventDefault();
+            mainWindow?.hide();
+        }
+    });
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -902,12 +953,18 @@ app.whenReady().then(async () => {
     // Inicia Stagehand + Chrome externo em background (não bloqueia o app)
     initStagehand().catch(err => console.error('[Stagehand] Falha ao iniciar:', err));
 
+    // Auto-inicia bot Telegram se estava ativo na sessão anterior
+    initTelegramBotIfConfigured().catch(e => console.error('[Telegram] Falha ao auto-iniciar:', e));
+
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
 app.on('window-all-closed', async function () {
+    // No modo 24/7 com tray ativo, não encerra o processo
+    if (trayModeActive) return;
+
     flushRouteMemory();
     await closeStagehand();
     // Persiste sessões antes de sair
@@ -1353,6 +1410,116 @@ ipcMain.handle('agent-should-handle', async (_event, objetivo: string) => {
     try { activeUrl = getStagehand().context.pages()[0]?.url() ?? null; } catch {}
     return await shouldUseAgentLoopForObjective(objetivo, activeUrl);
 });
+
+// ============================================================================
+// TELEGRAM BOT (Modo 24/7)
+// ============================================================================
+
+import { startBot, stopBot, isBotRunning, sendMessage as telegramSend } from './telegram-bot';
+import { setNotifyFn } from './user-input';
+
+function loadTelegramToken(): string {
+    if (!store) return '';
+    const raw = String(store.get('telegramToken', '') || '').trim();
+    return raw ? safeDecrypt(raw) : '';
+}
+
+async function initTelegramBotIfConfigured(): Promise<void> {
+    if (!store) return;
+    const enabled = store.get('telegramEnabled', false) as boolean;
+    if (!enabled) return;
+
+    const token = loadTelegramToken();
+    const userId = store.get('telegramUserId', 0) as number;
+    if (!token || !userId) return;
+
+    try {
+        await startBot({ token, authorizedUserId: userId }, runAgentForTelegram);
+        setNotifyFn((prompt) => telegramSend(userId, prompt));
+        trayModeActive = true;
+        if (!tray) createTray();
+        console.log('[Telegram] Bot iniciado automaticamente (modo 24/7 ativo)');
+    } catch (e: any) {
+        console.error('[Telegram] Falha ao iniciar bot:', e.message);
+    }
+}
+
+async function runAgentForTelegram(text: string, sessionId: string): Promise<string> {
+    const agent = await ensureAgentInitialized();
+    const tenantConfig = agent.getDefaultTenantConfig();
+    const objetivoFinal = injectDisambiguationIfNeeded(text);
+    return await agent.runAgentLoop(
+        objetivoFinal,
+        { maxIterations: 8, timeoutMs: 120000 },
+        tenantConfig,
+        sessionId
+    );
+}
+
+/** Retorna config do Telegram (sem o token completo) */
+ipcMain.handle('telegram-get-config', () => {
+    if (!store) return { enabled: false, hasToken: false, userId: 0 };
+    const token = loadTelegramToken();
+    const userId = store.get('telegramUserId', 0) as number;
+    const enabled = store.get('telegramEnabled', false) as boolean;
+    return {
+        enabled,
+        hasToken: token.length > 0,
+        tokenPreview: token ? `${token.slice(0, 8)}...${token.slice(-4)}` : '',
+        userId,
+        running: isBotRunning()
+    };
+});
+
+/** Salva token + userId do Telegram */
+ipcMain.handle('telegram-set-config', async (_event, { token, userId }: { token: string; userId: number }) => {
+    if (!store) return { error: 'Store não inicializado' };
+    const normalizedToken = String(token || '').trim();
+    const normalizedUserId = Number(userId) || 0;
+    store.set('telegramToken', normalizedToken ? encryptApiKey(normalizedToken) : '');
+    store.set('telegramUserId', normalizedUserId);
+    return { success: true };
+});
+
+/** Ativa o modo 24/7 (liga o bot + tray) */
+ipcMain.handle('telegram-enable', async () => {
+    if (!store) return { error: 'Store não inicializado' };
+    const token = loadTelegramToken();
+    const userId = store.get('telegramUserId', 0) as number;
+
+    if (!token || !userId) {
+        return { error: 'Configure o token e o ID do usuário antes de ativar.' };
+    }
+
+    try {
+        await startBot({ token, authorizedUserId: userId }, runAgentForTelegram);
+        setNotifyFn((prompt) => telegramSend(userId, prompt));
+        store.set('telegramEnabled', true);
+        trayModeActive = true;
+        if (!tray) createTray();
+        return { success: true, running: true };
+    } catch (e: any) {
+        return { error: `Falha ao iniciar bot: ${e.message}` };
+    }
+});
+
+/** Desativa o modo 24/7 (desliga o bot + remove comportamento de tray) */
+ipcMain.handle('telegram-disable', async () => {
+    await stopBot();
+    if (store) store.set('telegramEnabled', false);
+    trayModeActive = false;
+    if (tray) {
+        tray.destroy();
+        tray = null;
+    }
+    return { success: true, running: false };
+});
+
+/** Retorna status em tempo real */
+ipcMain.handle('telegram-get-status', () => ({
+    running: isBotRunning(),
+    trayActive: trayModeActive
+}));
 
 // IPC: Run Agent Loop
 ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessionId?: string) => {
