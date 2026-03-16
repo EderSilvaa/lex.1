@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(npm start)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "WebFetch(domain:docs.browser-use.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.stagehand.dev)",
+      "Bash(npx tsc --noEmit)"
     ],
     "deny": [],
     "ask": []

@@ -1,6 +1,6 @@
 # LEX — Assistente Jurídico Agêntico para PJe
 
-> Aplicativo Desktop (Electron + TypeScript) com IA agnóstica e BYOK (Bring Your Own Key). Agente autônomo com loop Think → Critic → Act → Observe, automação de browser via Stagehand v3, controle de PC via Vision AI + nut-js, geração e análise de documentos jurídicos com LLM, acesso ao sistema de arquivos, e memória persistente com aprendizado contínuo. Suporta Anthropic, OpenAI, OpenRouter, Google AI e Groq.
+> Aplicativo Desktop (Electron + TypeScript) com IA agnóstica e BYOK (Bring Your Own Key). Agente autônomo com loop Think → Critic → Act → Observe, automação de browser via Playwright CDP, controle de PC via Vision AI + nut-js, geração e análise de documentos jurídicos com LLM, acesso ao sistema de arquivos, e memória persistente com aprendizado contínuo. Suporta Anthropic, OpenAI, OpenRouter, Google AI e Groq.
 
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
 ![Versão](https://img.shields.io/badge/versão-6.0-blue)
@@ -58,7 +58,7 @@ O Lex não requer chave própria. O usuário conecta o provider de sua escolha:
 - **Data e hora**: contexto temporal sempre presente no prompt
 
 ### Automação PJe (Browser)
-- Controla Chrome externamente via Stagehand v3 com qualquer provider vision
+- Controla Chrome externamente via Playwright CDP com qualquer provider vision
 - Executa ações em linguagem natural ("consultar processo 0001234-56.2024")
 - Overlay visual no navegador mostrando a ação em tempo real
 - Suporte ao TRT8 e demais tribunais PJe
@@ -107,7 +107,7 @@ electron/
 ├── provider-config.ts       # Registro BYOK: presets, ActiveProviderConfig
 ├── ai-handler.ts            # Roteador multi-provider (texto + Vision + streaming)
 ├── crypto-store.ts          # AES-256-GCM para criptografar API keys em repouso
-├── stagehand-manager.ts     # Chrome externo + Stagehand v3 (browser automation)
+├── browser-manager.ts       # Chrome externo + Playwright CDP (browser automation)
 ├── computer-manager.ts      # Vision loop: screenshot → LLM → nut-js (PC control)
 ├── telegram-bot.ts          # Bot Telegram: relay de mensagens + /cancelar
 ├── user-input.ts            # Entrada do usuário via terminal (dev)
@@ -127,11 +127,14 @@ electron/
 ├── skills/
 │   ├── pje/                 # pje_abrir, pje_agir, pje_consultar,
 │   │                        # pje_movimentacoes, pje_documentos,
-│   │                        # pje_pedir_codigo, pje_token_check
+│   │                        # pje_pedir_codigo, pje_verificar_token
+│   ├── browser/             # get-state, extract, scroll, click, navigate,
+│   │                        # type, screenshot, close-tab, switch-tab
 │   ├── pc/                  # pc_agir — controla Windows via Vision AI
 │   ├── os/                  # os_listar, os_arquivos, os_escrever,
 │   │                        # os_sistema, os_clipboard, os_fetch
-│   └── documentos/          # doc_analisar, doc_gerar (LLM)
+│   ├── documentos/          # doc_analisar, doc_gerar (LLM)
+│   └── pesquisa/            # pesquisa_jurisprudencia
 │
 └── pje/
     ├── tribunal-urls.ts     # URLs dos tribunais suportados
@@ -140,9 +143,10 @@ electron/
 src/renderer/
 ├── index.html               # Shell da UI (inclui seção Provedor de IA)
 ├── styles/
-│   ├── main.css             # Estilos globais
+│   ├── main.css             # Estilos globais (importa chat.css e thinking.css)
 │   ├── chat.css             # Mensagens, markdown, streaming cursor
-│   └── thinking.css         # Animações do processo de raciocínio
+│   ├── thinking.css         # Animações do processo de raciocínio
+│   └── file-manager.css     # Estilos do gerenciador de arquivos
 └── js/
     ├── app.js               # Lógica do renderer: chat, conversas, provider settings
     ├── marked.min.js        # Renderização de Markdown
@@ -179,7 +183,7 @@ Settings UI
   → user seleciona OpenRouter + cola chave
   → lexApi.setApiKey('openrouter', key)      → store encriptado
   → lexApi.setProvider({ providerId, ... })  → setActiveConfig()
-                                             → reInitStagehand() [background]
+                                             → reInitBrowser() [background]
 
 Agent loop (think.ts)
   → callAI() → getActiveConfig() → switch(providerId)
@@ -189,11 +193,11 @@ Agent loop (think.ts)
      google     → callGoogle()      (Gemini REST)
      groq       → callOpenAICompat() (api.groq.com)
 
-Browser automation (stagehand-manager)
+Browser automation (browser-manager)
   → getStagehandModelConfig()
      → modelName: 'openrouter/qwen2.5-vl-32b-instruct:free'
      → apiKey: <chave do usuário>
-  → Stagehand inicia Chrome com modelo vision do provider ativo
+  → Playwright CDP inicia Chrome com modelo vision do provider ativo
 ```
 
 ---
@@ -205,7 +209,7 @@ Browser automation (stagehand-manager)
 | Desktop | Electron |
 | Linguagem | TypeScript |
 | IA (multi-provider) | Anthropic / OpenAI / OpenRouter / Google AI / Groq |
-| Automação Browser | Stagehand v3 + Chrome externo |
+| Automação Browser | Playwright CDP + Chrome externo |
 | Controle PC | nut-js (@nut-tree-fork) + Vision AI |
 | Segurança | AES-256-GCM (node:crypto) |
 | Persistência | electron-store + JSON em disco |

@@ -9,6 +9,10 @@ import { exec } from 'child_process'
 import { Skill } from '../../agent/types'
 
 async function detectarToken(): Promise<{ conectado: boolean; leitor?: string; cartaoPresente?: boolean }> {
+    if (process.platform !== 'win32') {
+        return { conectado: false }
+    }
+
     return new Promise((resolve) => {
         exec('certutil -scinfo', { timeout: 8000 }, (err, stdout) => {
             if (err || !stdout) {

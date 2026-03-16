@@ -432,10 +432,8 @@ function renderMarkdownSafe(markdownText) {
     return sanitizeHtml(html);
 }
 
-// Initialize agent events on load
-document.addEventListener('DOMContentLoaded', () => {
-    setupAgentEvents();
-});
+// Initialize agent events immediately (preload exposes lexApi before DOM is ready)
+setupAgentEvents();
 
 
 // --- Chat Logic ---
@@ -1535,7 +1533,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // PJe status polling
     updatePjeStatus();
-    setInterval(updatePjeStatus, 5000);
+    window._pjeStatusInterval = setInterval(updatePjeStatus, 5000);
 
     // Pill click -> abrir PJe
     const pill = document.getElementById('pje-status-pill');

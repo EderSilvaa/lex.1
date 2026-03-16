@@ -78,19 +78,23 @@ const DEFAULT_ROUTES: TribunalRoutes = ROUTES['tjpa'] || {
     pages: {}
 };
 
-function normalizeTribunalInput(raw: string): string {
-    return String(raw || '')
+/**
+ * Normaliza texto para comparação de tribunal: lowercase, sem acentos, sem caracteres especiais.
+ */
+function normalizeForTribunal(value: unknown): string {
+    return String(value || '')
         .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9.-]/g, '');
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
 }
 
-function normalizeAlias(value: string): string {
-    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function inferKeyFromText(textRaw: string): string | null {
-    const text = normalizeAlias(textRaw);
+/**
+ * Infere a chave do tribunal a partir de texto livre (nome, URL, sigla, etc.).
+ * Retorna a chave lowercase (ex: 'tjpa', 'trt8') ou null.
+ */
+export function inferTribunalKey(textRaw: string): string | null {
+    const text = normalizeForTribunal(textRaw);
     if (!text) return null;
 
     if (text.includes('tjpa')) return 'tjpa';
@@ -112,40 +116,38 @@ function inferKeyFromText(textRaw: string): string | null {
     return null;
 }
 
+/**
+ * Normaliza qualquer valor para código de tribunal uppercase (ex: 'TRT8', 'TJPA').
+ * Retorna null se o valor estiver vazio ou não for reconhecível.
+ */
+export function normalizeTribunalCode(value: unknown): string | null {
+    const key = inferTribunalKey(String(value || ''));
+    if (key) return key.toUpperCase();
+
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return null;
+    return trimmed.toUpperCase();
+}
+
 export function resolveTribunalRoutes(tribunalRaw: string): TribunalRoutes {
-    const normalized = normalizeTribunalInput(tribunalRaw || 'tjpa');
-    const alias = normalizeAlias(normalized);
+    const raw = String(tribunalRaw || 'tjpa').trim().toLowerCase();
+    const key = inferTribunalKey(raw);
 
-    if (ROUTES[alias]) {
-        return ROUTES[alias];
+    if (key && ROUTES[key]) {
+        return ROUTES[key];
     }
 
-    const inferredFromInput = inferKeyFromText(alias);
-    if (inferredFromInput && ROUTES[inferredFromInput]) {
-        return ROUTES[inferredFromInput];
-    }
-
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-        try {
-            const parsed = new URL(normalized);
-            const host = parsed.hostname.toLowerCase();
-            const keyFromHost = inferKeyFromText(host);
-            if (keyFromHost && ROUTES[keyFromHost]) return ROUTES[keyFromHost];
-            return buildDefaultRoutes(host);
-        } catch {
-            // fallback below
-        }
-    }
-
-    if (normalized.includes('.')) {
-        const host = normalized.replace(/^https?:\/\//, '');
-        const keyFromHost = inferKeyFromText(host);
+    // Tenta como URL direta
+    const normalized = raw.replace(/[^a-z0-9.-]/g, '');
+    if (normalized.startsWith('http://') || normalized.startsWith('https://') || normalized.includes('.')) {
+        const host = normalized.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        const keyFromHost = inferTribunalKey(host);
         if (keyFromHost && ROUTES[keyFromHost]) return ROUTES[keyFromHost];
         return buildDefaultRoutes(host);
     }
 
-    if (inferredFromInput) {
-        return buildDefaultRoutes(`pje.${inferredFromInput}.jus.br`);
+    if (key) {
+        return buildDefaultRoutes(`pje.${key}.jus.br`);
     }
 
     return DEFAULT_ROUTES;

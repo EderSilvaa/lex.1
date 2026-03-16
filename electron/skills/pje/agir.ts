@@ -7,7 +7,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { runBrowserTask } from '../../browser-manager';
+import { runBrowserTask, injectOverlay } from '../../browser-manager';
 import { agentEmitter } from '../../agent/loop';
 
 export const pjeAgir: Skill = {
@@ -64,12 +64,12 @@ export const pjeAgir: Skill = {
                 instrucao,
                 maxPassos,
                 (step) => {
-                    // Transmite progresso em tempo real para a UI
                     agentEmitter.emit('agent-event', {
                         type: 'thinking',
                         pensamento: `🌐 ${step}`,
                         iteracao: 0
                     });
+                    injectOverlay(step);
                 }
             );
 

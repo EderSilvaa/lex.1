@@ -5,6 +5,7 @@
  */
 
 import { AgentConfig, AgentState, CriticDecision } from './types';
+import { normalizeTribunalCode } from '../pje/tribunal-urls';
 
 interface PlannedSkillAction {
     skill: string;
@@ -95,7 +96,7 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     // Se o planner escolheu consulta sem numero, mas o objetivo e so abrir/login,
     // o critic corrige para a skill apropriada sem bloquear a execucao.
     if (skillLower === 'pje_consultar' && missingProcessReference && isLoginOnlyObjective(state.objetivo)) {
-        const tribunalHint = extractTribunalHint(state.objetivo);
+        const tribunalHint = normalizeTribunalCode(state.objetivo);
         return {
             approved: true,
             riskLevel: 'low',
@@ -108,7 +109,7 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     }
 
     if (skillLower === 'pje_consultar' && missingProcessReference && isNavigationObjective(state.objetivo)) {
-        const tribunalHint = extractTribunalHint(state.objetivo);
+        const tribunalHint = normalizeTribunalCode(state.objetivo);
         return {
             approved: true,
             riskLevel: 'low',
@@ -274,27 +275,7 @@ function isLoginOnlyObjective(rawObjective: string): boolean {
     return hasLoginIntent && (explicitlyNoConsult || !asksProcessAction);
 }
 
-function extractTribunalHint(rawObjective: string): string | null {
-    const objective = normalizeText(rawObjective);
-    if (objective.includes('tjpa')) return 'TJPA';
-    if (objective.includes('trf1') || objective.includes('trf 1')) return 'TRF1';
-    if (objective.includes('trt8') || objective.includes('trt 8')) return 'TRT8';
-
-    const compact = objective.replace(/\s+/g, '');
-    const trtMatch = compact.match(/trt\d{1,2}/);
-    if (trtMatch && trtMatch[0]) return trtMatch[0].toUpperCase();
-
-    const trfMatch = compact.match(/trf\d/);
-    if (trfMatch && trfMatch[0]) return trfMatch[0].toUpperCase();
-
-    const tjMatch = compact.match(/tj[a-z]{2}/);
-    if (tjMatch && tjMatch[0]) return tjMatch[0].toUpperCase();
-
-    const treMatch = compact.match(/tre[a-z0-9]{1,2}/);
-    if (treMatch && treMatch[0]) return treMatch[0].toUpperCase();
-
-    return null;
-}
+// extractTribunalHint removido — usa normalizeTribunalCode importado de ../pje/tribunal-urls
 
 function isNavigationObjective(rawObjective: string): boolean {
     const objective = normalizeText(rawObjective);

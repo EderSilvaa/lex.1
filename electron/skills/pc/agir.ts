@@ -12,7 +12,7 @@ import { agentEmitter } from '../../agent/loop';
 export const pcAgir: Skill = {
     nome: 'pc_agir',
     descricao: 'Controla o PC em linguagem natural usando Vision AI: abrir programas, clicar, digitar, organizar janelas, interagir com qualquer aplicativo. Use quando a tarefa não puder ser feita com ferramentas de filesystem ou browser.',
-    categoria: 'os',
+    categoria: 'pc',
 
     parametros: {
         objetivo: {

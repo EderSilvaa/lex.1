@@ -723,27 +723,6 @@ function createWindow() {
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
 
-// Register protocol
-app.whenReady().then(() => {
-    const { protocol } = require('electron');
-    protocol.registerFileProtocol('lex-extension', (request: any, callback: any) => {
-        try {
-            const relativeUrl = decodeURIComponent(request.url.replace('lex-extension://', ''));
-            const rootDir = path.resolve(__dirname, '..');
-            const requestedPath = path.resolve(rootDir, relativeUrl);
-
-            if (!isWithinDirectory(requestedPath, rootDir)) {
-                callback({ error: -10 }); // ACCESS_DENIED
-                return;
-            }
-
-            callback({ path: requestedPath });
-        } catch (_error) {
-            callback({ error: -324 }); // ERR_INVALID_URL
-        }
-    });
-});
-
 // File System Handlers
 ipcMain.handle('files-select-folder', async () => {
     if (!mainWindow) return null;
@@ -964,25 +943,6 @@ async function injectLexScripts(target: BrowserWindow | Electron.WebContents) {
         console.error('Error injecting overlay:', e);
     }
 
-    /*
-    try {
-        const manifestPath = path.join(__dirname, '../manifest.json');
-        if (!fs.existsSync(manifestPath)) {
-            console.error('Manifest not found at:', manifestPath);
-            return;
-        }
-
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        const contentScripts = manifest.content_scripts;
-
-        for (const script of contentScripts) {
-            // ... (legacy injection logic commented out)
-            // We are replacing this with the unified overlay.js
-        }
-    } catch (err) {
-        console.error('Error reading manifest or injecting scripts:', err);
-    }
-    */
 }
 
 import { registerCrawlerHandlers } from './crawler';
@@ -1291,8 +1251,6 @@ function startWorkspaceWatchers() {
     }
 }
 
-// Re-inicia watchers quando workspaces mudam
-ipcMain.on('workspace-watchers-refresh', () => startWorkspaceWatchers());
 
 /** Baixa os códigos de legislação do Planalto e re-indexa o RAG. */
 ipcMain.handle('rag-download-legislacao', async (_e, forcar = false) => {

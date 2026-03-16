@@ -26,17 +26,14 @@
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "resolveJsonModule": true,
-    "types": ["chrome", "node"]
+    "types": ["node"]
   },
   "include": [
-    "src/**/*",
-    "types/**/*"
+    "electron/**/*"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    "tests",
-    "**/*.test.ts",
-    "**/*.spec.ts"
+    "dist-electron"
   ]
 }

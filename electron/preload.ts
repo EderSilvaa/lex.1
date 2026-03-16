@@ -1,9 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('dashboardApi', {
-    setMode: (mode: 'home' | 'pje') => ipcRenderer.invoke('dashboard-set-mode', mode),
-});
-
 contextBridge.exposeInMainWorld('filesApi', {
     selectFolder: () => ipcRenderer.invoke('files-select-folder'),
     listFiles: (path: string) => ipcRenderer.invoke('files-list', path),
@@ -52,25 +48,7 @@ contextBridge.exposeInMainWorld('lexApi', {
         ipcRenderer.removeAllListeners('agent-event');
     },
 
-    // Browser (PJe) Automation & Tabs
-    updateBrowserLayout: (bounds: any) => ipcRenderer.invoke('browser-layout-update', bounds),
-    expandBrowserToFill: (sidebarWidth?: number) => ipcRenderer.invoke('browser-expand-to-fill', sidebarWidth ?? 228),
-    newTab: (url?: string) => ipcRenderer.invoke('browser-tab-new', url),
-    switchTab: (tabId: number) => ipcRenderer.invoke('browser-tab-switch', tabId),
-    closeTab: (tabId: number) => ipcRenderer.invoke('browser-tab-close', tabId),
-
-    // Legacy Hooks (mapped to active tab)
-    pjeNavigate: (url: string) => ipcRenderer.invoke('pje-navigate', url),
-
-    // Events
-    onBrowserTabCreated: (cb: any) => ipcRenderer.on('browser-tab-created', (_, val) => cb(val)),
-    onBrowserTabActive: (cb: any) => ipcRenderer.on('browser-tab-active', (_, val) => cb(val)),
-    onBrowserTabClosed: (cb: any) => ipcRenderer.on('browser-tab-closed', (_, val) => cb(val)),
-    onBrowserUpdateUrl: (cb: any) => ipcRenderer.on('browser-update-url', (_, val) => cb(val)),
-    onBrowserUpdateTitle: (cb: any) => ipcRenderer.on('browser-update-title', (_, val) => cb(val)),
-    onBrowserLoadState: (cb: any) => ipcRenderer.on('browser-load-state', (_, val) => cb(val)),
-
-    // Vision AI debug stream
+    // Vision AI debug stream (reservado para uso futuro)
     onVisionDebug: (cb: (data: any) => void) => ipcRenderer.on('vision-debug', (_, val) => cb(val)),
 
     // Multi-conversation persistence

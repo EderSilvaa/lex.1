@@ -8,6 +8,12 @@
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { ensureBrowser, injectOverlay, getActivePage } from '../../browser-manager';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
+import { agentEmitter } from '../../agent/loop';
+
+function emitProgress(step: string): void {
+    agentEmitter.emit('agent-event', { type: 'thinking', pensamento: `🌐 ${step}`, iteracao: 0 });
+    injectOverlay(step);
+}
 
 // Seletores conhecidos do PJe JSF para o campo de número do processo
 const NUM_PROCESSO_SELECTORS = [
@@ -73,14 +79,14 @@ export const pjeConsultar: Skill = {
         const consultaUrl = routes.consultaUrl;
 
         console.log(`[pje_consultar] Consultando processo ${numero} em ${consultaUrl}`);
-        injectOverlay(`Navegando para consulta...`);
+        emitProgress('Navegando para consulta...');
 
         try {
             // 1. Navega para a página de consulta
             await page.goto(consultaUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
             await page.waitForTimeout(2000);
 
-            injectOverlay(`Procurando campo de número...`);
+            emitProgress('Procurando campo de número...');
 
             // 2. Encontra o campo de número do processo
             let numInput: any = null;
@@ -109,7 +115,7 @@ export const pjeConsultar: Skill = {
             }
 
             // 3. Preenche o número
-            injectOverlay(`Preenchendo: ${numero}`);
+            emitProgress(`Preenchendo: ${numero}`);
             await numInput.click();
             await page.waitForTimeout(300);
             await numInput.fill('');
@@ -117,7 +123,7 @@ export const pjeConsultar: Skill = {
             await page.waitForTimeout(500);
 
             // 4. Clica em Pesquisar
-            injectOverlay(`Pesquisando...`);
+            emitProgress('Pesquisando...');
             let searched = false;
             for (const sel of PESQUISAR_SELECTORS) {
                 try {
@@ -131,7 +137,7 @@ export const pjeConsultar: Skill = {
 
             // 5. Aguarda resultados
             await page.waitForTimeout(3000);
-            injectOverlay(`Extraindo dados...`);
+            emitProgress('Extraindo dados...');
 
             // 6. Extrai texto da página (dados do processo)
             const texto: string = await page.evaluate(() => {

@@ -47,7 +47,6 @@ export { ActionQueue, getActionQueue } from './action-queue';
 export * from './types';
 
 // Skills (carrega automaticamente)
-import { loadMockSkills } from '../skills/mock';
 import { loadSkillsFromDir } from './executor';
 import { registerPJeSkills } from '../skills/pje';
 import { registerOsSkills } from '../skills/os';
@@ -64,10 +63,7 @@ export async function initializeAgent(): Promise<void> {
 
     console.log('[Agent] Inicializando...');
 
-    // Carrega skills mock (para desenvolvimento/teste)
-    loadMockSkills();
-
-    // Garante registro imediato das skills reais em runtime.
+    // Registra skills reais
     registerPJeSkills();
     registerOsSkills();
     registerPcSkills();

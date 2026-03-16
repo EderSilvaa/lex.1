@@ -2,7 +2,7 @@
   "env": {
     "browser": true,
     "es2021": true,
-    "webextensions": true
+    "node": true
   },
   "extends": [
     "eslint:recommended",
@@ -13,7 +13,7 @@
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module",
-    "project": "./tsconfig.json"
+    "project": ["./tsconfig.json", "./tsconfig.electron.json"]
   },
   "plugins": [
     "@typescript-eslint"

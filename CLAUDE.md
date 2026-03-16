@@ -40,28 +40,36 @@ Padrão: **Objetivo → LOOP(Think → Act → Observe) → Resposta**
 | `session.ts` | Persistência de sessões/histórico de conversa |
 | `memory.ts` | Memória TF-IDF para contexto de processos jurídicos |
 
-### Browser Automation (`electron/stagehand-manager.ts`)
-Controla Chrome externo via Stagehand v3 (Playwright). O browser **só inicia quando uma skill PJe é executada** — `ensureStagehand()` é chamado internamente.
+### Browser Automation (`electron/browser-manager.ts`)
+Controla Chrome externo via Playwright CDP. O browser **só inicia quando uma skill PJe é executada** — `ensureBrowser()` é chamado internamente.
 
 API pública:
-- `ensureStagehand()` — garante init (lazy); usar em toda skill antes de `getStagehand()`
+- `ensureBrowser()` — garante init (lazy); usar em toda skill antes de `getActivePage()`
 - `runBrowserTask(instruction, maxSteps, onStep)` — executa tarefa via agent autônomo
 - `injectOverlay(text, done?)` — overlay visual no Chrome
-- `closeStagehand()` — mata Chrome e limpa estado
-- `reInitStagehand()` — fecha e reinicia (usado ao trocar provider/modelo)
+- `closeBrowser()` — mata Chrome e limpa estado
+- `reInitBrowser()` — fecha e reinicia (usado ao trocar provider/modelo)
 
 ### Skills (`electron/skills/`)
 ```
 skills/
-  pje/      abrir, agir, consultar, movimentacoes, documentos, navegar, preencher
-  os/       arquivos, clipboard, escrever, fetch, listar, sistema
-  pc/       agir (nut-js: mouse/teclado)
+  pje/        abrir, agir, consultar, movimentacoes, documentos, navegar, preencher
+  os/         arquivos, clipboard, escrever, fetch, listar, sistema
+  pc/         agir (nut-js: mouse/teclado) — TODO: avaliar skills específicas (screenshot, abrir programa, etc.)
   documentos/ analisar, gerar
+  browser/    get-state, extract, scroll, click, navigate, type, screenshot, close-tab, switch-tab
+  pesquisa/   jurisprudencia
 ```
-Cada skill exporta `{ name, description, execute(params, ctx) }`. O `executor.ts` as registra e despacha.
+Cada skill exporta `{ nome, descricao, execute(params, ctx) }`. O `executor.ts` as registra e despacha.
 
 ### Providers / BYOK (`electron/provider-config.ts`)
-Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getStagehandModelConfig()` e passada ao Stagehand. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
+Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getStagehandModelConfig()` e passada ao browser-manager. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
+
+### Auth / License (`electron/auth/`)
+> **Em desenvolvimento.** `checkLicense()` retorna `{ status: 'pro', daysLeft: 999 }` hardcoded — paywall e trial ainda não implementados. A infra de auth (signIn/signUp/signOut via Supabase) já funciona, falta conectar a verificação de plano.
+
+### IPC — canais pendentes
+> `ai-plan-execute` está exposto no preload e chamado no renderer, mas **ainda não tem handler no main.ts**. Funcionalidade de planos em desenvolvimento.
 
 ### PJe Utilities
 - `electron/pje/tribunal-urls.ts` — mapa tribunal → URL de login/painel
@@ -73,7 +81,7 @@ Bot opcional; auto-inicia na `app.whenReady()` se estava ativo na sessão anteri
 
 ## Padrões importantes
 
-- **`ensureStagehand()` antes de qualquer uso do browser** — o Chrome inicia lazy, só na primeira skill PJe.
-- **`keepAlive: true` no Stagehand** — impede o supervisor de matar o Chrome prematuramente em Electron. `killPreviousChrome()` mata instâncias anteriores pelo PID salvo em `chrome.pid`.
+- **`ensureBrowser()` antes de qualquer uso do browser** — o Chrome inicia lazy, só na primeira skill PJe.
+- **`keepAlive: true`** — impede kill prematuro do Chrome em Electron. `killPreviousChrome()` mata instâncias anteriores pelo PID salvo em `chrome.pid`.
 - **IPC:** renderer → main via `window.electronAPI.*` (exposto no preload). Main → renderer via `mainWindow.webContents.send(...)`.
 - **Build separado:** `tsconfig.json` compila o renderer para `dist/`; `tsconfig.electron.json` compila o processo principal para `dist-electron/`.

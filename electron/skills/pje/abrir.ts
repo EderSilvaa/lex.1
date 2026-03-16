@@ -7,6 +7,12 @@
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { getBrowserContext, injectOverlay, ensureBrowser } from '../../browser-manager';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
+import { agentEmitter } from '../../agent/loop';
+
+function emitProgress(step: string, done?: boolean): void {
+    agentEmitter.emit('agent-event', { type: 'thinking', pensamento: `🌐 ${step}`, iteracao: 0 });
+    injectOverlay(step, done);
+}
 
 export const pjeAbrir: Skill = {
     nome: 'pje_abrir',
@@ -50,9 +56,9 @@ export const pjeAbrir: Skill = {
                 };
             }
 
-            injectOverlay(`Abrindo ${tribunal || 'PJe'}...`);
+            emitProgress(`Abrindo ${tribunal || 'PJe'}...`);
             await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            injectOverlay('Aguardando login com certificado digital', true);
+            emitProgress('Aguardando login com certificado digital', true);
             return {
                 sucesso: true,
                 dados: { url: loginUrl, tribunal: tribunal.toUpperCase() || 'TRT8', aguardandoLogin: true },

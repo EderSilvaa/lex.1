@@ -28,6 +28,7 @@ import { getResponseCache } from './cache';
 import { getSessionManager } from './session';
 import { getActivePage } from '../browser-manager';
 import { getDocIndex } from './doc-index';
+import { normalizeTribunalCode, inferTribunalKey } from '../pje/tribunal-urls';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -616,44 +617,11 @@ function extractTribunalFromData(data: any): string | null {
     return null;
 }
 
+// normalizeTribunalCode e inferTribunalKey importados de ../pje/tribunal-urls
+
 function inferTribunalFromText(textRaw: string): string | null {
-    const text = String(textRaw || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[\s\-_]+/g, '');
-
-    if (!text) return null;
-    if (text.includes('trt8') || text.includes('pje.trt8.jus.br')) return 'TRT8';
-    if (text.includes('trf1') || text.includes('pje1g.trf1.jus.br')) return 'TRF1';
-    if (text.includes('tjpa') || text.includes('pje.tjpa.jus.br')) return 'TJPA';
-
-    const trtMatch = text.match(/trt\d{1,2}/);
-    if (trtMatch && trtMatch[0]) return trtMatch[0].toUpperCase();
-
-    const trfMatch = text.match(/trf\d/);
-    if (trfMatch && trfMatch[0]) return trfMatch[0].toUpperCase();
-
-    const tjMatch = text.match(/tj[a-z]{2}/);
-    if (tjMatch && tjMatch[0]) return tjMatch[0].toUpperCase();
-
-    const treMatch = text.match(/tre[a-z0-9]{1,2}/);
-    if (treMatch && treMatch[0]) return treMatch[0].toUpperCase();
-
-    return null;
-}
-
-function normalizeTribunalCode(value: unknown): string | null {
-    const normalized = String(value || '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, '');
-
-    if (!normalized) return null;
-    if (normalized.includes('trt8')) return 'TRT8';
-    if (normalized.includes('trf1')) return 'TRF1';
-    if (normalized.includes('tjpa')) return 'TJPA';
-    return normalized.toUpperCase();
+    const key = inferTribunalKey(textRaw);
+    return key ? key.toUpperCase() : null;
 }
 
 /**
@@ -710,7 +678,7 @@ export function listActiveRuns(): Array<{ runId: string; objetivo: string; itera
 }
 
 function shouldPauseForUserAction(resultado: SkillResult): boolean {
-    if (!resultado || resultado.sucesso) return false;
+    if (!resultado) return false;
     if (!resultado.dados || typeof resultado.dados !== 'object') return false;
     return Boolean((resultado.dados as any).requiresUserAction);
 }
