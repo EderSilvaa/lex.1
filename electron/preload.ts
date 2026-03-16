@@ -58,6 +58,10 @@ contextBridge.exposeInMainWorld('lexApi', {
     deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
 
+    // Analytics
+    getAnalyticsSummary: () => ipcRenderer.invoke('analytics-summary'),
+    trackMessage: () => ipcRenderer.invoke('analytics-track-message'),
+
     // RAG — Indexação de documentos do workspace
     ragIndexWorkspace: () => ipcRenderer.invoke('rag-index-workspace'),
     ragStats: () => ipcRenderer.invoke('rag-stats'),

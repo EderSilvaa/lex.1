@@ -13,6 +13,7 @@ import { downloadIncremental, downloadTudo, getLegislacaoStats, verificarDesatua
 import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } from './provider-config';
 import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense } from './auth/license';
+import { getAnalytics } from './analytics';
 import { autoUpdater } from 'electron-updater';
 
 // Suprime EPIPE (pipe quebrado ao rodar via terminal/background) — evita crash dialog
@@ -359,11 +360,6 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
     const resolvedAgent = agentModel || preset.defaultAgentModel;
     const resolvedVision = visionModel || preset.defaultVisionModel;
 
-    // Compatibilidade: ANTHROPIC_API_KEY ainda é lido pelo Stagehand legado
-    if (providerId === 'anthropic') {
-        process.env['ANTHROPIC_API_KEY'] = apiKey;
-    }
-
     const config = {
         providerId,
         apiKey,
@@ -426,18 +422,11 @@ async function initStore() {
         visionModel: string;
     } | null;
 
-    // Fallback: anthropic com chave do env
-    const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
     const providerId: ProviderId = savedProvider?.providerId ?? 'anthropic';
-    const apiKey = loadApiKey(providerId) || (providerId === 'anthropic' ? envKey : '');
+    const apiKey = loadApiKey(providerId);
     const preset = PROVIDER_PRESETS[providerId];
 
-    // Persiste chave do env se ainda não estava no store
-    if (apiKey && !loadApiKey(providerId)) {
-        saveApiKey(providerId, apiKey);
-    }
-
-    // Migra visionModel: Claude 4.x causa ECONNRESET no @ai-sdk/anthropic v2 do Stagehand
+    // Migra visionModel: Claude 4.x pode causar problemas em browser automation
     // agentModel não é migrado — Claude 4.x funciona fine com generateText no SDK principal
     const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
     const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
@@ -451,7 +440,7 @@ async function initStore() {
 // IPC — Configuração de Provider/API Keys
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Define provider ativo + modelos. Re-inicia Stagehand em background. */
+/** Define provider ativo + modelos. Re-inicia browser em background. */
 ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderId; agentModel: string; visionModel: string }) => {
     if (!store) return { error: 'Store not initialized' };
     store.set('aiProvider', cfg);
@@ -1000,6 +989,17 @@ app.whenReady().then(async () => {
     // Inicia watchers nos workspaces para auto re-indexar RAG
     startWorkspaceWatchers();
 
+    // Analytics — rastreia sessão e tempo ativo
+    const analytics = getAnalytics();
+    analytics.syncConversationCount(store);
+    analytics.startSession();
+
+    // Track focus/blur para tempo ativo
+    if (mainWindow) {
+        mainWindow.on('focus', () => analytics.trackFocus());
+        mainWindow.on('blur', () => analytics.trackBlur());
+    }
+
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -1071,6 +1071,9 @@ function initLegislacaoSync(): void {
 }
 
 app.on('window-all-closed', async function () {
+    // Finaliza sessão de analytics
+    getAnalytics().endSession();
+
     // No modo 24/7 com tray ativo, não encerra o processo
     if (trayModeActive) return;
 
@@ -1116,8 +1119,10 @@ ipcMain.handle('conversations-save', async (_event, conv) => {
     if (!conv || typeof conv.id !== 'string') return { success: false, error: 'Conversa inválida.' };
     if (JSON.stringify(conv).length > MAX_CONV_SIZE) return { success: false, error: 'Conversa muito grande para salvar (limite 2 MB).' };
     const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
+    const isNew = !convs[conv.id];
     convs[conv.id] = conv;
     store?.set('conversations', convs);
+    if (isNew) getAnalytics().trackConversation();
     return { success: true };
 });
 
@@ -1144,6 +1149,19 @@ ipcMain.handle('session-seed', async (_event, sessionId: string, messages: any[]
         const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
         sm.addMessage(sessionId, role, msg.content);
     }
+    return { success: true };
+});
+
+// ============================================================================
+// ANALYTICS
+// ============================================================================
+
+ipcMain.handle('analytics-summary', async () => {
+    return getAnalytics().getSummary();
+});
+
+ipcMain.handle('analytics-track-message', async () => {
+    getAnalytics().trackMessage();
     return { success: true };
 });
 
@@ -1597,7 +1615,7 @@ Regras:
             user,
             temperature: 0,
             maxTokens: 140,
-            model: 'claude-3-5-haiku-latest'
+            // Usa o agentModel do provider ativo (não hardcodar modelo específico)
         });
 
         return parseSemanticModeResponse(response);

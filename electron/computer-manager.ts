@@ -4,7 +4,7 @@
  * Controle do PC inteiro via Vision AI + nut-js.
  * Loop: Screenshot → Claude Vision analisa → executa ação (mouse/teclado) → repete.
  *
- * Espelho de stagehand-manager.ts para o nível de OS.
+ * Espelho de browser-manager.ts para o nível de OS.
  */
 
 import * as fs from 'fs/promises';

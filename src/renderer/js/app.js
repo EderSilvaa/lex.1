@@ -1105,6 +1105,87 @@ function setDynamicGreeting(displayName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Analytics Dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadAnalyticsDashboard() {
+    const el = document.getElementById('analytics-dashboard');
+    if (!el || !window.lexApi?.getAnalyticsSummary) return;
+    try {
+        const s = await window.lexApi.getAnalyticsSummary();
+        if (!s) { el.textContent = 'Sem dados ainda.'; return; }
+
+        const topSkillsHtml = s.topSkills.length > 0
+            ? s.topSkills.slice(0, 5).map(sk =>
+                `<span style="display:inline-block;background:#1e293b;padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${sk.skill} <b>${sk.count}x</b></span>`
+            ).join('')
+            : '<span style="color:#64748b">Nenhuma skill usada ainda</span>';
+
+        const topModelsHtml = s.topModels.length > 0
+            ? s.topModels.slice(0, 3).map(m =>
+                `<span style="display:inline-block;background:#1e293b;padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${m.model.split('/').pop()} <b>${m.count}x</b></span>`
+            ).join('')
+            : '<span style="color:#64748b">Nenhum modelo usado ainda</span>';
+
+        const errCount = Object.values(s.todayErrors).reduce((a, b) => a + b, 0);
+
+        el.innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:#60a5fa">${s.totalMessages}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">Mensagens (total)</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:#34d399">${s.totalSessions}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">Sessoes (total)</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:#fbbf24">${s.daysActive}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">Dias ativos</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:#a78bfa">${s.totalConversations}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">Conversas</div>
+                </div>
+            </div>
+
+            <div style="margin-bottom:10px">
+                <b style="color:#94a3b8;font-size:12px">Hoje</b><br>
+                <span>${s.todayMessages} msg</span> &middot;
+                <span>${s.todaySessions} sessoes</span> &middot;
+                <span>${s.todayActiveMinutes} min ativo</span>
+                ${errCount > 0 ? ` &middot; <span style="color:#f87171">${errCount} erros</span>` : ''}
+            </div>
+
+            <div style="margin-bottom:10px">
+                <b style="color:#94a3b8;font-size:12px">Sessao atual</b><br>
+                <span>${s.currentSessionMinutes} min</span> &middot;
+                <span>${s.currentSessionMessages} mensagens</span>
+            </div>
+
+            <div style="margin-bottom:10px">
+                <b style="color:#94a3b8;font-size:12px">Skills mais usadas</b><br>
+                ${topSkillsHtml}
+            </div>
+
+            <div style="margin-bottom:10px">
+                <b style="color:#94a3b8;font-size:12px">Modelos mais usados</b><br>
+                ${topModelsHtml}
+            </div>
+
+            <div>
+                <b style="color:#94a3b8;font-size:12px">Provider favorito:</b>
+                <span style="color:#60a5fa">${s.mostActiveProvider}</span>
+                ${s.firstSeen ? ` &middot; <span style="color:#64748b">Desde ${s.firstSeen}</span>` : ''}
+            </div>
+        `;
+    } catch (e) {
+        el.textContent = 'Erro ao carregar estatisticas.';
+        console.error('[Analytics]', e);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Provider / API Key settings
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1141,8 +1222,9 @@ async function loadProviderSettings() {
             updateKeyStatusBadge(status);
         }
 
-        // Link de docs
+        // Link de docs + placeholder
         updateProviderLink(current?.providerId || 'anthropic');
+        updateApiKeyPlaceholder(current?.providerId || 'anthropic');
     } catch (_) {}
 }
 
@@ -1154,22 +1236,39 @@ function populateModelSelects(providerId) {
     const agentSelect = document.getElementById('ai-agent-model');
     const visionSelect = document.getElementById('ai-vision-model');
 
+    // Separa modelos gratuitos dos pagos (OpenRouter usa ":free" no id)
+    const freeModels = models.filter(m => m.id.includes(':free'));
+    const paidModels = models.filter(m => !m.id.includes(':free'));
+    const hasGroups = freeModels.length > 0 && paidModels.length > 0;
+
+    function buildOptions(modelList) {
+        if (!hasGroups) {
+            return modelList.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+        }
+        let html = '';
+        if (freeModels.length > 0) {
+            html += '<optgroup label="Gratuitos">';
+            html += freeModels.filter(m => modelList.includes(m)).map(m =>
+                `<option value="${m.id}">${m.name}</option>`
+            ).join('');
+            html += '</optgroup>';
+        }
+        if (paidModels.length > 0) {
+            html += '<optgroup label="Pagos">';
+            html += paidModels.filter(m => modelList.includes(m)).map(m =>
+                `<option value="${m.id}">${m.name}</option>`
+            ).join('');
+            html += '</optgroup>';
+        }
+        return html;
+    }
+
     if (agentSelect) {
-        agentSelect.innerHTML = models.map(m =>
-            `<option value="${m.id}">${m.name}</option>`
-        ).join('');
+        agentSelect.innerHTML = buildOptions(models);
     }
     if (visionSelect) {
         const visionModels = models.filter(m => m.vision);
-        visionSelect.innerHTML = visionModels.map(m =>
-            `<option value="${m.id}">${m.name}</option>`
-        ).join('');
-        // Fallback: se não houver vision, mostra todos
-        if (visionModels.length === 0) {
-            visionSelect.innerHTML = models.map(m =>
-                `<option value="${m.id}">${m.name}</option>`
-            ).join('');
-        }
+        visionSelect.innerHTML = buildOptions(visionModels.length > 0 ? visionModels : models);
     }
 }
 
@@ -1179,6 +1278,29 @@ function updateProviderLink(providerId) {
     const url = PROVIDER_KEY_LINKS[providerId] || '#';
     link.href = url;
     link.textContent = url.replace('https://', '');
+
+    // Mostra dica especial para OpenRouter (grátis)
+    const defaultHint = document.getElementById('ai-provider-hint');
+    const freeHint = document.getElementById('ai-provider-free-hint');
+    if (defaultHint && freeHint) {
+        if (providerId === 'openrouter') {
+            defaultHint.style.display = 'none';
+            freeHint.style.display = 'block';
+        } else {
+            defaultHint.style.display = 'block';
+            freeHint.style.display = 'none';
+        }
+    }
+}
+
+function updateApiKeyPlaceholder(providerId) {
+    const input = document.getElementById('ai-api-key');
+    if (!input) return;
+    if (providerId === 'openrouter') {
+        input.placeholder = 'Chave gratuita — crie em openrouter.ai/keys';
+    } else {
+        input.placeholder = 'Cole sua chave aqui';
+    }
 }
 
 function updateKeyStatusBadge(status) {
@@ -1482,6 +1604,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pid = providerSelect.value;
             populateModelSelects(pid);
             updateProviderLink(pid);
+            updateApiKeyPlaceholder(pid);
             window.lexApi.getApiKeyStatus(pid).then(updateKeyStatusBadge).catch(() => {});
         });
     }
@@ -1521,6 +1644,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Analytics dashboard
+    loadAnalyticsDashboard();
+    const btnRefreshStats = document.getElementById('btn-refresh-stats');
+    if (btnRefreshStats) btnRefreshStats.addEventListener('click', loadAnalyticsDashboard);
 
     // Telegram 24/7
     initTelegramSettings();

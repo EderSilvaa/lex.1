@@ -28,14 +28,43 @@ interface UsageSummary {
     byModel: Record<string, { calls: number; cost: number }>;
 }
 
-// Custos por 1M tokens (input/output) - Fev 2026
+// Custos por 1M tokens (input/output) — mantém todos os providers do BYOK
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+    // Anthropic
+    'claude-opus-4-6': { input: 15.0, output: 75.0 },
     'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
-    'claude-3-5-sonnet-latest': { input: 3.0, output: 15.0 },
-    'claude-3-5-haiku-latest': { input: 0.25, output: 1.25 },
-    'claude-3-haiku-20240307': { input: 0.25, output: 1.25 },
+    'claude-haiku-4-5-20251001': { input: 0.80, output: 4.0 },
+    'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
+    'claude-3-5-haiku-20241022': { input: 0.25, output: 1.25 },
+    // OpenAI
+    'gpt-4.1': { input: 2.0, output: 8.0 },
+    'gpt-4.1-mini': { input: 0.40, output: 1.60 },
+    'o4-mini': { input: 1.10, output: 4.40 },
     'gpt-4o': { input: 2.5, output: 10.0 },
     'gpt-4o-mini': { input: 0.15, output: 0.60 },
+    // Google
+    'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+    'gemini-2.5-flash-preview-04-17': { input: 0.15, output: 0.60 },
+    'gemini-2.5-pro-preview-03-25': { input: 1.25, output: 10.0 },
+    // Groq
+    'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
+    'meta-llama/llama-4-scout-17b-16e-instruct': { input: 0.11, output: 0.34 },
+    // OpenRouter gratuitos (custo zero pro usuário)
+    'qwen/qwen3-235b-a22b:free': { input: 0, output: 0 },
+    'qwen/qwen3-30b-a3b:free': { input: 0, output: 0 },
+    'qwen/qwen2.5-vl-32b-instruct:free': { input: 0, output: 0 },
+    'deepseek/deepseek-v3-0324:free': { input: 0, output: 0 },
+    'deepseek/deepseek-r1-0528:free': { input: 0, output: 0 },
+    'meta-llama/llama-3.3-70b-instruct:free': { input: 0, output: 0 },
+    'meta-llama/llama-4-maverick:free': { input: 0, output: 0 },
+    'google/gemma-3-27b-it:free': { input: 0, output: 0 },
+    'mistralai/mistral-small-3.1-24b-instruct:free': { input: 0, output: 0 },
+    'microsoft/phi-4-multimodal-instruct:free': { input: 0, output: 0 },
+    // OpenRouter pagos (preços OpenRouter)
+    'anthropic/claude-sonnet-4-6': { input: 3.0, output: 15.0 },
+    'anthropic/claude-haiku-4-5': { input: 0.80, output: 4.0 },
+    'openai/gpt-4.1-mini': { input: 0.40, output: 1.60 },
+    'openai/gpt-4.1': { input: 2.0, output: 8.0 },
 };
 
 // ============================================================================
@@ -74,8 +103,9 @@ export class UsageTracker {
         outputTokens: number;
         context: string;
     }): void {
-        const model = params.model || 'claude-sonnet-4-6';
-        const costs = MODEL_COSTS[model] ?? { input: 3.0, output: 15.0 };
+        const model = params.model || 'unknown';
+        // Fallback conservador: se modelo desconhecido, assume custo baixo (não inflar estimativas)
+        const costs = MODEL_COSTS[model] ?? { input: 0.50, output: 2.0 };
 
         const estimatedCost =
             (params.inputTokens / 1_000_000) * costs.input +

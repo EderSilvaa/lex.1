@@ -257,7 +257,9 @@ export const DEFAULT_CONFIG: AgentConfig = {
     verbose: true,
     allowParallelSkills: false,
     enableCritic: true,
-    criticModel: 'claude-3-5-haiku-latest', // B3: ~10x mais barato que sonnet para validação
+    // criticModel usa o agentModel do provider ativo (definido em provider-config.ts)
+    // Não hardcodar modelo específico — o usuário pode estar usando OpenAI, Groq, etc.
+    criticModel: undefined,
     criticTemperature: 0.1
 };
 

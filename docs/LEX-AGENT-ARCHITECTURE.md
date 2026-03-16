@@ -1770,7 +1770,7 @@ O Lex é vendido como **infraestrutura jurídica**. O usuário traz sua própria
 ```
 electron/provider-config.ts   ← registro de presets + ActiveProviderConfig
 electron/ai-handler.ts        ← roteador callAI() + callAIWithVision()
-electron/stagehand-manager.ts ← getStagehandModelConfig() → init dinâmico
+electron/browser-manager.ts   ← Chrome externo via Playwright CDP
 electron/main.ts              ← store multi-key + IPC: store-set-provider, store-set-api-key
 electron/preload.ts           ← bridge: setProvider(), setApiKey(), getProviderPresets()
 src/renderer/js/app.js        ← loadProviderSettings(), saveProviderSettings()
@@ -1784,11 +1784,11 @@ App start
     → store.get('aiProvider')        # provider + modelos salvos
     → store.get('apiKeys')[provider] # chave encriptada AES-256-GCM
     → setActiveConfig()              # singleton runtime
-    → initStagehand()                # Chrome com modelo do provider ativo
+    → ensureBrowser()               # Chrome externo via Playwright CDP
 
 Settings change
   UI → setApiKey(providerId, key)   → store encriptado
-  UI → setProvider({ providerId })  → setActiveConfig() + reInitStagehand()
+  UI → setProvider({ providerId })  → setActiveConfig() + reInitBrowser()
 
 callAI() / callAIWithVision()
   → getActiveConfig().providerId
@@ -1801,20 +1801,22 @@ callAI() / callAIWithVision()
 | Uso | Modelo | Vision |
 |---|---|---|
 | Browser/PJe | `qwen/qwen2.5-vl-32b-instruct:free` | ✅ |
-| Browser/PJe | `google/gemma-3-27b-it:free` | ✅ |
-| Agente texto | `qwen/qwen3-30b-a3b:free` | ❌ |
-| Agente texto | `meta-llama/llama-3.3-70b-instruct:free` | ❌ |
+| Browser/PJe | `meta-llama/llama-4-maverick:free` | ✅ |
+| Agente texto | `qwen/qwen3-235b-a22b:free` | ❌ |
+| Agente texto | `deepseek/deepseek-r1-0528:free` | ❌ |
+| Coding | `deepseek/deepseek-v3-0324:free` | ❌ |
+
+Guia completo de modelos: `docs/MODEL-GUIDE.md`
 
 ---
 
 ## 10. Referências
 
-- [OpenClaw GitHub](https://github.com/openclaw/openclaw)
 - [ReAct Pattern Paper](https://arxiv.org/abs/2210.03629)
-- [Stagehand Models](https://docs.stagehand.dev/v3/configuration/models)
+- [Playwright CDP Docs](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp)
 - [OpenRouter Free Models](https://openrouter.ai/collections/free-models)
 
 ---
 
 *Documento criado em: Janeiro 2026*
-*Versão: 5.0 — março 2026 (BYOK multi-provider)*
+*Versão: 5.1 — março 2026 (browser-manager Playwright CDP, modelos atualizados)*

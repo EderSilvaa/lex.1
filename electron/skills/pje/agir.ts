@@ -1,7 +1,7 @@
 /**
  * Skill: pje_agir
  *
- * Executa qualquer ação no browser via Stagehand agent().
+ * Executa qualquer ação no browser via Playwright CDP agent.
  * O agent raciocina sobre a tela atual e executa os passos necessários.
  * Substitui o loop Vision ReAct anterior (vision.ts + navegar.ts + preencher.ts).
  */

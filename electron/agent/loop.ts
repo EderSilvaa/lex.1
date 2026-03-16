@@ -29,6 +29,7 @@ import { getSessionManager } from './session';
 import { getActivePage } from '../browser-manager';
 import { getDocIndex } from './doc-index';
 import { normalizeTribunalCode, inferTribunalKey } from '../pje/tribunal-urls';
+import { getAnalytics } from '../analytics';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -139,6 +140,15 @@ export async function runAgentLoop(
     log(cfg.verbose, `═══════════════════════════════════════════`);
 
     emit({ type: 'started', runId, objetivo });
+
+    // Analytics: rastreia mensagem e provider
+    const analytics = getAnalytics();
+    analytics.trackMessage();
+    try {
+        const { getActiveConfig } = await import('../provider-config');
+        const providerCfg = getActiveConfig();
+        analytics.trackProvider(providerCfg.providerId, providerCfg.agentModel);
+    } catch { /* ignore */ }
 
     // B1: Verificar cache antes de entrar no loop
     const cache = getResponseCache();
@@ -434,6 +444,9 @@ export async function runAgentLoop(
 
                     emit({ type: 'tool_result', skill: skillName, resultado });
 
+                    // Analytics: rastreia uso da skill
+                    analytics.trackSkill(skillName, resultado.sucesso);
+
                     log(cfg.verbose, `${resultado.sucesso ? '✓' : '✗'} Resultado em ${actDuration}ms`);
 
                     // ════════════════════════════════════════════════════
@@ -572,7 +585,7 @@ function applyTribunalContinuity(
 }
 
 function inferTribunalFromContext(state: AgentState): string | null {
-    // Maior prioridade: URL ativa no Chrome (Stagehand)
+    // Maior prioridade: URL ativa no Chrome (Playwright CDP)
     try {
         const page = getActivePage();
         const activeUrl = page?.url();
@@ -580,7 +593,7 @@ function inferTribunalFromContext(state: AgentState): string | null {
             const fromActiveUrl = inferTribunalFromText(activeUrl);
             if (fromActiveUrl) return fromActiveUrl;
         }
-    } catch { /* Stagehand pode não estar pronto ainda */ }
+    } catch { /* Browser pode não estar pronto ainda */ }
 
     const processTribunal = normalizeTribunalCode(state.contexto.processo?.tribunal);
     if (processTribunal) return processTribunal;

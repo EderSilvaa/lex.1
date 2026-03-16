@@ -7,7 +7,7 @@
  * Prioridade de consulta em pje_navegar:
  *   1. Route Memory (aprendido, confirmado pelo uso)
  *   2. tribunal-urls.ts (estático)
- *   3. Stagehand agent (visual)
+ *   3. Browser agent (visual, Playwright CDP)
  */
 
 import path from 'path'

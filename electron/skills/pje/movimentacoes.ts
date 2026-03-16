@@ -1,7 +1,7 @@
 /**
  * Skill: pje_movimentacoes
  *
- * Extrai as movimentações do processo exibido na tela atual do PJe via Stagehand agent.
+ * Extrai as movimentações do processo exibido na tela atual do PJe via browser agent.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';

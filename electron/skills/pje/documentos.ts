@@ -1,7 +1,7 @@
 /**
  * Skill: pje_documentos
  *
- * Extrai os documentos do processo exibido na tela atual do PJe via Stagehand agent.
+ * Extrai os documentos do processo exibido na tela atual do PJe via browser agent.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';

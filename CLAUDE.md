@@ -63,7 +63,7 @@ skills/
 Cada skill exporta `{ nome, descricao, execute(params, ctx) }`. O `executor.ts` as registra e despacha.
 
 ### Providers / BYOK (`electron/provider-config.ts`)
-Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getStagehandModelConfig()` e passada ao browser-manager. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
+Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getActiveConfig()` / `getActiveVisionModel()`. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
 
 ### Auth / License (`electron/auth/`)
 > **Em desenvolvimento.** `checkLicense()` retorna `{ status: 'pro', daysLeft: 999 }` hardcoded — paywall e trial ainda não implementados. A infra de auth (signIn/signUp/signOut via Supabase) já funciona, falta conectar a verificação de plano.

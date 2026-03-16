@@ -1,7 +1,7 @@
 /**
  * Skill: pje_abrir
  *
- * Abre o PJe no Chrome externo (Stagehand) e aguarda login do usuário.
+ * Abre o PJe no Chrome externo (Playwright CDP) e aguarda login do usuário.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';

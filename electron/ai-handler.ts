@@ -6,7 +6,7 @@
  * Providers suportados: Anthropic, OpenAI, OpenRouter, Google AI, Groq.
  */
 
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
 import { withAIRetry } from './agent/retry';
 import {
     getActiveConfig,
@@ -43,7 +43,7 @@ export interface CallAIWithVisionOptions {
 
 // Interface legada mantida para retrocompat com main.ts
 interface LegacyAIConfig {
-    provider?: ProviderId | 'supabase';
+    provider?: ProviderId;
     apiKey?: string;
     baseUrl?: string;
     model?: string;
@@ -63,7 +63,7 @@ export function initAI(config: LegacyAIConfig | ActiveProviderConfig): void {
         return;
     }
 
-    const providerId = (config.provider === 'supabase' ? 'anthropic' : config.provider) as ProviderId ?? 'anthropic';
+    const providerId = (config.provider ?? 'anthropic') as ProviderId;
     const preset = PROVIDER_PRESETS[providerId];
     const existing = getActiveConfig();
 
@@ -77,11 +77,37 @@ export function initAI(config: LegacyAIConfig | ActiveProviderConfig): void {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // callAI — texto (think loop, critic, chat)
+// Se onToken é fornecido, usa streamText para streaming real token a token.
+// Caso contrário, usa generateText para máxima eficiência.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function callAI(options: CallAIOptions): Promise<string> {
     const model = getActiveModel(options.model);
 
+    // Streaming real: usa streamText quando onToken é fornecido
+    if (options.onToken) {
+        const onToken = options.onToken;
+        return withAIRetry(async () => {
+            const result = streamText({
+                model,
+                system: options.system,
+                messages: [{ role: 'user', content: options.user }],
+                temperature: options.temperature ?? 0.3,
+                maxOutputTokens: options.maxTokens ?? 4000,
+            });
+
+            let fullText = '';
+            for await (const chunk of result.textStream) {
+                fullText += chunk;
+                onToken(chunk);
+            }
+
+            if (!fullText) throw new Error('Resposta vazia do LLM');
+            return fullText;
+        });
+    }
+
+    // Sem streaming: generateText é mais eficiente
     return withAIRetry(async () => {
         const { text } = await generateText({
             model,
@@ -92,7 +118,6 @@ export async function callAI(options: CallAIOptions): Promise<string> {
         });
 
         if (!text) throw new Error('Resposta vazia do LLM');
-        if (options.onToken) options.onToken(text);
         return text;
     });
 }

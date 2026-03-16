@@ -1,7 +1,7 @@
 /**
  * Skill: pje_navegar
  *
- * Navega dentro do PJe para uma área/menu/ação via Stagehand agent.
+ * Navega dentro do PJe para uma área/menu/ação via browser agent.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';

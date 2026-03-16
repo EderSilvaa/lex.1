@@ -227,14 +227,17 @@
                                 <div class="settings-field">
                                     <label class="settings-label" for="ai-provider">Provedor</label>
                                     <select class="settings-input settings-select" id="ai-provider">
+                                        <option value="openrouter">OpenRouter — modelos gratuitos</option>
                                         <option value="anthropic">Anthropic (Claude)</option>
                                         <option value="openai">OpenAI (GPT)</option>
-                                        <option value="openrouter">OpenRouter (multi-modelo)</option>
                                         <option value="google">Google AI (Gemini)</option>
                                         <option value="groq">Groq (ultra-rapido)</option>
                                     </select>
-                                    <span class="settings-hint">
+                                    <span class="settings-hint" id="ai-provider-hint">
                                         Obter chave: <a id="ai-provider-key-link" href="#" target="_blank" style="color:#60a5fa">console.anthropic.com</a>
+                                    </span>
+                                    <span class="settings-hint" id="ai-provider-free-hint" style="display:none;color:#34d399">
+                                        Crie uma conta gratuita em <a href="https://openrouter.ai/keys" target="_blank" style="color:#34d399">openrouter.ai</a> e copie sua chave — sem cartao, sem custo.
                                     </span>
                                 </div>
                                 <div class="settings-field">
@@ -306,6 +309,17 @@
                                     <button class="settings-save-btn" id="btn-leg-redownload" style="flex:0 0 auto;background:#333" title="Forca re-download de todos os arquivos">Forcar</button>
                                 </div>
                                 <div id="leg-progress" style="margin-top:8px;font-size:11px;color:#888;max-height:120px;overflow-y:auto;font-family:monospace;white-space:pre-wrap"></div>
+                            </div>
+                        </section>
+
+                        <!-- Estatisticas de Uso -->
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Estatisticas de Uso</h3>
+                            <div class="settings-form">
+                                <div id="analytics-dashboard" style="font-size:13px;color:#cbd5e1;line-height:1.8">
+                                    Carregando...
+                                </div>
+                                <button class="settings-save-btn" id="btn-refresh-stats" style="width:100%;margin-top:10px">Atualizar Estatisticas</button>
                             </div>
                         </section>
 
