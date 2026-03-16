@@ -5,7 +5,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getStagehand, runBrowserTask, injectOverlay, ensureStagehand } from '../../stagehand-manager';
+import { getBrowserContext, injectOverlay, ensureBrowser } from '../../browser-manager';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
 
 export const pjeAbrir: Skill = {
@@ -36,43 +36,23 @@ export const pjeAbrir: Skill = {
         console.log(`[pje_abrir] Tribunal: ${tribunal || '(vazio)'} -> ${loginUrl}`);
 
         try {
-            // Garante que Stagehand está inicializado (auto-recupera se o init em background falhou)
-            await ensureStagehand();
-            const stagehand = getStagehand();
-            const ctx = (stagehand as any).context ?? (stagehand as any).ctx;
+            await ensureBrowser();
+            const ctx = getBrowserContext();
+            const pages = ctx.pages();
+            const page = pages[0] ?? await ctx.newPage();
+            const currentUrl = page.url();
 
-            if (ctx && typeof ctx.pages === 'function') {
-                const pages = ctx.pages();
-                const page = pages[0] ?? await ctx.newPage();
-                const currentUrl = page.url ? page.url() : '';
-
-                if (currentUrl && isSameHost(currentUrl, loginUrl)) {
-                    return {
-                        sucesso: true,
-                        dados: { url: currentUrl, tribunal: tribunal.toUpperCase() || 'TRT8', reusedSession: true },
-                        mensagem: 'PJe já está aberto nesse tribunal. Continuando sem recarregar.'
-                    };
-                }
-
-                const gotoFn = page.goto ?? page.navigate;
-                if (typeof gotoFn === 'function') {
-                    injectOverlay(`Abrindo ${tribunal || 'PJe'}...`)
-                    await gotoFn.call(page, loginUrl);
-                    injectOverlay('Aguardando login com certificado digital', true)
-                    return {
-                        sucesso: true,
-                        dados: { url: loginUrl, tribunal: tribunal.toUpperCase() || 'TRT8', aguardandoLogin: true },
-                        mensagem: `PJe aberto em ${loginUrl}. Faça login com certificado digital e me avise com "pronto".`
-                    };
-                }
+            if (currentUrl && isSameHost(currentUrl, loginUrl)) {
+                return {
+                    sucesso: true,
+                    dados: { url: currentUrl, tribunal: tribunal.toUpperCase() || 'TRT8', reusedSession: true },
+                    mensagem: 'PJe já está aberto nesse tribunal. Continuando sem recarregar.'
+                };
             }
 
-            // Fallback: instrução ao agente para navegar
-            await runBrowserTask(
-                `Navegue para a URL: ${loginUrl}\nSe já estiver nesse site, não faça nada.`,
-                5
-            );
-
+            injectOverlay(`Abrindo ${tribunal || 'PJe'}...`);
+            await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            injectOverlay('Aguardando login com certificado digital', true);
             return {
                 sucesso: true,
                 dados: { url: loginUrl, tribunal: tribunal.toUpperCase() || 'TRT8', aguardandoLogin: true },

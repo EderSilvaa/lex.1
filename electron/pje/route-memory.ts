@@ -10,7 +10,6 @@
  *   3. Stagehand agent (visual)
  */
 
-import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -30,16 +29,14 @@ let store: RouteStore = { version: 1, routes: {} }
 let dirty = false
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
-function getStorePath(): string {
-  if (!storePath) {
-    storePath = path.join(app.getPath('userData'), 'pje-route-memory.json')
+/** Recebe userDataDir do main.ts ou backend — sem dependência do Electron */
+export function initRouteMemory(userDataDir?: string): void {
+  if (userDataDir) {
+    storePath = path.join(userDataDir, 'pje-route-memory.json')
   }
-  return storePath
-}
-
-export function initRouteMemory(): void {
+  if (!storePath) throw new Error('[RouteMemory] Chame initRouteMemory(userDataDir) com o diretório')
   try {
-    const p = getStorePath()
+    const p = storePath
     if (fs.existsSync(p)) {
       const raw = fs.readFileSync(p, 'utf8')
       const parsed = JSON.parse(raw) as RouteStore
@@ -115,7 +112,8 @@ function scheduleSave(): void {
 export function flush(): void {
   if (!dirty) return
   try {
-    fs.writeFileSync(getStorePath(), JSON.stringify(store, null, 2), 'utf8')
+    if (!storePath) return
+    fs.writeFileSync(storePath, JSON.stringify(store, null, 2), 'utf8')
     dirty = false
   } catch (err) {
     console.error('[RouteMemory] Erro ao salvar:', err)

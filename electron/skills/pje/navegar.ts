@@ -5,7 +5,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getStagehand, ensureStagehand, runBrowserTask } from '../../stagehand-manager';
+import { getActivePage, ensureBrowser, runBrowserTask } from '../../browser-manager';
 import { resolveTribunalRoutes, resolveDestinationUrl } from '../../pje/tribunal-urls';
 import { lookupRoute, saveRoute } from '../../pje/route-memory';
 
@@ -53,9 +53,8 @@ export const pjeNavegar: Skill = {
         if (urlDireta) {
             console.log(`[pje_navegar] URL direta encontrada: ${urlDireta}`);
             try {
-                await ensureStagehand();
-                const stagehand = getStagehand();
-                const page = (stagehand as any).page;
+                await ensureBrowser();
+                const page = getActivePage();
                 if (page && typeof page.goto === 'function') {
                     // waitUntil:'domcontentloaded' — não espera recursos externos (mais rápido e mais seguro)
                     // timeout:15000 — se não carregar em 15s, cai no fallback
@@ -90,9 +89,7 @@ Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto
             const resultado = await runBrowserTask(instrucao, 8);
             // Salva a URL onde o agent chegou — aprende para a próxima vez
             try {
-                const stagehand = getStagehand();
-                const page = (stagehand as any).page;
-                const finalUrl: string = page?.url?.() ?? '';
+                const finalUrl: string = getActivePage()?.url() ?? '';
                 if (finalUrl && !finalUrl.includes('login')) {
                     saveRoute(tribunal, destino, finalUrl);
                 }

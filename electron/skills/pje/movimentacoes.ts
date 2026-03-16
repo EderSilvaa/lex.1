@@ -5,7 +5,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { runBrowserTask } from '../../stagehand-manager';
+import { runBrowserTask } from '../../browser-manager';
 
 export const pjeMovimentacoes: Skill = {
     nome: 'pje_movimentacoes',

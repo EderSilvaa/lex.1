@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co ws://127.0.0.1:* http://127.0.0.1:*;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co;">
     <title>Lex - AI Legal Agent</title>
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/file-manager.css">
@@ -282,6 +282,33 @@
                             </div>
                         </section>
 
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Documentos do Escritorio (RAG)</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <span class="settings-hint">Indexa os documentos do seu workspace para que a LEX use como base de conhecimento nas respostas. Adicione o workspace no Gerenciador de Arquivos antes de indexar.</span>
+                                </div>
+                                <div id="rag-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
+                                <button class="settings-save-btn" id="btn-rag-index" style="width:100%">Indexar documentos do workspace</button>
+                                <div id="rag-feedback" style="margin-top:8px;font-size:12px;color:#888"></div>
+                            </div>
+                        </section>
+
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Base de Legislacao Brasileira</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <span class="settings-hint">Baixa os principais codigos brasileiros diretamente do Planalto.gov.br (CF/88, CC, CPC, CLT, CP, CDC, ECA, CTN e mais). Ficam indexados localmente no RAG — a LEX consulta o texto real da lei ao responder, sem alucinar artigos.</span>
+                                </div>
+                                <div id="leg-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
+                                <div style="display:flex;gap:8px">
+                                    <button class="settings-save-btn" id="btn-leg-download" style="flex:1">Baixar / Atualizar Legislacao</button>
+                                    <button class="settings-save-btn" id="btn-leg-redownload" style="flex:0 0 auto;background:#333" title="Forca re-download de todos os arquivos">Forcar</button>
+                                </div>
+                                <div id="leg-progress" style="margin-top:8px;font-size:11px;color:#888;max-height:120px;overflow-y:auto;font-family:monospace;white-space:pre-wrap"></div>
+                            </div>
+                        </section>
+
                         <!-- Salvar -->
                         <div class="settings-actions">
                             <button class="settings-save-btn" id="btn-save-settings">Salvar alteracoes</button>
@@ -325,9 +352,115 @@
                         </div>
                     </div>
                 </div>
+                <!-- File Preview Panel -->
+                <div id="fm-preview" class="fm-preview hidden">
+                    <div class="fm-preview-header">
+                        <div class="fm-preview-title-group">
+                            <span class="fm-preview-icon" id="fm-preview-icon"></span>
+                            <span class="fm-preview-name" id="fm-preview-name"></span>
+                        </div>
+                        <button class="fm-preview-close" id="fm-preview-close" title="Fechar">&times;</button>
+                    </div>
+                    <div class="fm-preview-content" id="fm-preview-content">
+                        <p class="fm-preview-placeholder">Carregando...</p>
+                    </div>
+                    <div class="fm-preview-actions">
+                        <button class="fm-preview-btn primary" id="fm-preview-send" title="Enviar como contexto ao chat">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            Enviar ao Chat
+                        </button>
+                        <button class="fm-preview-btn" id="fm-preview-analyze" title="Analisar com IA">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                            </svg>
+                            Analisar
+                        </button>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
+
+    <!-- ===== OVERLAY: Login / Cadastro ===== -->
+    <div id="auth-overlay" class="lex-overlay" style="display:none">
+        <div class="lex-card">
+            <div class="lex-card-logo">LEX</div>
+            <h2 class="lex-card-title" id="auth-title">Entrar</h2>
+            <p class="lex-card-sub">Assistente juridico para PJe</p>
+            <input type="email" id="auth-email" class="lex-card-input" placeholder="Email" autocomplete="off">
+            <input type="password" id="auth-password" class="lex-card-input" placeholder="Senha">
+            <p id="auth-error" class="lex-card-error" style="display:none"></p>
+            <button id="auth-submit-btn" class="lex-card-btn-primary">Entrar</button>
+            <button id="auth-toggle-btn" class="lex-card-btn-link">Nao tem conta? Criar conta</button>
+        </div>
+    </div>
+
+    <!-- ===== OVERLAY: Trial Expirado / Paywall ===== -->
+    <div id="paywall-overlay" class="lex-overlay" style="display:none">
+        <div class="lex-card">
+            <div class="lex-card-logo">LEX</div>
+            <h2 class="lex-card-title">Periodo de teste encerrado</h2>
+            <p class="lex-card-sub">Seu trial de 4 dias terminou. Assine para continuar usando o LEX Juridico.</p>
+            <div class="lex-paywall-features">
+                <div class="lex-paywall-feat">Automacao PJe ilimitada</div>
+                <div class="lex-paywall-feat">Analise de documentos com IA</div>
+                <div class="lex-paywall-feat">Modo 24/7 via Telegram</div>
+                <div class="lex-paywall-feat">Suporte prioritario</div>
+            </div>
+            <a id="paywall-buy-btn" href="#" class="lex-card-btn-primary" style="text-decoration:none;text-align:center">
+                Assinar Pro — R$ 97/mes
+            </a>
+            <button id="paywall-verify-btn" class="lex-card-btn-link">Ja paguei, verificar acesso</button>
+            <button id="paywall-logout-btn" class="lex-card-btn-link" style="opacity:0.5;font-size:11px">Sair da conta</button>
+        </div>
+    </div>
+
+    <style>
+    .lex-overlay {
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(10,15,25,0.96);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .lex-card {
+        background: #1a2332; border: 1px solid #2d3748; border-radius: 16px;
+        padding: 40px 36px; width: 360px; display: flex; flex-direction: column; gap: 12px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+    .lex-card-logo {
+        font-size: 28px; font-weight: 800; color: #60a5fa;
+        letter-spacing: 3px; text-align: center; margin-bottom: 4px;
+    }
+    .lex-card-title { font-size: 18px; font-weight: 600; color: #e2e8f0; text-align: center; margin: 0; }
+    .lex-card-sub   { font-size: 13px; color: #64748b; text-align: center; margin: 0 0 8px; }
+    .lex-card-input {
+        background: #0f1621; border: 1px solid #2d3748; border-radius: 8px;
+        color: #e2e8f0; padding: 10px 14px; font-size: 14px; outline: none; width: 100%; box-sizing: border-box;
+    }
+    .lex-card-input:focus { border-color: #60a5fa; }
+    .lex-card-error { font-size: 12px; color: #f87171; text-align: center; margin: 0; }
+    .lex-card-btn-primary {
+        background: #60a5fa; color: #0f1621; border: none; border-radius: 8px;
+        padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; display: block; width: 100%;
+    }
+    .lex-card-btn-primary:hover { background: #93c5fd; }
+    .lex-card-btn-link {
+        background: none; border: none; color: #64748b; font-size: 12px;
+        cursor: pointer; padding: 2px; text-align: center; width: 100%;
+    }
+    .lex-card-btn-link:hover { color: #94a3b8; }
+    .lex-paywall-features { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+    .lex-paywall-feat {
+        background: #0f1621; border-left: 3px solid #34d399; border-radius: 0 6px 6px 0;
+        padding: 7px 12px; font-size: 13px; color: #cbd5e1;
+    }
+    #trial-badge {
+        background: #0f1621; border: 1px solid #fbbf24; border-radius: 20px;
+        color: #fbbf24; font-size: 11px; padding: 3px 10px;
+        position: fixed; bottom: 16px; right: 16px; z-index: 100; cursor: default;
+    }
+    </style>
 
     <script src="js/marked.min.js"></script>
     <script src="js/purify.min.js"></script>

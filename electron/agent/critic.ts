@@ -38,7 +38,11 @@ const READ_ONLY_SKILLS = new Set([
     // OS com gate de confirmação próprio na skill (não precisa de LLM critic)
     'os_arquivos', 'os_escrever', 'os_sistema',
     // PC Vision
-    'pc_agir'
+    'pc_agir',
+    // Browser tools (atômicas — leitura/navegação)
+    'browser_get_state', 'browser_get_html', 'browser_screenshot',
+    'browser_scroll', 'browser_go_back', 'browser_extract',
+    'browser_list_tabs', 'browser_switch_tab', 'browser_close_tab'
 ]);
 
 /**
@@ -120,11 +124,26 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     }
 
     if (requiresProcessReference(skillLower) && missingProcessReference) {
+        // Só bloqueia se o objetivo do usuário realmente menciona consulta/busca de processo
+        // Evita perguntar número quando o usuário pediu algo genérico ou não-PJe
+        if (objectiveNeedsProcessNumber(state.objetivo)) {
+            return {
+                approved: false,
+                riskLevel: 'medium',
+                reason: 'Skill de PJe sem referência clara de processo no contexto ou nos parâmetros.',
+                suggestedQuestion: 'Qual o número do processo que devo usar antes de executar esta ação?'
+            };
+        }
+        // O objetivo não parece pedir consulta de processo — corrige para pje_agir
+        // (skill genérica que se adapta a qualquer tela) em vez de bloquear
         return {
-            approved: false,
-            riskLevel: 'medium',
-            reason: 'Skill de PJe sem referência clara de processo no contexto ou nos parâmetros.',
-            suggestedQuestion: 'Qual o número do processo que devo usar antes de executar esta ação?'
+            approved: true,
+            riskLevel: 'low',
+            reason: 'Objetivo não requer número de processo; ajustado para pje_agir.',
+            correctedDecision: {
+                skill: 'pje_agir',
+                parametros: { objetivo: state.objetivo }
+            }
         };
     }
 
@@ -194,6 +213,28 @@ function requiresProcessReference(skillLower: string): boolean {
     if (!skillLower.startsWith('pje_')) return false;
     // pje_agir e pje_navegar são skills de ação/navegação que NÃO precisam de número de processo
     return !new Set(['pje_abrir', 'pje_navegar', 'pje_agir']).has(skillLower);
+}
+
+/** Verifica se o objetivo do usuário realmente menciona consulta/busca de processo específico */
+function objectiveNeedsProcessNumber(rawObjective: string): boolean {
+    const objective = normalizeText(rawObjective);
+    if (!objective) return false;
+
+    const processSignals = [
+        'consultar processo',
+        'buscar processo',
+        'pesquisar processo',
+        'numero do processo',
+        'numero cnj',
+        'movimentacoes do processo',
+        'movimentacao do processo',
+        'documentos do processo',
+        'ver processo',
+        'abrir processo',
+        'acompanhar processo',
+    ];
+
+    return processSignals.some(signal => objective.includes(signal));
 }
 
 function isLoginOnlyObjective(rawObjective: string): boolean {

@@ -250,6 +250,7 @@ ${params || '  Nenhum parâmetro'}
 function formatCategoria(cat: string): string {
     const map: Record<string, string> = {
         pje: 'PJe - Processo Judicial Eletrônico',
+        browser: 'Browser - Controle do Navegador',
         documentos: 'Documentos',
         pesquisa: 'Pesquisa',
         utils: 'Utilitários'

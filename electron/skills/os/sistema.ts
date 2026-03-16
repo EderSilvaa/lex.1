@@ -7,6 +7,22 @@
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { infoSistema, executarComando, abrirComSistema, pastasConhecidas, listarProcessos, encerrarProcesso } from '../../tools/os-tools';
 
+// ── Confirmação de ações perigosas (sem dependência do Electron) ──
+// Usa callback injetável: o main.ts pode setar via setConfirmDialog()
+// para usar dialog nativo; o backend pode usar outro mecanismo.
+let _confirmFn: ((titulo: string, detalhe: string) => Promise<boolean>) | null = null;
+
+/** Permite injetar a função de confirmação (dialog nativo ou RPC) */
+export function setConfirmDialog(fn: (titulo: string, detalhe: string) => Promise<boolean>): void {
+    _confirmFn = fn;
+}
+
+async function confirmarComDialog(titulo: string, detalhe: string): Promise<boolean> {
+    if (_confirmFn) return _confirmFn(titulo, detalhe);
+    // Fallback sem dialog: confia no fluxo requiresUserAction (confirmado:true)
+    return true;
+}
+
 export const osSistema: Skill = {
     nome: 'os_sistema',
     descricao: 'Informações do SO, pastas conhecidas, abrir programas/arquivos, executar comandos shell, listar processos em execução, encerrar processo. Confirmação exigida antes de executar comandos ou encerrar processos.',
@@ -86,7 +102,7 @@ export const osSistema: Skill = {
             case 'comando': {
                 if (!alvo) return { sucesso: false, erro: 'Parâmetro "alvo" (comando) obrigatório.', mensagem: 'Informe o comando.' };
 
-                // Segurança: exige confirmação explícita do usuário
+                // Primeira passagem: LLM ainda não pediu confirmação ao usuário
                 if (!confirmado) {
                     return {
                         sucesso: false,
@@ -96,6 +112,15 @@ export const osSistema: Skill = {
                         },
                         mensagem: `Aguardando confirmação para executar: ${alvo}`
                     };
+                }
+
+                // Segunda passagem: mesmo com confirmado:true, exige aprovação via dialog nativo
+                const aprovado = await confirmarComDialog(
+                    'Executar comando shell?',
+                    alvo
+                );
+                if (!aprovado) {
+                    return { sucesso: false, erro: 'Cancelado pelo usuário.', mensagem: 'Execução cancelada.' };
                 }
 
                 const resultado = await executarComando(alvo, diretorio || undefined);
@@ -143,6 +168,15 @@ export const osSistema: Skill = {
                         },
                         mensagem: `Aguardando confirmação para encerrar: ${alvo}`
                     };
+                }
+
+                // Dialog nativo garante confirmação mesmo se LLM mandou confirmado:true diretamente
+                const aprovado = await confirmarComDialog(
+                    'Encerrar processo?',
+                    `Processo: ${alvo}`
+                );
+                if (!aprovado) {
+                    return { sucesso: false, erro: 'Cancelado pelo usuário.', mensagem: 'Operação cancelada.' };
                 }
 
                 const alvoParsed = /^\d+$/.test(alvo) ? Number(alvo) : alvo;

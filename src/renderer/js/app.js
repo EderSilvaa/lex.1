@@ -83,6 +83,8 @@ function setupAgentEvents() {
                 break;
 
             case 'streaming_start':
+                // Limpa bubble anterior se ficou vazia (iteração sem tokens de resposta)
+                cleanupEmptyStreamingBubble();
                 // Cria bubble vazia antecipadamente para o streaming
                 currentStreamingMsg = createStreamingBubble();
                 break;
@@ -105,6 +107,7 @@ function setupAgentEvents() {
                     finalizeStreamingBubble(currentStreamingMsg, event.resposta);
                     currentStreamingMsg = null;
                 } else {
+                    cleanupEmptyStreamingBubble();
                     finalizeAgentResponse(event.resposta);
                 }
                 isAgentWaitingUser = false;
@@ -112,6 +115,7 @@ function setupAgentEvents() {
                 break;
 
             case 'waiting_user':
+                cleanupEmptyStreamingBubble();
                 finalizeAgentResponse(event.pergunta);
                 isAgentWaitingUser = true;
                 if (event.opcoes && event.opcoes.length > 0) {
@@ -123,18 +127,21 @@ function setupAgentEvents() {
                 break;
 
             case 'error':
+                cleanupEmptyStreamingBubble();
                 hideStopBtn();
                 showAgentError(event.erro);
                 isAgentWaitingUser = false;
                 break;
 
             case 'timeout':
+                cleanupEmptyStreamingBubble();
                 hideStopBtn();
                 showAgentError('Tempo limite atingido');
                 isAgentWaitingUser = false;
                 break;
 
             case 'cancelled':
+                cleanupEmptyStreamingBubble();
                 hideStopBtn();
                 if (agentThinkingElement) {
                     const details = agentThinkingElement.querySelector('details');
@@ -146,6 +153,17 @@ function setupAgentEvents() {
                 break;
         }
     });
+}
+
+// Remove bubble de streaming anterior se ficou vazia (sem tokens)
+function cleanupEmptyStreamingBubble() {
+    if (!currentStreamingMsg) return;
+    const span = currentStreamingMsg.querySelector('.stream-text');
+    // Se não recebeu nenhum token, remove do DOM
+    if (!span || !span.textContent) {
+        currentStreamingMsg.remove();
+    }
+    currentStreamingMsg = null;
 }
 
 // Cria bubble vazia de streaming (antes dos tokens chegarem)
@@ -505,6 +523,11 @@ if (sendBtn) {
                     const result = await window.lexApi.runAgent(text, null, currentSessionId);
 
                     if (!result.success) {
+                        if (result.error === 'trial_expired') {
+                            showPaywall(); return;
+                        } else if (result.error === 'not_authenticated') {
+                            showAuthOverlay(); return;
+                        }
                         // Error case (if no streaming error was shown)
                         if (!agentThinkingElement) {
                             addMessageToUI(`Falha: ${result.error}`, 'system');
@@ -676,6 +699,147 @@ function legacyAddAutomationCardToUIBase() {
     messageList.scrollTop = messageList.scrollHeight;
     return id;
 }
+
+// ============================================================================
+// AUTH / LICENCA
+// ============================================================================
+
+const ASAAS_PAYMENT_LINK = 'https://www.asaas.com/c/SEU_LINK_AQUI';
+
+function showAuthOverlay() {
+    const el = document.getElementById('auth-overlay');
+    if (el) el.style.display = 'flex';
+    const paywall = document.getElementById('paywall-overlay');
+    if (paywall) paywall.style.display = 'none';
+}
+
+function hideAuthOverlay() {
+    const el = document.getElementById('auth-overlay');
+    if (el) el.style.display = 'none';
+}
+
+function showPaywall() {
+    const el = document.getElementById('paywall-overlay');
+    if (el) el.style.display = 'flex';
+    const auth = document.getElementById('auth-overlay');
+    if (auth) auth.style.display = 'none';
+}
+
+function hidePaywall() {
+    const el = document.getElementById('paywall-overlay');
+    if (el) el.style.display = 'none';
+}
+
+function showTrialBadge(daysLeft) {
+    let badge = document.getElementById('trial-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'trial-badge';
+        document.body.appendChild(badge);
+    }
+    badge.textContent = daysLeft <= 1 ? 'Ultimo dia de trial' : `Trial: ${daysLeft} dias restantes`;
+}
+
+function removeTrialBadge() {
+    const badge = document.getElementById('trial-badge');
+    if (badge) badge.remove();
+}
+
+async function initAuth() {
+    // AUTH DESATIVADO TEMPORARIAMENTE
+    hideAuthOverlay(); hidePaywall(); removeTrialBadge();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initAuth();
+
+    if (window.updaterApi) {
+        window.updaterApi.onUpdateDownloaded(() => {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#1e3a5f;border-top:1px solid #60a5fa;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;z-index:9998;font-size:13px;color:#e2e8f0';
+            banner.innerHTML = `<span>Nova versao do LEX disponivel.</span><button id="btn-install-update" style="background:#60a5fa;color:#0f1621;border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer">Instalar e reiniciar</button>`;
+            document.body.appendChild(banner);
+            document.getElementById('btn-install-update')?.addEventListener('click', () => window.updaterApi.installNow());
+        });
+    }
+
+    let isSignUp = false;
+    const authTitle  = document.getElementById('auth-title');
+    const authSubmit = document.getElementById('auth-submit-btn');
+    const authToggle = document.getElementById('auth-toggle-btn');
+    const authError  = document.getElementById('auth-error');
+
+    if (authToggle) {
+        authToggle.addEventListener('click', () => {
+            isSignUp = !isSignUp;
+            if (authTitle)  authTitle.textContent  = isSignUp ? 'Criar conta' : 'Entrar';
+            if (authSubmit) authSubmit.textContent  = isSignUp ? 'Criar conta' : 'Entrar';
+            authToggle.textContent = isSignUp ? 'Ja tem conta? Entrar' : 'Nao tem conta? Criar conta';
+            if (authError) authError.style.display = 'none';
+        });
+    }
+
+    if (authSubmit) {
+        authSubmit.addEventListener('click', async () => {
+            const email    = document.getElementById('auth-email')?.value?.trim();
+            const password = document.getElementById('auth-password')?.value;
+            if (!email || !password) return;
+
+            authSubmit.disabled    = true;
+            authSubmit.textContent = 'Aguarde...';
+            if (authError) authError.style.display = 'none';
+
+            const fn     = isSignUp ? window.authApi.signUp : window.authApi.signIn;
+            const result = await fn(email, password).catch(e => ({ ok: false, error: e.message }));
+
+            authSubmit.disabled    = false;
+            authSubmit.textContent = isSignUp ? 'Criar conta' : 'Entrar';
+
+            if (!result.ok) {
+                if (authError) { authError.textContent = result.error || 'Erro ao autenticar'; authError.style.display = 'block'; }
+                return;
+            }
+
+            if (isSignUp) {
+                if (authError) { authError.style.color = '#34d399'; authError.textContent = 'Conta criada! Verifique seu email e entre.'; authError.style.display = 'block'; }
+                return;
+            }
+
+            hideAuthOverlay();
+            await initAuth();
+        });
+    }
+
+    ['auth-email', 'auth-password'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit?.click(); });
+    });
+
+    const buyBtn = document.getElementById('paywall-buy-btn');
+    if (buyBtn) { buyBtn.href = ASAAS_PAYMENT_LINK; buyBtn.target = '_blank'; buyBtn.rel = 'noopener'; }
+
+    const verifyBtn = document.getElementById('paywall-verify-btn');
+    if (verifyBtn) {
+        verifyBtn.addEventListener('click', async () => {
+            verifyBtn.disabled = true; verifyBtn.textContent = 'Verificando...';
+            const license = await window.authApi.refreshLicense().catch(() => null);
+            verifyBtn.disabled = false; verifyBtn.textContent = 'Ja paguei, verificar acesso';
+            if (license?.status === 'pro' || license?.status === 'trial_active') {
+                hidePaywall();
+                if (license.status === 'trial_active') showTrialBadge(license.daysLeft);
+                else removeTrialBadge();
+            }
+        });
+    }
+
+    const logoutBtn = document.getElementById('paywall-logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await window.authApi.signOut().catch(() => {});
+            showAuthOverlay();
+        });
+    }
+});
 
 function updateAutomationCardStatus(cardId, status) {
     const el = document.getElementById(`${cardId}-status`);
@@ -895,6 +1059,19 @@ async function updatePjeStatus() {
 // ============================================================================
 
 let attachedFile = null;
+
+/**
+ * Global function for file-manager.js to attach a file to the chat input.
+ * Sets the attachment chip visible and populates attachedFile.
+ */
+window.attachFileToChat = function(file) {
+    if (!file || !file.name || !file.content) return;
+    attachedFile = { path: file.path, name: file.name, content: file.content };
+    const nameEl = document.getElementById('attachment-name');
+    const chip = document.getElementById('attachment-chip');
+    if (nameEl) nameEl.textContent = file.name;
+    if (chip) chip.classList.remove('hidden');
+};
 
 function sendPrompt(text) {
     if (!text || !chatInput || !sendBtn) return;
@@ -1170,6 +1347,127 @@ async function initTelegramSettings() {
     await refreshUI();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RAG — Indexação de documentos do workspace
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadRagStats() {
+    const statsEl = document.getElementById('rag-stats');
+    if (!statsEl || !window.lexApi?.ragStats) return;
+    try {
+        const stats = await window.lexApi.ragStats();
+        if (stats.chunks > 0) {
+            statsEl.textContent = `Indice atual: ${stats.chunks} trechos de ${stats.arquivos} arquivo(s)`;
+            statsEl.style.color = '#34d399';
+        } else {
+            statsEl.textContent = 'Nenhum documento indexado ainda.';
+            statsEl.style.color = '#94a3b8';
+        }
+    } catch {
+        statsEl.textContent = '';
+    }
+}
+
+function initRagSettings() {
+    loadRagStats();
+
+    const btn = document.getElementById('btn-rag-index');
+    const feedback = document.getElementById('rag-feedback');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+        if (!window.lexApi?.ragIndexWorkspace) return;
+        btn.disabled = true;
+        btn.textContent = 'Indexando...';
+        if (feedback) { feedback.textContent = 'Lendo e indexando documentos...'; feedback.style.color = '#94a3b8'; }
+
+        try {
+            const res = await window.lexApi.ragIndexWorkspace();
+            if (res.success) {
+                if (feedback) {
+                    feedback.textContent = `Concluido: ${res.chunks} trechos de ${res.arquivos} arquivo(s) indexados.`;
+                    feedback.style.color = '#34d399';
+                }
+                loadRagStats();
+            } else {
+                if (feedback) { feedback.textContent = res.error || 'Erro ao indexar.'; feedback.style.color = '#f87171'; }
+            }
+        } catch (e) {
+            if (feedback) { feedback.textContent = 'Erro: ' + (e.message || 'falha desconhecida'); feedback.style.color = '#f87171'; }
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Indexar documentos do workspace';
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legislacao Brasileira — download e indexacao RAG
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadLegislacaoStats() {
+    const statsEl = document.getElementById('leg-stats');
+    if (!statsEl || !window.lexApi?.ragLegislacaoStats) return;
+    try {
+        const stats = await window.lexApi.ragLegislacaoStats();
+        if (stats.baixados > 0) {
+            statsEl.textContent = `${stats.baixados}/${stats.total} codigos indexados localmente`;
+            statsEl.style.color = '#34d399';
+        } else {
+            statsEl.textContent = 'Nenhum codigo baixado ainda.';
+            statsEl.style.color = '#888';
+        }
+    } catch {
+        statsEl.textContent = '';
+    }
+}
+
+function initLegislacaoSettings() {
+    loadLegislacaoStats();
+
+    const btnDownload   = document.getElementById('btn-leg-download');
+    const btnForcar     = document.getElementById('btn-leg-redownload');
+    const progressEl    = document.getElementById('leg-progress');
+
+    function startDownload(forcar) {
+        if (!window.lexApi?.ragDownloadLegislacao) return;
+
+        [btnDownload, btnForcar].forEach(b => b && (b.disabled = true));
+        if (btnDownload) btnDownload.textContent = 'Baixando...';
+        if (progressEl) progressEl.textContent = '';
+
+        // Escuta progresso linha a linha
+        window.lexApi.onRagLegislacaoProgress((msg) => {
+            if (!progressEl) return;
+            progressEl.textContent += msg + '\n';
+            progressEl.scrollTop = progressEl.scrollHeight;
+        });
+
+        window.lexApi.ragDownloadLegislacao(forcar)
+            .then((res) => {
+                window.lexApi.offRagLegislacaoProgress();
+                if (progressEl) {
+                    const extra = `\nIndexados: ${res.indexResult?.chunks ?? 0} trechos de ${res.indexResult?.arquivos ?? 0} arquivo(s).`;
+                    progressEl.textContent += extra;
+                    progressEl.scrollTop = progressEl.scrollHeight;
+                }
+                loadLegislacaoStats();
+                loadRagStats();
+            })
+            .catch((e) => {
+                window.lexApi.offRagLegislacaoProgress();
+                if (progressEl) { progressEl.textContent += '\nErro: ' + (e.message || 'falha'); }
+            })
+            .finally(() => {
+                [btnDownload, btnForcar].forEach(b => b && (b.disabled = false));
+                if (btnDownload) btnDownload.textContent = 'Baixar / Atualizar Legislacao';
+            });
+    }
+
+    btnDownload?.addEventListener('click', () => startDownload(false));
+    btnForcar?.addEventListener('click',   () => startDownload(true));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setDynamicGreeting();
     loadPreferences();
@@ -1228,6 +1526,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Telegram 24/7
     initTelegramSettings();
+
+    // RAG — Indexação de documentos
+    initRagSettings();
+
+    // Legislacao Brasileira — download e indexacao
+    initLegislacaoSettings();
 
     // PJe status polling
     updatePjeStatus();
@@ -1452,3 +1756,4 @@ function addAutomationCardToUI() {
     messageList.scrollTop = messageList.scrollHeight;
     return id;
 }
+

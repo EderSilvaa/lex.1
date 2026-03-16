@@ -1,3 +1,6 @@
+
+
+
 # Migração LEX: Extensão → Electron Desktop App
 
 ## Por que Electron?

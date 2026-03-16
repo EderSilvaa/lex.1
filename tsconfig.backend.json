@@ -1,0 +1,36 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "outDir": "./dist-electron",
+        "rootDir": "./electron",
+        "module": "commonjs",
+        "target": "es6",
+        "lib": [
+            "es2020",
+            "dom"
+        ],
+        "types": [
+            "node"
+        ],
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
+        "exactOptionalPropertyTypes": false
+    },
+    "include": [
+        "electron/backend/**/*",
+        "electron/agent/**/*",
+        "electron/skills/**/*",
+        "electron/tools/**/*",
+        "electron/browser-manager.ts",
+        "electron/ai-handler.ts",
+        "electron/provider-config.ts",
+        "electron/pje/**/*"
+    ],
+    "exclude": [
+        "electron/main.ts",
+        "electron/preload.ts",
+        "electron/crawler.ts",
+        "electron/pje-manager.ts",
+        "electron/telegram-bot.ts"
+    ]
+}

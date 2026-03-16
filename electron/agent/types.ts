@@ -49,6 +49,15 @@ export interface AgentContext {
 
     // Memória persistente
     memoria?: MemoriaContext;
+
+    // RAG: chunks relevantes buscados nos documentos do workspace
+    ragContexto?: RagChunk[];
+}
+
+export interface RagChunk {
+    arquivo: string;
+    trecho: string;
+    score: number;
 }
 
 // Contexto de memória persistente
@@ -155,7 +164,7 @@ export interface CriticDecision {
 export interface Skill {
     nome: string;
     descricao: string;
-    categoria: 'pje' | 'documentos' | 'pesquisa' | 'utils' | 'os' | 'pc';
+    categoria: 'pje' | 'documentos' | 'pesquisa' | 'utils' | 'os' | 'pc' | 'browser';
 
     // Schema de parâmetros
     parametros: Record<string, SkillParametro>;

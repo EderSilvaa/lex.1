@@ -5,6 +5,13 @@
  * Suporta: Anthropic, OpenAI, OpenRouter, Google AI, Groq.
  */
 
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGroq } from '@ai-sdk/groq';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import type { LanguageModel } from 'ai';
+
 export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'google' | 'groq';
 
 export interface ModelInfo {
@@ -30,9 +37,13 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
         baseUrl: 'https://api.anthropic.com',
         apiKeyUrl: 'https://console.anthropic.com/settings/keys',
         defaultAgentModel: 'claude-haiku-4-5-20251001',
-        defaultVisionModel: 'claude-haiku-4-5-20251001',
+        // Stagehand usa @ai-sdk/anthropic v2 internamente — Claude 4.x causa ECONNRESET nessa versão.
+        // Sonnet 3.5 é compatível e superior para visão/browser automation.
+        defaultVisionModel: 'claude-3-5-sonnet-20241022',
         models: [
-            { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (rápido)', vision: true },
+            { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (browser)', vision: true },
+            { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (browser, rápido)', vision: true },
+            { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (agente)', vision: true },
             { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (melhor)', vision: true },
             { id: 'claude-opus-4-6', name: 'Claude Opus 4.6 (máximo)', vision: true },
         ],
@@ -124,6 +135,53 @@ export function setActiveConfig(config: ActiveProviderConfig): void {
 
 export function getActiveConfig(): ActiveProviderConfig {
     return activeConfig;
+}
+
+/**
+ * Retorna um LanguageModel do Vercel AI SDK para o provider/model ativo.
+ * @param modelId — override do agentModel (ex: criticModel)
+ */
+export function getActiveModel(modelId?: string): LanguageModel {
+    const cfg = activeConfig;
+    const name = modelId ?? cfg.agentModel;
+
+    switch (cfg.providerId) {
+        case 'anthropic':
+            return createAnthropic({ apiKey: cfg.apiKey })(name);
+        case 'openai':
+            return createOpenAI({ apiKey: cfg.apiKey })(name);
+        case 'openrouter':
+            return createOpenRouter({ apiKey: cfg.apiKey }).chat(name);
+        case 'google':
+            return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(name);
+        case 'groq':
+            return createGroq({ apiKey: cfg.apiKey })(name);
+        default:
+            return createAnthropic({ apiKey: cfg.apiKey })(name);
+    }
+}
+
+/**
+ * Retorna um LanguageModel para o visionModel ativo (usado em callAIWithVision).
+ */
+export function getActiveVisionModel(): LanguageModel {
+    const cfg = activeConfig;
+    const name = cfg.visionModel;
+
+    switch (cfg.providerId) {
+        case 'anthropic':
+            return createAnthropic({ apiKey: cfg.apiKey })(name);
+        case 'openai':
+            return createOpenAI({ apiKey: cfg.apiKey })(name);
+        case 'openrouter':
+            return createOpenRouter({ apiKey: cfg.apiKey }).chat(name);
+        case 'google':
+            return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(name);
+        case 'groq':
+            return createGroq({ apiKey: cfg.apiKey })(name);
+        default:
+            return createAnthropic({ apiKey: cfg.apiKey })(name);
+    }
 }
 
 /**

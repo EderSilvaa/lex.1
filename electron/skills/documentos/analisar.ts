@@ -6,6 +6,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
+import { getMemory } from '../../agent/memory';
 
 const docAnalisar: Skill = {
     nome: 'doc_analisar',
@@ -44,7 +45,8 @@ const docAnalisar: Skill = {
         if (caminho) {
             try {
                 const { lerArquivo } = await import('../../tools/os-tools');
-                conteudo = await lerArquivo(caminho);
+                const r = await lerArquivo(caminho);
+                conteudo = typeof r.dados === 'string' ? r.dados : JSON.stringify(r.dados ?? '');
             } catch (err: any) {
                 return {
                     sucesso: false,
@@ -137,6 +139,17 @@ Seja preciso e técnico. Identifique os fundamentos legais reais mencionados no 
                 `**Riscos:**\n${riscos}`,
                 prazo
             ].filter(l => l !== undefined).join('\n');
+
+            // Salva análise na memória para contexto futuro
+            try {
+                const memory = getMemory();
+                const nomeArquivo = caminho
+                    ? caminho.replace(/\\/g, '/').split('/').pop() || 'documento'
+                    : 'texto direto';
+                await memory.addAprendizado(
+                    `Análise de "${nomeArquivo}": ${analise.tipo_detectado || 'documento'}. ${analise.resumo || ''}`
+                );
+            } catch { /* não bloqueia retorno por falha na memória */ }
 
             return {
                 sucesso: true,

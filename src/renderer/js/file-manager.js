@@ -9,6 +9,7 @@ const workspaceList = document.getElementById('workspace-list');
 
 let currentWorkspacePath = null;
 let savedWorkspaces = [];
+let previewedFile = null; // { path, name, content }
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -37,12 +38,15 @@ async function handleAddWorkspace() {
     const folderPath = await window.filesApi.selectFolder();
 
     if (folderPath && window.workspacesApi) {
-        // Save to store
         const result = await window.workspacesApi.add(folderPath);
         if (result.success) {
             savedWorkspaces = result.workspaces;
             renderWorkspaces();
-            loadFolder(folderPath); // Open it immediately
+            loadFolder(folderPath);
+            // Re-indexa RAG em background após adicionar workspace
+            if (window.lexApi?.ragIndexWorkspace) {
+                window.lexApi.ragIndexWorkspace().catch(() => {});
+            }
         }
     }
 }
@@ -57,6 +61,10 @@ async function removeWorkspace(e, path) {
         if (result.success) {
             savedWorkspaces = result.workspaces;
             renderWorkspaces();
+            // Re-indexa RAG em background após remover workspace
+            if (window.lexApi?.ragIndexWorkspace) {
+                window.lexApi.ragIndexWorkspace().catch(() => {});
+            }
             if (currentWorkspacePath === path) {
                 // Clear view if current was removed
                 filesList.innerHTML = getEmptyStateHTML();
@@ -145,10 +153,10 @@ function renderFiles(files) {
             if (file.isDirectory) {
                 loadFolder(file.path);
             } else {
-                console.log('Selected file:', file.path);
                 // Highlight selection
                 document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
+                openPreview(file);
             }
         });
 
@@ -171,4 +179,103 @@ function getFileIconSvg(filename) {
 
     // Default - Gray
     return `<svg viewBox="0 0 24 24" width="40" height="40" stroke="#9ca3af" stroke-width="1.5" fill="rgba(156, 163, 175, 0.1)" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+}
+
+// ============================================================================
+// FILE PREVIEW PANEL
+// ============================================================================
+
+const fmPreview = document.getElementById('fm-preview');
+const fmPreviewName = document.getElementById('fm-preview-name');
+const fmPreviewContent = document.getElementById('fm-preview-content');
+const fmPreviewClose = document.getElementById('fm-preview-close');
+const fmPreviewSend = document.getElementById('fm-preview-send');
+const fmPreviewAnalyze = document.getElementById('fm-preview-analyze');
+
+async function openPreview(file) {
+    if (!window.filesApi || !fmPreview) return;
+
+    const fileName = file.name || file.path.replace(/\\/g, '/').split('/').pop();
+    if (fmPreviewName) fmPreviewName.textContent = fileName;
+    if (fmPreviewContent) fmPreviewContent.innerHTML = '<p class="fm-preview-placeholder">Carregando...</p>';
+    fmPreview.classList.remove('hidden');
+
+    try {
+        const result = await window.filesApi.readFile(file.path);
+        if (result?.success && result.text) {
+            const safeText = escapeHtml(result.text.slice(0, 10000));
+            const truncated = result.text.length > 10000 ? '\n\n[... truncado ...]' : '';
+            if (fmPreviewContent) fmPreviewContent.textContent = result.text.slice(0, 10000) + truncated;
+            previewedFile = { path: file.path, name: fileName, content: result.text };
+        } else {
+            if (fmPreviewContent) fmPreviewContent.innerHTML = '<p class="fm-preview-placeholder">Nao foi possivel ler este arquivo.</p>';
+            previewedFile = null;
+        }
+    } catch (err) {
+        console.error('[FileManager] Preview error:', err);
+        if (fmPreviewContent) fmPreviewContent.innerHTML = '<p class="fm-preview-placeholder">Erro ao carregar arquivo.</p>';
+        previewedFile = null;
+    }
+}
+
+function closePreview() {
+    if (fmPreview) fmPreview.classList.add('hidden');
+    previewedFile = null;
+    document.querySelectorAll('.file-card').forEach(c => c.classList.remove('selected'));
+}
+
+// Close preview
+if (fmPreviewClose) {
+    fmPreviewClose.addEventListener('click', closePreview);
+}
+
+// "Enviar ao Chat" — attaches file and switches to chat view
+if (fmPreviewSend) {
+    fmPreviewSend.addEventListener('click', () => {
+        if (!previewedFile) return;
+
+        // Set attachment via global function exposed by app.js
+        if (typeof window.attachFileToChat === 'function') {
+            window.attachFileToChat(previewedFile);
+        }
+
+        // Switch to chat view
+        const navChat = document.getElementById('nav-chat');
+        if (navChat) navChat.click();
+        closePreview();
+    });
+}
+
+// "Analisar" — sends as prompt to analyze the document
+if (fmPreviewAnalyze) {
+    fmPreviewAnalyze.addEventListener('click', () => {
+        if (!previewedFile) return;
+
+        // Switch to chat view and send analysis prompt
+        const navChat = document.getElementById('nav-chat');
+        if (navChat) navChat.click();
+
+        // Attach file + auto-send analysis request
+        if (typeof window.attachFileToChat === 'function') {
+            window.attachFileToChat(previewedFile);
+        }
+
+        // Fill textarea with analysis prompt
+        const textarea = document.querySelector('textarea');
+        if (textarea) {
+            textarea.value = `Analise este documento: ${previewedFile.name}`;
+            textarea.dispatchEvent(new Event('input'));
+            // Auto-send
+            setTimeout(() => {
+                const sendBtn = document.querySelector('.send-btn');
+                if (sendBtn && !sendBtn.disabled) sendBtn.click();
+            }, 100);
+        }
+
+        closePreview();
+    });
+}
+
+function getEmptyStateHTML() {
+    return '<div class="empty-state"><p>Selecione um workspace ou abra uma pasta</p></div>';
 }

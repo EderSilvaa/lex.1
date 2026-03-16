@@ -172,11 +172,16 @@ ${conteudoHTML}
             const caminhoArquivo = path.join(pastaLex, nomeArquivo);
             fs.writeFileSync(caminhoArquivo, htmlFinal, 'utf-8');
 
-            // Abre no programa padrão (Windows abre HTML no Word ou browser)
+            // Abre no programa padrão (sem dependência do Electron)
             try {
-                // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const { shell } = require('electron');
-                await shell.openPath(caminhoArquivo);
+                const { exec } = await import('child_process');
+                if (process.platform === 'win32') {
+                    exec(`start "" "${caminhoArquivo}"`);
+                } else if (process.platform === 'darwin') {
+                    exec(`open "${caminhoArquivo}"`);
+                } else {
+                    exec(`xdg-open "${caminhoArquivo}"`);
+                }
             } catch {
                 // Se não conseguir abrir, não é erro crítico — o arquivo está salvo
             }

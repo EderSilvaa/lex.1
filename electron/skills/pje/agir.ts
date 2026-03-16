@@ -7,7 +7,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { runBrowserTask } from '../../stagehand-manager';
+import { runBrowserTask } from '../../browser-manager';
 import { agentEmitter } from '../../agent/loop';
 
 export const pjeAgir: Skill = {

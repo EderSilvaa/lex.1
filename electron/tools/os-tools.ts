@@ -514,18 +514,25 @@ export async function executarComando(
 }
 
 /**
- * Abre arquivo/URL/pasta com o aplicativo padrão do sistema
+ * Abre arquivo/URL/pasta com o aplicativo padrão do sistema.
+ * Usa child_process — sem dependência do Electron.
  */
 export async function abrirComSistema(alvo: string): Promise<OsToolResult> {
     try {
-        // No Windows usa 'start', no Mac 'open', no Linux 'xdg-open'
-        const cmd = process.platform === 'win32'
-            ? `start "" "${alvo}"`
-            : process.platform === 'darwin'
-                ? `open "${alvo}"`
-                : `xdg-open "${alvo}"`;
-
-        await execAsync(cmd);
+        const { exec } = await import('child_process');
+        await new Promise<void>((resolve, reject) => {
+            let cmd: string;
+            if (process.platform === 'win32') {
+                cmd = alvo.startsWith('http://') || alvo.startsWith('https://')
+                    ? `start "" "${alvo}"`
+                    : `start "" "${alvo}"`;
+            } else if (process.platform === 'darwin') {
+                cmd = `open "${alvo}"`;
+            } else {
+                cmd = `xdg-open "${alvo}"`;
+            }
+            exec(cmd, (err) => err ? reject(err) : resolve());
+        });
         return { sucesso: true, dados: { alvo } };
     } catch (error: any) {
         return { sucesso: false, erro: `Erro ao abrir "${alvo}": ${error.message}` };
@@ -537,12 +544,19 @@ export async function abrirComSistema(alvo: string): Promise<OsToolResult> {
 // ============================================================================
 
 /**
- * Lê texto da área de transferência via Electron clipboard API
+ * Lê texto da área de transferência — sem dependência do Electron.
  */
 export function lerClipboard(): OsToolResult {
     try {
-        const { clipboard } = require('electron') as typeof import('electron');
-        const texto = clipboard.readText();
+        const { execSync } = require('child_process');
+        let texto: string;
+        if (process.platform === 'win32') {
+            texto = execSync('powershell -command "Get-Clipboard"', { encoding: 'utf8' }).replace(/\r\n$/, '');
+        } else if (process.platform === 'darwin') {
+            texto = execSync('pbpaste', { encoding: 'utf8' });
+        } else {
+            texto = execSync('xclip -selection clipboard -o', { encoding: 'utf8' });
+        }
         return {
             sucesso: true,
             dados: { texto, vazio: texto.length === 0 }
@@ -553,12 +567,18 @@ export function lerClipboard(): OsToolResult {
 }
 
 /**
- * Escreve texto na área de transferência via Electron clipboard API
+ * Escreve texto na área de transferência — sem dependência do Electron.
  */
 export function escreverClipboard(texto: string): OsToolResult {
     try {
-        const { clipboard } = require('electron') as typeof import('electron');
-        clipboard.writeText(texto);
+        const { execSync } = require('child_process');
+        if (process.platform === 'win32') {
+            execSync('clip', { input: texto, encoding: 'utf8' });
+        } else if (process.platform === 'darwin') {
+            execSync('pbcopy', { input: texto, encoding: 'utf8' });
+        } else {
+            execSync('xclip -selection clipboard', { input: texto, encoding: 'utf8' });
+        }
         return {
             sucesso: true,
             dados: { bytesEscritos: Buffer.byteLength(texto, 'utf-8') }
@@ -577,8 +597,10 @@ export function escreverClipboard(texto: string): OsToolResult {
  */
 export async function listarProcessos(filtro?: string): Promise<OsToolResult> {
     try {
-        const cmd = filtro
-            ? `tasklist /fo csv /nh /fi "IMAGENAME eq ${filtro}"`
+        // Sanitiza: nomes de processo só contêm letras, dígitos, ponto, hífen e espaço
+        const safeFiltro = filtro ? filtro.replace(/[^a-zA-Z0-9.\- ]/g, '') : undefined;
+        const cmd = safeFiltro
+            ? `tasklist /fo csv /nh /fi "IMAGENAME eq ${safeFiltro}"`
             : 'tasklist /fo csv /nh';
         const { stdout } = await execAsync(cmd, { timeout: 10_000 });
 
@@ -627,10 +649,37 @@ export async function encerrarProcesso(alvo: string | number): Promise<OsToolRes
 // ============================================================================
 
 /**
+ * Retorna true se o hostname da URL é um endereço privado/loopback (SSRF guard)
+ */
+function isPrivateHost(urlString: string): boolean {
+    try {
+        const { hostname } = new URL(urlString);
+        if (hostname === 'localhost' || hostname === '::1') return true;
+        // IPv4 loopback e privados
+        const parts = hostname.split('.').map(Number);
+        if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+            const [a, b] = parts as [number, number, number, number];
+            if (a === 127) return true;                    // 127.x.x.x loopback
+            if (a === 10) return true;                     // 10.x.x.x
+            if (a === 172 && b >= 16 && b <= 31) return true; // 172.16–31.x.x
+            if (a === 192 && b === 168) return true;       // 192.168.x.x
+            if (a === 169 && b === 254) return true;       // link-local
+        }
+        return false;
+    } catch {
+        return true; // URL inválida → bloqueia
+    }
+}
+
+/**
  * Busca conteúdo de uma URL e retorna como texto
  * Limite de 500 KB para evitar respostas enormes
  */
 export async function fetchUrl(url: string, timeoutMs = 15_000): Promise<OsToolResult> {
+    if (isPrivateHost(url)) {
+        return { sucesso: false, erro: 'URL bloqueada: endereços internos e privados não são permitidos.' };
+    }
+
     try {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), timeoutMs);

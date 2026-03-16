@@ -3,10 +3,25 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
-import { initStagehand, closeStagehand, getStagehand, reInitStagehand } from './stagehand-manager';
+import { closeBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
+import { initMemoryDir } from './agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
-import { encryptApiKey, safeDecrypt, isEncrypted } from './crypto-store';
+import { startBackend, stopBackend, rpcCall, backendEvents, syncConfigToBackend, isBackendAlive } from './backend-client';
+import { encryptApiKey, safeDecrypt, isEncrypted, initCryptoStoreSalt } from './crypto-store';
+import { getDocIndex } from './agent/doc-index';
+import { downloadIncremental, downloadTudo, getLegislacaoStats, verificarDesatualizados } from './agent/legislacao-downloader';
 import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } from './provider-config';
+import { initSupabase } from './auth/supabase-client';
+import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense } from './auth/license';
+import { autoUpdater } from 'electron-updater';
+
+// Suprime EPIPE (pipe quebrado ao rodar via terminal/background) — evita crash dialog
+process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code === 'EPIPE') return })
+process.stderr.on('error', (err: NodeJS.ErrnoException) => { if (err.code === 'EPIPE') return })
+
+// Desabilita GPU do Electron para evitar conflito com Chrome externo e sandbox issues
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu-sandbox')
 
 // Agent module loaded dynamically after app ready
 let agentModule: {
@@ -20,14 +35,8 @@ let agentModule: {
 const AGENT_SESSION_ID = randomUUID();
 
 // Enable Hot Reload in Development
-if (!app.isPackaged) {
-    try {
-        require('electron-reload')(__dirname, {
-            electron: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
-            awaitWriteFinish: true
-        });
-    } catch (e) { console.error('Error loading electron-reload', e); }
-}
+// electron-reload removido: bypassava o launch-electron.js (sem deletar ELECTRON_RUN_AS_NODE)
+// causando Electron a subir em modo Node.js e congelar o renderer ao detectar mudanças em dist-electron/
 
 // Initialize store (wrapping in async IIFE if needed or top level if supported)
 // Note: electron-store is ESM. We might need to handle this.
@@ -355,23 +364,34 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
         process.env['ANTHROPIC_API_KEY'] = apiKey;
     }
 
-    const { initAI } = await import('./ai-handler');
-    initAI({
+    const config = {
         providerId,
         apiKey,
         agentModel: resolvedAgent,
         visionModel: resolvedVision,
-    });
+    };
+    const { initAI } = await import('./ai-handler');
+    initAI(config);
+
+    // Sincroniza config com o backend (se conectado)
+    syncConfigToBackend(config);
 }
 
 /**
- * Carrega chave encriptada do store para um provider.
+ * Carrega chave do store para um provider.
+ * Se o valor estiver em plaintext legado, migra para criptografado imediatamente.
  */
 function loadApiKey(providerId: ProviderId): string {
     if (!store) return '';
     const apiKeys = (store.get('apiKeys', {}) as Record<string, string>);
     const raw = String(apiKeys[providerId] || '').trim();
-    return raw ? safeDecrypt(raw) : '';
+    if (!raw) return '';
+    if (!isEncrypted(raw)) {
+        // Chave legada em plaintext — criptografa e persiste agora
+        saveApiKey(providerId, raw);
+        return raw;
+    }
+    return safeDecrypt(raw);
 }
 
 /**
@@ -417,12 +437,14 @@ async function initStore() {
         saveApiKey(providerId, apiKey);
     }
 
-    await syncProvider(
-        providerId,
-        apiKey,
-        savedProvider?.agentModel ?? preset.defaultAgentModel,
-        savedProvider?.visionModel ?? preset.defaultVisionModel,
-    );
+    // Migra visionModel: Claude 4.x causa ECONNRESET no @ai-sdk/anthropic v2 do Stagehand
+    // agentModel não é migrado — Claude 4.x funciona fine com generateText no SDK principal
+    const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
+    const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
+    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
+        ? preset.defaultVisionModel : savedVision;
+
+    await syncProvider(providerId, apiKey, savedProvider?.agentModel ?? preset.defaultAgentModel, visionModel);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,15 +457,16 @@ ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderI
     store.set('aiProvider', cfg);
     const apiKey = loadApiKey(cfg.providerId);
     await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
-    reInitStagehand().catch(e => console.error('[Stagehand] Erro ao re-inicializar após troca de provider:', e));
+    reInitBrowser().catch(e => console.error('[Browser] Erro ao re-inicializar após troca de provider:', e));
     return { success: true };
 });
 
-/** Retorna provider ativo + status da chave. */
+/** Retorna provider ativo + status da chave. A apiKey nunca é enviada ao renderer. */
 ipcMain.handle('store-get-provider', async () => {
     const cfg = getActiveConfig();
     const hasKey = cfg.apiKey.length > 0;
-    return { ...cfg, hasKey };
+    const { apiKey: _omit, ...safe } = cfg;
+    return { ...safe, hasKey };
 });
 
 /** Salva chave API para um provider. */
@@ -456,7 +479,7 @@ ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { provid
     const current = getActiveConfig();
     if (current.providerId === providerId) {
         await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        reInitStagehand().catch(e => console.error('[Stagehand] Erro ao re-inicializar após nova chave:', e));
+        reInitBrowser().catch(e => console.error('[Browser] Erro ao re-inicializar após nova chave:', e));
     }
     return { success: true, configured: normalizedKey.length > 0 };
 });
@@ -598,15 +621,33 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
 });
 
 function createTray() {
-    // Usa ícone 16x16 do electron-builder (sempre presente como dep)
-    const iconPath = path.join(__dirname, '../node_modules/app-builder-lib/templates/icons/electron-linux/16x16.png');
-    const icon = fs.existsSync(iconPath)
-        ? nativeImage.createFromPath(iconPath)
-        : nativeImage.createEmpty();
+    // Tenta ícone da build, cai para empty se não existir
+    const candidates = [
+        path.join(__dirname, '../build-assets/icon.ico'),
+        path.join(__dirname, '../build-assets/icon.png'),
+        path.join(process.cwd(), 'build-assets/icon.ico'),
+        path.join(process.cwd(), 'build-assets/icon.png'),
+    ];
+    const iconPath = candidates.find(p => fs.existsSync(p));
+    const icon = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
 
     tray = new Tray(icon);
-    tray.setToolTip('LEX — Assistente Jurídico');
+    tray.setToolTip('LEX — Assistente Jurídico (24/7)');
+    refreshTrayMenu();
 
+    tray.on('double-click', () => {
+        if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+        } else {
+            createWindow();
+        }
+    });
+}
+
+function refreshTrayMenu() {
+    if (!tray) return;
+    const botRunning = isBotRunning();
     const contextMenu = Menu.buildFromTemplate([
         {
             label: 'Abrir LEX',
@@ -620,22 +661,18 @@ function createTray() {
             }
         },
         { type: 'separator' },
+        { label: `Telegram: ${botRunning ? '● Ativo' : '○ Inativo'}`, enabled: false },
+        { label: `Agente: ● Pronto`, enabled: false },
+        { type: 'separator' },
         {
-            label: 'Encerrar',
+            label: 'Encerrar LEX',
             click: () => {
                 trayModeActive = false;
                 app.quit();
             }
         }
     ]);
-
     tray.setContextMenu(contextMenu);
-    tray.on('double-click', () => {
-        if (mainWindow) {
-            mainWindow.show();
-            mainWindow.focus();
-        }
-    });
 }
 
 function createWindow() {
@@ -837,6 +874,15 @@ ipcMain.handle('files-save-document', async (_event, { name, content }: { name: 
 
         await fs.promises.writeFile(result.filePath, content, 'utf8');
         approvedFileSelections.add(normalizeFsPath(result.filePath));
+
+        // Re-indexa RAG em background após salvar documento
+        const wsRoots = getWorkspaceRoots();
+        if (wsRoots.length > 0) {
+            getDocIndex().indexarWorkspace(wsRoots).catch(e =>
+                console.warn('[files-save-document] RAG re-index falhou:', e.message)
+            );
+        }
+
         return { success: true, path: result.filePath };
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -944,30 +990,136 @@ import { registerCrawlerHandlers } from './crawler';
 // ... (existing code)
 
 app.whenReady().then(async () => {
+    // Configura userDataDir para módulos desacoplados do Electron
+    const userData = app.getPath('userData');
+    setUserDataDir(userData);
+    initMemoryDir(userData);
+    // Inicializa salt de criptografia antes de qualquer encrypt/decrypt
+    initCryptoStoreSalt(userData);
+    // Inicializa índice RAG (carrega índice persistido do disco)
+    getDocIndex().init(userData);
     await initStore();
+    initSupabase(store);
     createWindow();
-    registerCrawlerHandlers(); // LOGIN CRAWLER
+    registerCrawlerHandlers();
 
-    initRouteMemory();
+    initRouteMemory(userData);
 
-    // Inicia Stagehand + Chrome externo em background (não bloqueia o app)
-    initStagehand().catch(err => console.error('[Stagehand] Falha ao iniciar:', err));
+    // Inicia backend Node.js separado (agent + browser + skills)
+    try {
+        await startBackend(userData);
+        // Forward de eventos do backend → renderer
+        backendEvents.on('agent-event', (event: any) => {
+            console.log('[Agent Event via Backend]', event.type);
+            if (mainWindow) {
+                mainWindow.webContents.send('agent-event', event);
+            }
+        });
+        // Sincroniza config de provider/API key com o backend (já foi carregada no initStore)
+        const cfg = getActiveConfig();
+        await syncConfigToBackend(cfg);
+        console.log('[Main] Backend conectado e config sincronizada');
+    } catch (err: any) {
+        console.error('[Main] Falha ao iniciar backend — usando fallback local:', err.message);
+    }
+
+    initAutoUpdater();
+
+    // Modo 24/7: tray sempre ativo desde o boot
+    trayModeActive = true;
+    createTray();
 
     // Auto-inicia bot Telegram se estava ativo na sessão anterior
-    initTelegramBotIfConfigured().catch(e => console.error('[Telegram] Falha ao auto-iniciar:', e));
+    initTelegramBotIfConfigured().catch(e => {
+        console.error('[Telegram] Falha ao auto-iniciar:', e);
+    }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
+
+    // Sync de legislação em background (não bloqueia boot)
+    initLegislacaoSync();
+
+    // Inicia watchers nos workspaces para auto re-indexar RAG
+    startWorkspaceWatchers();
 
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
+function initAutoUpdater() {
+    // Em dev não verifica atualizações
+    if (!app.isPackaged) return;
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('update-available', () => {
+        mainWindow?.webContents.send('update-available');
+    });
+
+    autoUpdater.on('update-downloaded', () => {
+        mainWindow?.webContents.send('update-downloaded');
+    });
+
+    autoUpdater.on('error', (err) => {
+        console.error('[Updater]', err.message);
+    });
+
+    autoUpdater.checkForUpdates().catch(() => {});
+}
+
+const LEGISLACAO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+
+/**
+ * Inicia o ciclo automático de sync de legislação:
+ *  - 15s após boot: baixa o que falta / está desatualizado
+ *  - A cada 24h: re-verifica e atualiza
+ */
+function initLegislacaoSync(): void {
+    async function runSync(label: string) {
+        const userDataDir = app.getPath('userData');
+        const pendentes = verificarDesatualizados(userDataDir);
+        if (pendentes.length === 0) {
+            console.log(`[Legislação] ${label} — tudo em dia`);
+            return;
+        }
+        console.log(`[Legislação] ${label} — ${pendentes.length} arquivo(s) para atualizar`);
+        mainWindow?.webContents.send('rag-legislacao-progress', `Atualizando legislação (${pendentes.length} arquivo(s))…`);
+
+        const result = await downloadIncremental(userDataDir, (msg: string) => {
+            console.log('[Legislação]', msg);
+            mainWindow?.webContents.send('rag-legislacao-progress', msg);
+        });
+
+        if (result.sucesso > 0) {
+            // Garante que a pasta está nos workspaces e re-indexa
+            const legDir = result.dir;
+            const workspaces = store.get('workspaces', []) as string[];
+            if (!workspaces.includes(legDir)) {
+                workspaces.push(legDir);
+                store.set('workspaces', workspaces);
+            }
+            await getDocIndex().indexarWorkspace([legDir, ...workspaces.filter(w => w !== legDir)]);
+            console.log(`[Legislação] ${result.sucesso} arquivo(s) atualizados e re-indexados`);
+        }
+    }
+
+    // Boot: aguarda 15s para não competir com a inicialização da janela
+    setTimeout(() => runSync('boot').catch(e => console.error('[Legislação] Erro no boot sync:', e)), 15_000);
+
+    // Verificação diária
+    setInterval(() => runSync('daily').catch(e => console.error('[Legislação] Erro no daily sync:', e)), LEGISLACAO_CHECK_INTERVAL_MS);
+}
+
 app.on('window-all-closed', async function () {
     // No modo 24/7 com tray ativo, não encerra o processo
     if (trayModeActive) return;
 
+    // Encerra backend (flush + close browser + sessions)
+    await stopBackend();
+
+    // Fallback local caso backend não estivesse rodando
     flushRouteMemory();
-    await closeStagehand();
-    // Persiste sessões antes de sair
+    await closeBrowser();
     try {
         if (agentModule) {
             const sm = agentModule.getSessionManager();
@@ -1000,6 +1152,9 @@ ipcMain.handle('conversations-list', async () => {
 });
 
 ipcMain.handle('conversations-save', async (_event, conv) => {
+    const MAX_CONV_SIZE = 2_000_000; // 2 MB por conversa
+    if (!conv || typeof conv.id !== 'string') return { success: false, error: 'Conversa inválida.' };
+    if (JSON.stringify(conv).length > MAX_CONV_SIZE) return { success: false, error: 'Conversa muito grande para salvar (limite 2 MB).' };
     const convs = (store?.get('conversations', {}) as Record<string, any>) || {};
     convs[conv.id] = conv;
     store?.set('conversations', convs);
@@ -1020,6 +1175,8 @@ ipcMain.handle('conversations-delete', async (_event, id: string) => {
 
 // Pre-seed agent session with saved messages (for context on conversation reload)
 ipcMain.handle('session-seed', async (_event, sessionId: string, messages: any[]) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { success: false, error: 'sessionId inválido.' };
+    if (!Array.isArray(messages)) return { success: false, error: 'messages inválido.' };
     const agent = await loadAgentModule();
     const sm = agent.getSessionManager();
     sm.getOrCreate(sessionId);
@@ -1057,6 +1214,7 @@ ipcMain.handle('workspace-add', async (_event, path) => {
         workspaces.push(selectedPath);
         store.set('workspaces', workspaces);
     }
+    startWorkspaceWatchers(); // Reinicia watchers com novo workspace
     return { success: true, workspaces };
 });
 
@@ -1066,13 +1224,109 @@ ipcMain.handle('workspace-remove', async (_event, path) => {
     let workspaces = store.get('workspaces', []) as string[];
     workspaces = workspaces.filter(w => normalizeFsPath(w) !== selectedPath);
     store.set('workspaces', workspaces);
+    startWorkspaceWatchers(); // Reinicia watchers sem workspace removido
     return { success: true, workspaces };
 });
 
-// Check PJe status via Stagehand
+/** Re-indexa todos os documentos dos workspaces para o RAG. */
+ipcMain.handle('rag-index-workspace', async () => {
+    const workspaces = getWorkspaceRoots();
+    if (workspaces.length === 0) return { success: false, error: 'Nenhum workspace configurado.' };
+    const result = await getDocIndex().indexarWorkspace(workspaces);
+    return { success: true, ...result };
+});
+
+/** Retorna estatísticas do índice RAG atual. */
+ipcMain.handle('rag-stats', async () => {
+    return getDocIndex().getStats();
+});
+
+// ============================================================================
+// FILE WATCHER — auto re-indexa RAG quando arquivos mudam nos workspaces
+// ============================================================================
+const activeWatchers: fs.FSWatcher[] = [];
+let ragReindexTimer: ReturnType<typeof setTimeout> | null = null;
+const RAG_DEBOUNCE_MS = 5000; // 5s debounce para agrupar mudanças rápidas
+
+function scheduleRagReindex() {
+    if (ragReindexTimer) clearTimeout(ragReindexTimer);
+    ragReindexTimer = setTimeout(async () => {
+        ragReindexTimer = null;
+        const ws = getWorkspaceRoots();
+        if (ws.length === 0) return;
+        try {
+            const result = await getDocIndex().indexarWorkspace(ws);
+            console.log(`[FileWatcher] RAG re-indexado: ${result.chunks} chunks, ${result.arquivos} arquivos`);
+        } catch (e: any) {
+            console.warn('[FileWatcher] RAG re-index falhou:', e.message);
+        }
+    }, RAG_DEBOUNCE_MS);
+}
+
+const WATCHED_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.docx', '.doc']);
+
+function startWorkspaceWatchers() {
+    // Limpa watchers anteriores
+    for (const w of activeWatchers) { try { w.close(); } catch {} }
+    activeWatchers.length = 0;
+
+    const workspaces = getWorkspaceRoots();
+    for (const wsPath of workspaces) {
+        try {
+            const watcher = fs.watch(wsPath, { recursive: true }, (_event, filename) => {
+                if (!filename) return;
+                const ext = path.extname(filename).toLowerCase();
+                if (WATCHED_EXTENSIONS.has(ext)) {
+                    console.log(`[FileWatcher] Mudança detectada: ${filename}`);
+                    scheduleRagReindex();
+                }
+            });
+            activeWatchers.push(watcher);
+        } catch (e: any) {
+            console.warn(`[FileWatcher] Não foi possível monitorar ${wsPath}:`, e.message);
+        }
+    }
+    if (activeWatchers.length > 0) {
+        console.log(`[FileWatcher] Monitorando ${activeWatchers.length} workspace(s)`);
+    }
+}
+
+// Re-inicia watchers quando workspaces mudam
+ipcMain.on('workspace-watchers-refresh', () => startWorkspaceWatchers());
+
+/** Baixa os códigos de legislação do Planalto e re-indexa o RAG. */
+ipcMain.handle('rag-download-legislacao', async (_e, forcar = false) => {
+    const userDataDir = app.getPath('userData');
+    const fn = forcar ? downloadTudo : downloadIncremental;
+
+    const result = await fn(userDataDir, (msg: string) => {
+        mainWindow?.webContents.send('rag-legislacao-progress', msg);
+    });
+
+    // Garante que a pasta de legislação está nos workspaces
+    const legDir = result.dir;
+    const workspaces = store.get('workspaces', []) as string[];
+    if (!workspaces.includes(legDir)) {
+        workspaces.push(legDir);
+        store.set('workspaces', workspaces);
+    }
+
+    const indexResult = await getDocIndex().indexarWorkspace(
+        [legDir, ...workspaces.filter(w => w !== legDir)]
+    );
+
+    return { ...result, indexResult };
+});
+
+/** Retorna estatísticas dos arquivos de legislação já baixados. */
+ipcMain.handle('rag-legislacao-stats', async () => {
+    return getLegislacaoStats(app.getPath('userData'));
+});
+
+// Check PJe status via browser
 ipcMain.handle('check-pje', async () => {
     try {
-        const page = getStagehand().context.pages()[0];
+        const page = getActivePage();
         const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
         return { connected: !!url, isPje, url };
@@ -1101,6 +1355,21 @@ async function ensureAgentInitialized() {
     const agent = await loadAgentModule();
     if (!agentInitialized) {
         await agent.initializeAgent();
+        // Injeta dialog nativo do Electron para confirmação de ações perigosas
+        const { setConfirmDialog } = await import('./skills/os/sistema');
+        setConfirmDialog(async (titulo: string, detalhe: string) => {
+            const { response } = await dialog.showMessageBox({
+                type: 'warning',
+                buttons: ['Cancelar', 'Executar'],
+                defaultId: 0,
+                cancelId: 0,
+                title: titulo,
+                message: titulo,
+                detail: detalhe,
+                noLink: true
+            });
+            return response === 1;
+        });
         agentInitialized = true;
     }
     return agent;
@@ -1407,7 +1676,7 @@ async function shouldUseAgentLoopForObjective(
 
 ipcMain.handle('agent-should-handle', async (_event, objetivo: string) => {
     let activeUrl: string | null = null;
-    try { activeUrl = getStagehand().context.pages()[0]?.url() ?? null; } catch {}
+    try { activeUrl = getActivePage()?.url() ?? null; } catch {}
     return await shouldUseAgentLoopForObjective(objetivo, activeUrl);
 });
 
@@ -1421,7 +1690,13 @@ import { setNotifyFn } from './user-input';
 function loadTelegramToken(): string {
     if (!store) return '';
     const raw = String(store.get('telegramToken', '') || '').trim();
-    return raw ? safeDecrypt(raw) : '';
+    if (!raw) return '';
+    if (!isEncrypted(raw)) {
+        // Token legado em plaintext — migra para criptografado imediatamente
+        store.set('telegramToken', encryptApiKey(raw));
+        return raw;
+    }
+    return safeDecrypt(raw);
 }
 
 async function initTelegramBotIfConfigured(): Promise<void> {
@@ -1495,8 +1770,7 @@ ipcMain.handle('telegram-enable', async () => {
         await startBot({ token, authorizedUserId: userId }, runAgentForTelegram);
         setNotifyFn((prompt) => telegramSend(userId, prompt));
         store.set('telegramEnabled', true);
-        trayModeActive = true;
-        if (!tray) createTray();
+        refreshTrayMenu();
         return { success: true, running: true };
     } catch (e: any) {
         return { error: `Falha ao iniciar bot: ${e.message}` };
@@ -1507,11 +1781,7 @@ ipcMain.handle('telegram-enable', async () => {
 ipcMain.handle('telegram-disable', async () => {
     await stopBot();
     if (store) store.set('telegramEnabled', false);
-    trayModeActive = false;
-    if (tray) {
-        tray.destroy();
-        tray = null;
-    }
+    refreshTrayMenu();
     return { success: true, running: false };
 });
 
@@ -1521,35 +1791,92 @@ ipcMain.handle('telegram-get-status', () => ({
     trayActive: trayModeActive
 }));
 
-// IPC: Run Agent Loop
+// IPC: Run Agent Loop — proxy para backend (com fallback local)
 ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessionId?: string) => {
-    const agent = await ensureAgentInitialized();
+    // Verificar licença antes de executar
+    const license = await checkLicense();
+    if (license.status === 'not_authenticated') {
+        return { success: false, error: 'not_authenticated' };
+    }
+    if (license.status === 'trial_expired') {
+        return { success: false, error: 'trial_expired' };
+    }
 
+    const objetivoFinal = injectDisambiguationIfNeeded(objetivo);
+    const maxIter = Math.min(Math.max(Number(config?.maxIterations) || 5, 1), 10);
+    const timeoutMs = Math.min(Math.max(Number(config?.timeoutMs) || 60000, 10000), 120000);
+
+    // Tenta via backend (processo separado)
+    if (isBackendAlive()) {
+        try {
+            const resposta = await rpcCall('agent-run', {
+                objetivo: objetivoFinal,
+                config: { maxIterations: maxIter, timeoutMs },
+                sessionId: sessionId || AGENT_SESSION_ID,
+            });
+            return { success: true, resposta };
+        } catch (error: any) {
+            console.error('[Agent via Backend] Erro:', error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Fallback: executa localmente (compatibilidade)
     try {
-        // Load tenant config (for now use default)
+        const agent = await ensureAgentInitialized();
         const tenantConfig = agent.getDefaultTenantConfig();
-
-        // Detect ambiguous objectives (PC vs PJe) and inject disambiguation instruction
-        const objetivoFinal = injectDisambiguationIfNeeded(objetivo);
-
-        // Run the agent loop
         const resposta = await agent.runAgentLoop(objetivoFinal, {
-            maxIterations: config?.maxIterations || 5,
-            timeoutMs: config?.timeoutMs || 60000
+            maxIterations: maxIter,
+            timeoutMs
         }, tenantConfig, sessionId || AGENT_SESSION_ID);
-
         return { success: true, resposta };
     } catch (error: any) {
-        console.error('[Agent] Erro:', error);
+        console.error('[Agent Local] Erro:', error);
         return { success: false, error: error.message };
     }
 });
 
-// IPC: Cancel Agent Loop
+// IPC: Cancel Agent Loop — proxy para backend (com fallback local)
 ipcMain.handle('agent-cancel', async () => {
+    if (isBackendAlive()) {
+        try {
+            await rpcCall('agent-cancel');
+            return { success: true };
+        } catch { /* fallback */ }
+    }
     const agent = await loadAgentModule();
     agent.cancelAgentLoop();
     return { success: true };
+});
+
+// ============================================================================
+// IPC: Auth / Licença
+// ============================================================================
+
+ipcMain.handle('auth-sign-in', async (_event, { email, password }: { email: string; password: string }) => {
+    return authSignIn(email, password);
+});
+
+ipcMain.handle('auth-sign-up', async (_event, { email, password }: { email: string; password: string }) => {
+    return authSignUp(email, password);
+});
+
+ipcMain.handle('auth-sign-out', async () => {
+    await authSignOut();
+    return { ok: true };
+});
+
+ipcMain.handle('auth-check-license', async () => {
+    return checkLicense();
+});
+
+ipcMain.handle('auth-refresh-license', async () => {
+    refreshLicense();
+    return checkLicense();
+});
+
+ipcMain.handle('update-install-now', () => {
+    autoUpdater.quitAndInstall();
 });
 
 // Setup event forwarding after window is created

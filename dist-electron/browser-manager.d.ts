@@ -1,28 +1,16 @@
-import { BrowserView, BrowserWindow } from 'electron';
-interface Tab {
-    id: number;
-    view: BrowserView;
-    title: string;
-    url: string;
-}
-export declare class BrowserManager {
-    private mainWindow;
-    private tabs;
-    private activeTabId;
-    private nextTabId;
-    private bounds;
-    constructor(mainWindow: BrowserWindow);
-    initialize(): Promise<void>;
-    createTab(url: string, setActive?: boolean): number;
-    setActiveTab(tabId: number): void;
-    hideView(): void;
-    showView(): void;
-    closeTab(tabId: number): void;
-    updateBounds(bounds: Electron.Rectangle): void;
-    private updateViewBounds;
-    get activeTab(): Tab | undefined;
-    executeScript(script: string): Promise<any>;
-    navigateTo(url: string): Promise<void>;
-}
-export {};
+import { BrowserContext, Page } from 'playwright-core';
+/** Deve ser chamado uma vez no boot (main.ts ou backend/server.ts) */
+export declare function setUserDataDir(dir: string): void;
+export declare function initBrowser(): Promise<void>;
+export declare function reInitBrowser(): Promise<void>;
+export declare function getBrowserContext(): BrowserContext;
+/** Retorna a Page ativa (primeira aba aberta) */
+export declare function getActivePage(): Page | null;
+/** Garante que o browser está inicializado e a conexão está viva.
+ *  Auto-recupera se o Chrome morreu ou a conexão CDP caiu. */
+export declare function ensureBrowser(): Promise<void>;
+export declare function injectOverlay(text: string, done?: boolean): void;
+export declare function showCursorAt(x: number, y: number): void;
+export declare function runBrowserTask(instruction: string, maxSteps?: number, onStep?: (step: string) => void): Promise<string>;
+export declare function closeBrowser(): Promise<void>;
 //# sourceMappingURL=browser-manager.d.ts.map

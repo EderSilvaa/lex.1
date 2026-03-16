@@ -80,10 +80,34 @@ contextBridge.exposeInMainWorld('lexApi', {
     deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
 
+    // RAG — Indexação de documentos do workspace
+    ragIndexWorkspace: () => ipcRenderer.invoke('rag-index-workspace'),
+    ragStats: () => ipcRenderer.invoke('rag-stats'),
+
+    // RAG — Legislação (baixa códigos do Planalto e indexa)
+    ragDownloadLegislacao: (forcar?: boolean) => ipcRenderer.invoke('rag-download-legislacao', forcar ?? false),
+    ragLegislacaoStats: () => ipcRenderer.invoke('rag-legislacao-stats'),
+    onRagLegislacaoProgress: (cb: (msg: string) => void) => ipcRenderer.on('rag-legislacao-progress', (_, msg) => cb(msg)),
+    offRagLegislacaoProgress: () => ipcRenderer.removeAllListeners('rag-legislacao-progress'),
+
     // Modo 24/7 — Telegram Bot
     telegramGetConfig: () => ipcRenderer.invoke('telegram-get-config'),
     telegramSetConfig: (cfg: { token: string; userId: number }) => ipcRenderer.invoke('telegram-set-config', cfg),
     telegramEnable: () => ipcRenderer.invoke('telegram-enable'),
     telegramDisable: () => ipcRenderer.invoke('telegram-disable'),
     telegramGetStatus: () => ipcRenderer.invoke('telegram-get-status'),
+});
+
+contextBridge.exposeInMainWorld('authApi', {
+    signIn: (email: string, password: string) => ipcRenderer.invoke('auth-sign-in', { email, password }),
+    signUp: (email: string, password: string) => ipcRenderer.invoke('auth-sign-up', { email, password }),
+    signOut: () => ipcRenderer.invoke('auth-sign-out'),
+    checkLicense: () => ipcRenderer.invoke('auth-check-license'),
+    refreshLicense: () => ipcRenderer.invoke('auth-refresh-license'),
+});
+
+contextBridge.exposeInMainWorld('updaterApi', {
+    onUpdateAvailable:  (cb: () => void) => ipcRenderer.on('update-available',  () => cb()),
+    onUpdateDownloaded: (cb: () => void) => ipcRenderer.on('update-downloaded', () => cb()),
+    installNow: () => ipcRenderer.invoke('update-install-now'),
 });

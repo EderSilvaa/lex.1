@@ -26,7 +26,8 @@ import { executeSkill, getSkillsForPrompt } from './executor';
 import { getMemory } from './memory';
 import { getResponseCache } from './cache';
 import { getSessionManager } from './session';
-import { getStagehand } from '../stagehand-manager';
+import { getActivePage } from '../browser-manager';
+import { getDocIndex } from './doc-index';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -71,12 +72,14 @@ export async function runAgentLoop(
     const runId = randomUUID();
     const abort = new AbortController();
 
-    // Carrega memória persistente em paralelo
+    // Carrega memória persistente e RAG em paralelo
     const memory = getMemory();
-    const [memoriaData, usuarioData, interacoesSimilares] = await Promise.all([
+    const docIndex = getDocIndex();
+    const [memoriaData, usuarioData, interacoesSimilares, ragResultados] = await Promise.all([
         memory.carregar(),
         memory.getUsuario(),
-        memory.buscarSimilares(objetivo, 3)
+        memory.buscarSimilares(objetivo, 3),
+        Promise.resolve(docIndex.buscarContexto(objetivo, 4))
     ]);
     const preferredTribunal = normalizeTribunalCode(
         memoriaData.preferencias?.['tribunal_preferido'] || usuarioData.tribunal_preferido
@@ -101,7 +104,8 @@ export async function runAgentLoop(
                     objetivo: i.objetivo,
                     sucesso: i.sucesso
                 }))
-            }
+            },
+            ...(ragResultados.length > 0 ? { ragContexto: ragResultados } : {})
         },
         passos: [],
         iteracao: 0,
@@ -569,7 +573,7 @@ function applyTribunalContinuity(
 function inferTribunalFromContext(state: AgentState): string | null {
     // Maior prioridade: URL ativa no Chrome (Stagehand)
     try {
-        const page = getStagehand().context.pages()[0];
+        const page = getActivePage();
         const activeUrl = page?.url();
         if (activeUrl) {
             const fromActiveUrl = inferTribunalFromText(activeUrl);

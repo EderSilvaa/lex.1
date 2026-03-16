@@ -1,5 +1,5 @@
 {
-  "name": "lex-extension",
+  "name": "lex-juridico",
   "version": "1.0.0",
   "description": "Assistente jurídico inteligente para o sistema PJe",
   "main": "dist-electron/main.js",
@@ -9,33 +9,93 @@
     "build:prod": "tsc && npm run minify",
     "minify": "terser dist/js/*.js -o dist/js/bundle.min.js",
     "dev": "concurrently \"npm run build:watch\" \"npm run serve\"",
-    "electron:dev": "concurrently \"tsc -p tsconfig.electron.json -w\" \"npm run build:watch\" \"wait-on dist-electron/main.js && npm run electron:start\"",
+    "backend:build": "tsc -p tsconfig.backend.json",
+    "backend:dev": "tsc -p tsconfig.backend.json -w",
+    "electron:dev": "concurrently \"tsc -p tsconfig.electron.json -w\" \"npm run backend:dev\" \"npm run build:watch\" \"wait-on dist-electron/main.js && npm run electron:start\"",
     "electron:start": "node scripts/launch-electron.js",
-    "electron:build": "tsc -p tsconfig.electron.json && npm run build",
+    "electron:build": "tsc -p tsconfig.electron.json && npm run backend:build && npm run build",
     "serve": "http-server . -p 8080",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "dist:win": "npm run electron:build && electron-builder --win --publish never",
+    "dist:win:publish": "npm run electron:build && electron-builder --win --publish always"
+  },
+  "build": {
+    "appId": "com.lex.juridico",
+    "productName": "LEX Juridico",
+    "copyright": "Copyright © 2025 LEX Team",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-assets"
+    },
+    "files": [
+      "dist-electron/**",
+      "src/renderer/**",
+      "electron/overlay.css",
+      "electron/overlay.js",
+      "electron/polyfill.js",
+      "manifest.json",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@nut-tree-fork/**",
+      "node_modules/playwright-core/**",
+      "node_modules/pdf-parse/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LEX Juridico",
+      "installerIcon": "build-assets/icon.ico",
+      "uninstallerIcon": "build-assets/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "SEU_USUARIO_GITHUB",
+      "repo": "lex-juridico"
+    }
   },
   "dependencies": {
-    "@browserbasehq/stagehand": "^3.1.0",
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/google": "^3.0.43",
+    "@ai-sdk/groq": "^3.0.29",
+    "@ai-sdk/openai": "^3.0.41",
     "@nut-tree-fork/nut-js": "^4.2.6",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@supabase/supabase-js": "^2.98.0",
     "@types/pdf-parse": "^1.1.5",
+    "ai": "^6.0.116",
     "dompurify": "^3.3.2",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "mammoth": "^1.11.0",
     "marked": "^17.0.4",
     "node-fetch": "^3.3.2",
     "pdf-parse": "^2.4.5",
     "playwright-core": "^1.58.1",
     "telegraf": "^4.16.3",
+    "ws": "^8.19.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "@types/node": "^20.19.27",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "concurrently": "^8.0.0",

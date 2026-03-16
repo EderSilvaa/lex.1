@@ -53,6 +53,8 @@ import { registerPJeSkills } from '../skills/pje';
 import { registerOsSkills } from '../skills/os';
 import { registerPcSkills } from '../skills/pc';
 import { registerDocumentosSkills } from '../skills/documentos';
+import { registerPesquisaSkills } from '../skills/pesquisa';
+import { registerBrowserSkills } from '../skills/browser';
 
 // Inicialização
 let initialized = false;
@@ -70,6 +72,8 @@ export async function initializeAgent(): Promise<void> {
     registerOsSkills();
     registerPcSkills();
     registerDocumentosSkills();
+    registerPesquisaSkills();
+    registerBrowserSkills();
 
     // C1: Carregar skills reais (substituem mocks de mesmo nome)
     try {
@@ -94,6 +98,18 @@ export async function initializeAgent(): Promise<void> {
         await loadSkillsFromDir('skills/documentos');
     } catch (e: any) {
         console.warn('[Agent] Erro ao carregar skills Documentos:', e.message);
+    }
+
+    try {
+        await loadSkillsFromDir('skills/pesquisa');
+    } catch (e: any) {
+        console.warn('[Agent] Erro ao carregar skills Pesquisa:', e.message);
+    }
+
+    try {
+        await loadSkillsFromDir('skills/browser');
+    } catch (e: any) {
+        console.warn('[Agent] Erro ao carregar skills Browser:', e.message);
     }
 
     initialized = true;

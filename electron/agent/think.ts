@@ -69,7 +69,12 @@ Você é **Lex**, uma assistente jurídica inteligente especializada no sistema 
 - NUNCA invente informações - se não sabe, diga
 - Seja concisa - advogados são ocupados
 - Antecipe problemas e prazos
-- O advogado tem a decisão final`;
+- O advogado tem a decisão final
+
+## Regras Anti-Alucinação
+- Quando usar informações dos "Documentos do Escritório (RAG)", cite a fonte: [doc: nome_do_arquivo]
+- NUNCA invente conteúdo de documentos. Se não encontrou nos documentos, diga explicitamente
+- Jurisprudência e artigos de lei só devem ser citados se você tiver certeza. Em caso de dúvida, use os_fetch para buscar na fonte oficial`;
 }
 
 /**
@@ -163,6 +168,24 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 1. \`os_sistema\` operacao="processos" para listar o que esta aberto
 2. \`os_sistema\` operacao="encerrar" com nome/PID (pede confirmacao automaticamente)
 
+### Browser Tools — Controle fino do navegador
+Use browser_* quando precisar de controle granular do Chrome:
+- \`browser_get_state\`: ver URL, titulo e elementos DOM da pagina (consciencia sem agir)
+- \`browser_get_html\`: extrair texto/HTML da pagina sem Vision (rapido e gratuito em tokens)
+- \`browser_scroll\`: descer/subir a pagina — essencial para tabelas longas e listas no PJe
+- \`browser_go_back\`: voltar para pagina anterior (equivalente ao botao voltar)
+- \`browser_list_tabs\`: listar abas abertas — o PJe abre documentos em abas novas constantemente
+- \`browser_switch_tab\`: trocar para outra aba por indice
+- \`browser_close_tab\`: fechar aba para liberar memoria
+- \`browser_extract\`: extrair tabela, lista ou texto estruturado de qualquer pagina
+- \`browser_screenshot\`: capturar screenshot para analise visual
+
+**Quando usar browser_* vs pje_agir:**
+- \`pje_agir\`: tarefas complexas multi-step (navegar+clicar+preencher). Delega para Vision loop autonomo.
+- \`browser_*\`: acoes atomicas quando voce sabe exatamente o que fazer (scroll, trocar aba, ler HTML, voltar).
+- **DICA:** Se o PJe abriu uma aba nova (ex: documento, PDF), use \`browser_list_tabs\` + \`browser_switch_tab\` para acessar.
+- **DICA:** Se precisa ler conteudo da pagina sem executar acao, prefira \`browser_get_html\` (zero tokens LLM) ao inves de \`pje_agir\`.
+
 ---
 
 ## Proatividade
@@ -209,17 +232,24 @@ Exemplo de resposta correta:
 }
 
 /**
- * Tenta obter a URL ativa no Chrome (Stagehand). Retorna null se não disponível.
+ * Retorna info enriquecida do browser: URL, número de abas.
+ * Retorna null se o browser não estiver ativo.
+ * (título é async — o agente pode usar browser_get_state para obtê-lo)
  */
-function getActiveBrowserUrl(): string | null {
+function getActiveBrowserInfo(): { url: string; title: string; tabCount: number } | null {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { getStagehand } = require('../stagehand-manager');
-        const sh = getStagehand();
-        const page = sh?.context?.pages()?.[0];
+        const { getActivePage, getBrowserContext } = require('../browser-manager');
+        const page = getActivePage();
         const url = page?.url();
-        // Ignora about:blank
-        return url && url !== 'about:blank' ? url : null;
+        if (!url || url === 'about:blank') return null;
+
+        let tabCount = 1;
+        try {
+            const ctx = getBrowserContext();
+            tabCount = ctx.pages().length;
+        } catch { /* ok */ }
+
+        return { url, title: '', tabCount };
     } catch {
         return null;
     }
@@ -260,10 +290,13 @@ function buildContextSection(state: AgentState): string {
         }
     }
 
-    // Estado do navegador
-    const browserUrl = getActiveBrowserUrl();
-    if (browserUrl) {
-        parts.push(`## Navegador (Chrome)\nAtivo — URL atual: ${browserUrl}`);
+    // Estado do navegador (enriquecido: URL + título + abas)
+    const browserInfo = getActiveBrowserInfo();
+    if (browserInfo) {
+        const lines = [`Ativo — URL atual: ${browserInfo.url}`];
+        if (browserInfo.title) lines.push(`Título: ${browserInfo.title}`);
+        if (browserInfo.tabCount > 1) lines.push(`Abas abertas: ${browserInfo.tabCount}`);
+        parts.push(`## Navegador (Chrome)\n${lines.join('\n')}`);
     } else {
         parts.push(`## Navegador (Chrome)\nFechado ou não iniciado. Use pje_abrir para abrir.`);
     }
@@ -326,6 +359,14 @@ function buildContextSection(state: AgentState): string {
         if (memParts.length > 1) {
             parts.push(memParts.join('\n'));
         }
+    }
+
+    // RAG: chunks relevantes dos documentos do escritório
+    if (state.contexto.ragContexto && state.contexto.ragContexto.length > 0) {
+        const chunks = state.contexto.ragContexto.map(c =>
+            `### [doc: ${c.arquivo}]\n${c.trecho}`
+        ).join('\n\n');
+        parts.push(`## Documentos do Escritório (RAG)\nTrechos relevantes encontrados nos documentos indexados. Cite a fonte ao usar.\n\n${chunks}`);
     }
 
     const chatHistory = (state.contexto as any).chatHistory as string | undefined;
