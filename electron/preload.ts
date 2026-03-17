@@ -78,6 +78,37 @@ contextBridge.exposeInMainWorld('lexApi', {
     telegramEnable: () => ipcRenderer.invoke('telegram-enable'),
     telegramDisable: () => ipcRenderer.invoke('telegram-disable'),
     telegramGetStatus: () => ipcRenderer.invoke('telegram-get-status'),
+
+    // Ollama (Modelo Local)
+    ollamaStatus: () => ipcRenderer.invoke('ollama-status'),
+    ollamaListModels: () => ipcRenderer.invoke('ollama-list-models'),
+    ollamaRecommended: () => ipcRenderer.invoke('ollama-recommended'),
+    ollamaPull: (model: string) => ipcRenderer.invoke('ollama-pull', model),
+    ollamaDelete: (model: string) => ipcRenderer.invoke('ollama-delete', model),
+    ollamaGetRecommendedList: () => ipcRenderer.invoke('ollama-get-recommended-list'),
+    ollamaIsRunning: () => ipcRenderer.invoke('ollama-is-running'),
+    ollamaDownloadInstaller: () => ipcRenderer.invoke('ollama-download-installer'),
+    onOllamaInstallProgress: (cb: (data: any) => void) => ipcRenderer.on('ollama-install-progress', (_, d) => cb(d)),
+    offOllamaInstallProgress: () => ipcRenderer.removeAllListeners('ollama-install-progress'),
+    onOllamaPullProgress: (cb: (data: any) => void) => ipcRenderer.on('ollama-pull-progress', (_, d) => cb(d)),
+    onOllamaPullComplete: (cb: (data: any) => void) => ipcRenderer.on('ollama-pull-complete', (_, d) => cb(d)),
+    onOllamaPullError: (cb: (data: any) => void) => ipcRenderer.on('ollama-pull-error', (_, d) => cb(d)),
+    offOllamaPullEvents: () => {
+        ipcRenderer.removeAllListeners('ollama-pull-progress');
+        ipcRenderer.removeAllListeners('ollama-pull-complete');
+        ipcRenderer.removeAllListeners('ollama-pull-error');
+    },
+
+    // Privacidade / Consent
+    privacyGetConfig: () => ipcRenderer.invoke('privacy-get-config'),
+    privacySetLevel: (level: 0 | 1 | 2 | 3) => ipcRenderer.invoke('privacy-set-level', level),
+    privacySetProviderConsent: (cfg: { providerId: string; level: 0 | 1 | 2 | 3; consented: boolean }) =>
+        ipcRenderer.invoke('privacy-set-provider-consent', cfg),
+    privacyCompleteOnboarding: (level: 0 | 1 | 2 | 3) => ipcRenderer.invoke('privacy-complete-onboarding', level),
+    privacyIsOnboardingCompleted: () => ipcRenderer.invoke('privacy-is-onboarding-completed'),
+    privacyRevokeAll: () => ipcRenderer.invoke('privacy-revoke-all'),
+    privacyGetEffectiveLevel: (providerId?: string) => ipcRenderer.invoke('privacy-get-effective-level', providerId),
+    privacyGetAuditSummary: (days?: number) => ipcRenderer.invoke('privacy-get-audit-summary', days),
 });
 
 contextBridge.exposeInMainWorld('authApi', {

@@ -68,7 +68,10 @@ const legislacao_downloader_1 = require("./agent/legislacao-downloader");
 const provider_config_1 = require("./provider-config");
 const supabase_client_1 = require("./auth/supabase-client");
 const license_1 = require("./auth/license");
+const analytics_1 = require("./analytics");
 const electron_updater_1 = require("electron-updater");
+const privacy_1 = require("./privacy");
+const ollama_manager_1 = require("./ollama-manager");
 // Suprime EPIPE (pipe quebrado ao rodar via terminal/background) — evita crash dialog
 process.stdout.on('error', (err) => { if (err.code === 'EPIPE')
     return; });
@@ -387,10 +390,6 @@ function syncProvider(providerId, apiKey, agentModel, visionModel) {
         const preset = provider_config_1.PROVIDER_PRESETS[providerId];
         const resolvedAgent = agentModel || preset.defaultAgentModel;
         const resolvedVision = visionModel || preset.defaultVisionModel;
-        // Compatibilidade: ANTHROPIC_API_KEY ainda é lido pelo Stagehand legado
-        if (providerId === 'anthropic') {
-            process.env['ANTHROPIC_API_KEY'] = apiKey;
-        }
         const config = {
             providerId,
             apiKey,
@@ -448,16 +447,10 @@ function initStore() {
         }
         // ── Carrega config do provider ──
         const savedProvider = store.get('aiProvider', null);
-        // Fallback: anthropic com chave do env
-        const envKey = String(process.env['ANTHROPIC_API_KEY'] || '').trim();
         const providerId = (_a = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.providerId) !== null && _a !== void 0 ? _a : 'anthropic';
-        const apiKey = loadApiKey(providerId) || (providerId === 'anthropic' ? envKey : '');
+        const apiKey = loadApiKey(providerId);
         const preset = provider_config_1.PROVIDER_PRESETS[providerId];
-        // Persiste chave do env se ainda não estava no store
-        if (apiKey && !loadApiKey(providerId)) {
-            saveApiKey(providerId, apiKey);
-        }
-        // Migra visionModel: Claude 4.x causa ECONNRESET no @ai-sdk/anthropic v2 do Stagehand
+        // Migra visionModel: Claude 4.x pode causar problemas em browser automation
         // agentModel não é migrado — Claude 4.x funciona fine com generateText no SDK principal
         const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
         const savedVision = (_b = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.visionModel) !== null && _b !== void 0 ? _b : preset.defaultVisionModel;
@@ -469,7 +462,7 @@ function initStore() {
 // ─────────────────────────────────────────────────────────────────────────────
 // IPC — Configuração de Provider/API Keys
 // ─────────────────────────────────────────────────────────────────────────────
-/** Define provider ativo + modelos. Re-inicia Stagehand em background. */
+/** Define provider ativo + modelos. Re-inicia browser em background. */
 electron_1.ipcMain.handle('store-set-provider', (_event, cfg) => __awaiter(void 0, void 0, void 0, function* () {
     if (!store)
         return { error: 'Store not initialized' };
@@ -512,6 +505,146 @@ electron_1.ipcMain.handle('store-get-api-key-status', (_event, providerId) => __
 electron_1.ipcMain.handle('store-get-provider-presets', () => {
     return provider_config_1.PROVIDER_PRESETS;
 });
+// ── Privacy / Consent ──────────────────────────────────────────────────────
+electron_1.ipcMain.handle('privacy-get-config', () => {
+    return (0, privacy_1.getConsentConfig)();
+});
+electron_1.ipcMain.handle('privacy-set-level', (_event, level) => {
+    (0, privacy_1.setDefaultLevel)(level);
+    return { success: true };
+});
+electron_1.ipcMain.handle('privacy-set-provider-consent', (_event, { providerId, level, consented }) => {
+    (0, privacy_1.setProviderConsent)(providerId, level, consented);
+    return { success: true };
+});
+electron_1.ipcMain.handle('privacy-complete-onboarding', (_event, level) => {
+    (0, privacy_1.completeOnboarding)(level);
+    return { success: true };
+});
+electron_1.ipcMain.handle('privacy-is-onboarding-completed', () => {
+    return (0, privacy_1.isOnboardingCompleted)();
+});
+electron_1.ipcMain.handle('privacy-revoke-all', () => {
+    (0, privacy_1.revokeAllConsent)();
+    return { success: true };
+});
+electron_1.ipcMain.handle('privacy-get-effective-level', (_event, providerId) => {
+    return (0, privacy_1.getEffectiveLevel)(providerId);
+});
+electron_1.ipcMain.handle('privacy-get-audit-summary', (_event, days) => {
+    return (0, privacy_1.getAuditSummary)(days !== null && days !== void 0 ? days : 7);
+});
+// ── Ollama (Modelo Local) ──────────────────────────────────────────────────
+electron_1.ipcMain.handle('ollama-status', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        return yield (0, ollama_manager_1.getOllamaStatus)();
+    }
+    catch (e) {
+        console.error('[IPC] ollama-status error:', e.message);
+        return { running: false, models: [], error: e.message };
+    }
+}));
+electron_1.ipcMain.handle('ollama-list-models', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        return yield (0, ollama_manager_1.listModels)();
+    }
+    catch (e) {
+        console.error('[IPC] ollama-list-models error:', e.message);
+        return [];
+    }
+}));
+electron_1.ipcMain.handle('ollama-recommended', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        return yield (0, ollama_manager_1.getRecommendedModelsWithStatus)();
+    }
+    catch (e) {
+        console.error('[IPC] ollama-recommended error:', e.message);
+        return [];
+    }
+}));
+electron_1.ipcMain.handle('ollama-pull', (_event, modelName) => __awaiter(void 0, void 0, void 0, function* () {
+    // Forward de progresso para o renderer
+    const onProgress = (data) => {
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-pull-progress', data);
+    };
+    const onComplete = (data) => {
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-pull-complete', data);
+        ollama_manager_1.ollamaEmitter.off('pull-progress', onProgress);
+        ollama_manager_1.ollamaEmitter.off('pull-complete', onComplete);
+        ollama_manager_1.ollamaEmitter.off('pull-error', onError);
+    };
+    const onError = (data) => {
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-pull-error', data);
+        ollama_manager_1.ollamaEmitter.off('pull-progress', onProgress);
+        ollama_manager_1.ollamaEmitter.off('pull-complete', onComplete);
+        ollama_manager_1.ollamaEmitter.off('pull-error', onError);
+    };
+    ollama_manager_1.ollamaEmitter.on('pull-progress', onProgress);
+    ollama_manager_1.ollamaEmitter.on('pull-complete', onComplete);
+    ollama_manager_1.ollamaEmitter.on('pull-error', onError);
+    return (0, ollama_manager_1.pullModel)(modelName);
+}));
+electron_1.ipcMain.handle('ollama-delete', (_event, modelName) => __awaiter(void 0, void 0, void 0, function* () {
+    return (0, ollama_manager_1.deleteModel)(modelName);
+}));
+electron_1.ipcMain.handle('ollama-get-recommended-list', () => {
+    return ollama_manager_1.RECOMMENDED_MODELS;
+});
+electron_1.ipcMain.handle('ollama-is-running', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        return yield (0, ollama_manager_1.isOllamaRunning)();
+    }
+    catch (_a) {
+        return false;
+    }
+}));
+electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, void 0, void 0, function* () {
+    const url = process.platform === 'darwin'
+        ? 'https://ollama.com/download/Ollama-darwin.zip'
+        : 'https://ollama.com/download/OllamaSetup.exe';
+    const fileName = process.platform === 'darwin' ? 'Ollama-darwin.zip' : 'OllamaSetup.exe';
+    const destPath = path.join(electron_1.app.getPath('temp'), fileName);
+    try {
+        // Notifica progresso
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-install-progress', { status: 'downloading', percent: 0 });
+        const res = yield fetch(url);
+        if (!res.ok || !res.body)
+            throw new Error(`HTTP ${res.status}`);
+        const total = Number(res.headers.get('content-length') || 0);
+        let downloaded = 0;
+        const chunks = [];
+        const reader = res.body.getReader();
+        while (true) {
+            const { done, value } = yield reader.read();
+            if (done)
+                break;
+            chunks.push(Buffer.from(value));
+            downloaded += value.byteLength;
+            if (total > 0 && mainWindow) {
+                mainWindow.webContents.send('ollama-install-progress', {
+                    status: 'downloading',
+                    percent: Math.round(downloaded / total * 100)
+                });
+            }
+        }
+        fs.writeFileSync(destPath, Buffer.concat(chunks));
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-install-progress', { status: 'opening', percent: 100 });
+        // Abre o installer para o usuário
+        yield electron_1.shell.openPath(destPath);
+        return { success: true, path: destPath };
+    }
+    catch (e) {
+        console.error('[Ollama] Erro ao baixar installer:', e.message);
+        if (mainWindow)
+            mainWindow.webContents.send('ollama-install-progress', { status: 'error', error: e.message });
+        return { success: false, error: e.message };
+    }
+}));
 // ── Aliases legados (retrocompat com código antigo) ──
 electron_1.ipcMain.handle('store-set-anthropic-key', (_event, key) => __awaiter(void 0, void 0, void 0, function* () {
     if (!store)
@@ -709,25 +842,6 @@ function createWindow() {
     });
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
-// Register protocol
-electron_1.app.whenReady().then(() => {
-    const { protocol } = require('electron');
-    protocol.registerFileProtocol('lex-extension', (request, callback) => {
-        try {
-            const relativeUrl = decodeURIComponent(request.url.replace('lex-extension://', ''));
-            const rootDir = path.resolve(__dirname, '..');
-            const requestedPath = path.resolve(rootDir, relativeUrl);
-            if (!isWithinDirectory(requestedPath, rootDir)) {
-                callback({ error: -10 }); // ACCESS_DENIED
-                return;
-            }
-            callback({ path: requestedPath });
-        }
-        catch (_error) {
-            callback({ error: -324 }); // ERR_INVALID_URL
-        }
-    });
-});
 // File System Handlers
 electron_1.ipcMain.handle('files-select-folder', () => __awaiter(void 0, void 0, void 0, function* () {
     if (!mainWindow)
@@ -856,6 +970,11 @@ electron_1.ipcMain.handle('files-save-document', (_event_1, _a) => __awaiter(voi
         }
         yield fs.promises.writeFile(result.filePath, content, 'utf8');
         approvedFileSelections.add(normalizeFsPath(result.filePath));
+        // Re-indexa RAG em background após salvar documento
+        const wsRoots = getWorkspaceRoots();
+        if (wsRoots.length > 0) {
+            (0, doc_index_1.getDocIndex)().indexarWorkspace(wsRoots).catch(e => console.warn('[files-save-document] RAG re-index falhou:', e.message));
+        }
         return { success: true, path: result.filePath };
     }
     catch (e) {
@@ -936,25 +1055,6 @@ function injectLexScripts(target) {
         catch (e) {
             console.error('Error injecting overlay:', e);
         }
-        /*
-        try {
-            const manifestPath = path.join(__dirname, '../manifest.json');
-            if (!fs.existsSync(manifestPath)) {
-                console.error('Manifest not found at:', manifestPath);
-                return;
-            }
-    
-            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-            const contentScripts = manifest.content_scripts;
-    
-            for (const script of contentScripts) {
-                // ... (legacy injection logic commented out)
-                // We are replacing this with the unified overlay.js
-            }
-        } catch (err) {
-            console.error('Error reading manifest or injecting scripts:', err);
-        }
-        */
     });
 }
 const crawler_1 = require("./crawler");
@@ -966,6 +1066,9 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     (0, memory_1.initMemoryDir)(userData);
     // Inicializa salt de criptografia antes de qualquer encrypt/decrypt
     (0, crypto_store_1.initCryptoStoreSalt)(userData);
+    // Inicializa módulos de privacidade
+    (0, privacy_1.initConsentManager)(userData);
+    (0, privacy_1.initAuditLog)(userData);
     // Inicializa índice RAG (carrega índice persistido do disco)
     (0, doc_index_1.getDocIndex)().init(userData);
     yield initStore();
@@ -1001,6 +1104,17 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
     // Sync de legislação em background (não bloqueia boot)
     initLegislacaoSync();
+    // Inicia watchers nos workspaces para auto re-indexar RAG
+    startWorkspaceWatchers();
+    // Analytics — rastreia sessão e tempo ativo
+    const analytics = (0, analytics_1.getAnalytics)();
+    analytics.syncConversationCount(store);
+    analytics.startSession();
+    // Track focus/blur para tempo ativo
+    if (mainWindow) {
+        mainWindow.on('focus', () => analytics.trackFocus());
+        mainWindow.on('blur', () => analytics.trackBlur());
+    }
     electron_1.app.on('activate', function () {
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
             createWindow();
@@ -1064,6 +1178,10 @@ function initLegislacaoSync() {
 }
 electron_1.app.on('window-all-closed', function () {
     return __awaiter(this, void 0, void 0, function* () {
+        // Finaliza sessão de analytics
+        (0, analytics_1.getAnalytics)().endSession();
+        // Flush audit log de privacidade
+        yield (0, privacy_1.flushAuditLog)();
         // No modo 24/7 com tray ativo, não encerra o processo
         if (trayModeActive)
             return;
@@ -1110,8 +1228,11 @@ electron_1.ipcMain.handle('conversations-save', (_event, conv) => __awaiter(void
     if (JSON.stringify(conv).length > MAX_CONV_SIZE)
         return { success: false, error: 'Conversa muito grande para salvar (limite 2 MB).' };
     const convs = (store === null || store === void 0 ? void 0 : store.get('conversations', {})) || {};
+    const isNew = !convs[conv.id];
     convs[conv.id] = conv;
     store === null || store === void 0 ? void 0 : store.set('conversations', convs);
+    if (isNew)
+        (0, analytics_1.getAnalytics)().trackConversation();
     return { success: true };
 }));
 electron_1.ipcMain.handle('conversations-load', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
@@ -1139,6 +1260,16 @@ electron_1.ipcMain.handle('session-seed', (_event, sessionId, messages) => __awa
     }
     return { success: true };
 }));
+// ============================================================================
+// ANALYTICS
+// ============================================================================
+electron_1.ipcMain.handle('analytics-summary', () => __awaiter(void 0, void 0, void 0, function* () {
+    return (0, analytics_1.getAnalytics)().getSummary();
+}));
+electron_1.ipcMain.handle('analytics-track-message', () => __awaiter(void 0, void 0, void 0, function* () {
+    (0, analytics_1.getAnalytics)().trackMessage();
+    return { success: true };
+}));
 electron_1.ipcMain.handle('save-preferences', (_event, prefs) => __awaiter(void 0, void 0, void 0, function* () {
     if (store)
         store.set('userPreferences', prefs);
@@ -1164,6 +1295,7 @@ electron_1.ipcMain.handle('workspace-add', (_event, path) => __awaiter(void 0, v
         workspaces.push(selectedPath);
         store.set('workspaces', workspaces);
     }
+    startWorkspaceWatchers(); // Reinicia watchers com novo workspace
     return { success: true, workspaces };
 }));
 electron_1.ipcMain.handle('workspace-remove', (_event, path) => __awaiter(void 0, void 0, void 0, function* () {
@@ -1173,6 +1305,7 @@ electron_1.ipcMain.handle('workspace-remove', (_event, path) => __awaiter(void 0
     let workspaces = store.get('workspaces', []);
     workspaces = workspaces.filter(w => normalizeFsPath(w) !== selectedPath);
     store.set('workspaces', workspaces);
+    startWorkspaceWatchers(); // Reinicia watchers sem workspace removido
     return { success: true, workspaces };
 }));
 /** Re-indexa todos os documentos dos workspaces para o RAG. */
@@ -1187,6 +1320,61 @@ electron_1.ipcMain.handle('rag-index-workspace', () => __awaiter(void 0, void 0,
 electron_1.ipcMain.handle('rag-stats', () => __awaiter(void 0, void 0, void 0, function* () {
     return (0, doc_index_1.getDocIndex)().getStats();
 }));
+// ============================================================================
+// FILE WATCHER — auto re-indexa RAG quando arquivos mudam nos workspaces
+// ============================================================================
+const activeWatchers = [];
+let ragReindexTimer = null;
+const RAG_DEBOUNCE_MS = 5000; // 5s debounce para agrupar mudanças rápidas
+function scheduleRagReindex() {
+    if (ragReindexTimer)
+        clearTimeout(ragReindexTimer);
+    ragReindexTimer = setTimeout(() => __awaiter(this, void 0, void 0, function* () {
+        ragReindexTimer = null;
+        const ws = getWorkspaceRoots();
+        if (ws.length === 0)
+            return;
+        try {
+            const result = yield (0, doc_index_1.getDocIndex)().indexarWorkspace(ws);
+            console.log(`[FileWatcher] RAG re-indexado: ${result.chunks} chunks, ${result.arquivos} arquivos`);
+        }
+        catch (e) {
+            console.warn('[FileWatcher] RAG re-index falhou:', e.message);
+        }
+    }), RAG_DEBOUNCE_MS);
+}
+const WATCHED_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.docx', '.doc']);
+function startWorkspaceWatchers() {
+    // Limpa watchers anteriores
+    for (const w of activeWatchers) {
+        try {
+            w.close();
+        }
+        catch (_a) { }
+    }
+    activeWatchers.length = 0;
+    const workspaces = getWorkspaceRoots();
+    for (const wsPath of workspaces) {
+        try {
+            const watcher = fs.watch(wsPath, { recursive: true }, (_event, filename) => {
+                if (!filename)
+                    return;
+                const ext = path.extname(filename).toLowerCase();
+                if (WATCHED_EXTENSIONS.has(ext)) {
+                    console.log(`[FileWatcher] Mudança detectada: ${filename}`);
+                    scheduleRagReindex();
+                }
+            });
+            activeWatchers.push(watcher);
+        }
+        catch (e) {
+            console.warn(`[FileWatcher] Não foi possível monitorar ${wsPath}:`, e.message);
+        }
+    }
+    if (activeWatchers.length > 0) {
+        console.log(`[FileWatcher] Monitorando ${activeWatchers.length} workspace(s)`);
+    }
+}
 /** Baixa os códigos de legislação do Planalto e re-indexa o RAG. */
 electron_1.ipcMain.handle('rag-download-legislacao', (_e_1, ...args_1) => __awaiter(void 0, [_e_1, ...args_1], void 0, function* (_e, forcar = false) {
     const userDataDir = electron_1.app.getPath('userData');
@@ -1486,7 +1674,7 @@ Regras:
                 user,
                 temperature: 0,
                 maxTokens: 140,
-                model: 'claude-3-5-haiku-latest'
+                // Usa o agentModel do provider ativo (não hardcodar modelo específico)
             });
             return parseSemanticModeResponse(response);
         }

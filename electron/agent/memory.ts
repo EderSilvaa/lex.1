@@ -7,6 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 
 // ============================================================================
 // TYPES
@@ -79,14 +80,8 @@ export class Memory {
     }
 
     private load(): MemoriaData {
-        try {
-            if (fs.existsSync(this.filePath)) {
-                const raw = fs.readFileSync(this.filePath, 'utf8');
-                const parsed = JSON.parse(raw);
-                return { ...DEFAULTS, ...parsed };
-            }
-        } catch { /* arquivo corrompido — usar defaults */ }
-        return { ...DEFAULTS };
+        const parsed = loadEncrypted<Partial<MemoriaData>>(this.filePath, {});
+        return { ...DEFAULTS, ...parsed };
     }
 
     private save(): void {
@@ -94,12 +89,10 @@ export class Memory {
         this.saveTimer = setTimeout(() => this.flush(), 500);
     }
 
-    /** Persiste imediatamente no disco */
+    /** Persiste imediatamente no disco (criptografado) */
     flush(): void {
         try {
-            const dir = path.dirname(this.filePath);
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
+            saveEncrypted(this.filePath, this.data);
         } catch (err) {
             console.error('[Memory] Erro ao salvar:', err);
         }

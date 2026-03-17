@@ -1,9 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
-electron_1.contextBridge.exposeInMainWorld('dashboardApi', {
-    setMode: (mode) => electron_1.ipcRenderer.invoke('dashboard-set-mode', mode),
-});
 electron_1.contextBridge.exposeInMainWorld('filesApi', {
     selectFolder: () => electron_1.ipcRenderer.invoke('files-select-folder'),
     listFiles: (path) => electron_1.ipcRenderer.invoke('files-list', path),
@@ -45,22 +42,7 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     offAgentEvent: () => {
         electron_1.ipcRenderer.removeAllListeners('agent-event');
     },
-    // Browser (PJe) Automation & Tabs
-    updateBrowserLayout: (bounds) => electron_1.ipcRenderer.invoke('browser-layout-update', bounds),
-    expandBrowserToFill: (sidebarWidth) => electron_1.ipcRenderer.invoke('browser-expand-to-fill', sidebarWidth !== null && sidebarWidth !== void 0 ? sidebarWidth : 228),
-    newTab: (url) => electron_1.ipcRenderer.invoke('browser-tab-new', url),
-    switchTab: (tabId) => electron_1.ipcRenderer.invoke('browser-tab-switch', tabId),
-    closeTab: (tabId) => electron_1.ipcRenderer.invoke('browser-tab-close', tabId),
-    // Legacy Hooks (mapped to active tab)
-    pjeNavigate: (url) => electron_1.ipcRenderer.invoke('pje-navigate', url),
-    // Events
-    onBrowserTabCreated: (cb) => electron_1.ipcRenderer.on('browser-tab-created', (_, val) => cb(val)),
-    onBrowserTabActive: (cb) => electron_1.ipcRenderer.on('browser-tab-active', (_, val) => cb(val)),
-    onBrowserTabClosed: (cb) => electron_1.ipcRenderer.on('browser-tab-closed', (_, val) => cb(val)),
-    onBrowserUpdateUrl: (cb) => electron_1.ipcRenderer.on('browser-update-url', (_, val) => cb(val)),
-    onBrowserUpdateTitle: (cb) => electron_1.ipcRenderer.on('browser-update-title', (_, val) => cb(val)),
-    onBrowserLoadState: (cb) => electron_1.ipcRenderer.on('browser-load-state', (_, val) => cb(val)),
-    // Vision AI debug stream
+    // Vision AI debug stream (reservado para uso futuro)
     onVisionDebug: (cb) => electron_1.ipcRenderer.on('vision-debug', (_, val) => cb(val)),
     // Multi-conversation persistence
     listConversations: () => electron_1.ipcRenderer.invoke('conversations-list'),
@@ -68,6 +50,9 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     saveConversation: (conv) => electron_1.ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id) => electron_1.ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId, messages) => electron_1.ipcRenderer.invoke('session-seed', sessionId, messages),
+    // Analytics
+    getAnalyticsSummary: () => electron_1.ipcRenderer.invoke('analytics-summary'),
+    trackMessage: () => electron_1.ipcRenderer.invoke('analytics-track-message'),
     // RAG — Indexação de documentos do workspace
     ragIndexWorkspace: () => electron_1.ipcRenderer.invoke('rag-index-workspace'),
     ragStats: () => electron_1.ipcRenderer.invoke('rag-stats'),
@@ -82,6 +67,34 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     telegramEnable: () => electron_1.ipcRenderer.invoke('telegram-enable'),
     telegramDisable: () => electron_1.ipcRenderer.invoke('telegram-disable'),
     telegramGetStatus: () => electron_1.ipcRenderer.invoke('telegram-get-status'),
+    // Ollama (Modelo Local)
+    ollamaStatus: () => electron_1.ipcRenderer.invoke('ollama-status'),
+    ollamaListModels: () => electron_1.ipcRenderer.invoke('ollama-list-models'),
+    ollamaRecommended: () => electron_1.ipcRenderer.invoke('ollama-recommended'),
+    ollamaPull: (model) => electron_1.ipcRenderer.invoke('ollama-pull', model),
+    ollamaDelete: (model) => electron_1.ipcRenderer.invoke('ollama-delete', model),
+    ollamaGetRecommendedList: () => electron_1.ipcRenderer.invoke('ollama-get-recommended-list'),
+    ollamaIsRunning: () => electron_1.ipcRenderer.invoke('ollama-is-running'),
+    ollamaDownloadInstaller: () => electron_1.ipcRenderer.invoke('ollama-download-installer'),
+    onOllamaInstallProgress: (cb) => electron_1.ipcRenderer.on('ollama-install-progress', (_, d) => cb(d)),
+    offOllamaInstallProgress: () => electron_1.ipcRenderer.removeAllListeners('ollama-install-progress'),
+    onOllamaPullProgress: (cb) => electron_1.ipcRenderer.on('ollama-pull-progress', (_, d) => cb(d)),
+    onOllamaPullComplete: (cb) => electron_1.ipcRenderer.on('ollama-pull-complete', (_, d) => cb(d)),
+    onOllamaPullError: (cb) => electron_1.ipcRenderer.on('ollama-pull-error', (_, d) => cb(d)),
+    offOllamaPullEvents: () => {
+        electron_1.ipcRenderer.removeAllListeners('ollama-pull-progress');
+        electron_1.ipcRenderer.removeAllListeners('ollama-pull-complete');
+        electron_1.ipcRenderer.removeAllListeners('ollama-pull-error');
+    },
+    // Privacidade / Consent
+    privacyGetConfig: () => electron_1.ipcRenderer.invoke('privacy-get-config'),
+    privacySetLevel: (level) => electron_1.ipcRenderer.invoke('privacy-set-level', level),
+    privacySetProviderConsent: (cfg) => electron_1.ipcRenderer.invoke('privacy-set-provider-consent', cfg),
+    privacyCompleteOnboarding: (level) => electron_1.ipcRenderer.invoke('privacy-complete-onboarding', level),
+    privacyIsOnboardingCompleted: () => electron_1.ipcRenderer.invoke('privacy-is-onboarding-completed'),
+    privacyRevokeAll: () => electron_1.ipcRenderer.invoke('privacy-revoke-all'),
+    privacyGetEffectiveLevel: (providerId) => electron_1.ipcRenderer.invoke('privacy-get-effective-level', providerId),
+    privacyGetAuditSummary: (days) => electron_1.ipcRenderer.invoke('privacy-get-audit-summary', days),
 });
 electron_1.contextBridge.exposeInMainWorld('authApi', {
     signIn: (email, password) => electron_1.ipcRenderer.invoke('auth-sign-in', { email, password }),

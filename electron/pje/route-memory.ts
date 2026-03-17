@@ -12,6 +12,7 @@
 
 import path from 'path'
 import fs from 'fs'
+import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage'
 
 interface RouteEntry {
   url: string
@@ -35,17 +36,12 @@ export function initRouteMemory(userDataDir?: string): void {
     storePath = path.join(userDataDir, 'pje-route-memory.json')
   }
   if (!storePath) throw new Error('[RouteMemory] Chame initRouteMemory(userDataDir) com o diretório')
-  try {
-    const p = storePath
-    if (fs.existsSync(p)) {
-      const raw = fs.readFileSync(p, 'utf8')
-      const parsed = JSON.parse(raw) as RouteStore
-      if (parsed?.version === 1 && parsed.routes) {
-        store = parsed
-        console.log(`[RouteMemory] Carregado ${Object.keys(store.routes).length} rotas aprendidas`)
-      }
-    }
-  } catch { /* arquivo corrompido — começa do zero */ }
+  const parsed = loadEncrypted<RouteStore>(storePath, { version: 1, routes: {} })
+  if (parsed?.version === 1 && parsed.routes) {
+    store = parsed
+    const count = Object.keys(store.routes).length
+    if (count > 0) console.log(`[RouteMemory] Carregado ${count} rotas (criptografado)`)
+  }
 }
 
 /** Normaliza destino para chave consistente */
@@ -113,7 +109,7 @@ export function flush(): void {
   if (!dirty) return
   try {
     if (!storePath) return
-    fs.writeFileSync(storePath, JSON.stringify(store, null, 2), 'utf8')
+    saveEncrypted(storePath, store)
     dirty = false
   } catch (err) {
     console.error('[RouteMemory] Erro ao salvar:', err)

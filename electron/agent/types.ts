@@ -17,6 +17,8 @@ export interface AgentState {
     iteracao: number;
     startTime: number;
     endTime?: number;
+    /** PII Vault — vive apenas durante o run, nunca persiste */
+    piiVault?: import('../privacy/pii-vault').PIIVault;
 }
 
 export type AgentStatus =
@@ -215,7 +217,8 @@ export type AgentEvent =
     | { type: 'cancelled' }
     | { type: 'timeout' }
     | { type: 'streaming_start' }
-    | { type: 'token'; token: string };
+    | { type: 'token'; token: string }
+    | { type: 'privacy_stats'; stats: Array<{ category: string; count: number }> };
 
 // ============================================================================
 // CONFIG

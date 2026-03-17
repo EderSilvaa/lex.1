@@ -684,7 +684,7 @@ function legacyAddAutomationCardToUIBase() {
                     <strong>PJe Automation</strong>
                     <div id="${id}-status" style="font-size: 12px; opacity: 0.8;">Executando...</div>
                 </div>
-                <button class="open-pje-btn" style="background: #4ade80; border: none; padding: 6px 12px; border-radius: 4px; color: #000; font-weight: 500; cursor: pointer;">Ver Tela</button>
+                <button class="open-pje-btn" style="background: var(--success-color); border: none; padding: 6px 12px; border-radius: 4px; color: #000; font-weight: 500; cursor: pointer;">Ver Tela</button>
             </div>
         </div>
     `;
@@ -754,8 +754,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.updaterApi) {
         window.updaterApi.onUpdateDownloaded(() => {
             const banner = document.createElement('div');
-            banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#1e3a5f;border-top:1px solid #60a5fa;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;z-index:9998;font-size:13px;color:#e2e8f0';
-            banner.innerHTML = `<span>Nova versao do LEX disponivel.</span><button id="btn-install-update" style="background:#60a5fa;color:#0f1621;border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer">Instalar e reiniciar</button>`;
+            banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:var(--bg-tertiary);border-top:1px solid var(--accent-color);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;z-index:9998;font-size:13px;color:var(--text-primary)';
+            banner.innerHTML = `<span>Nova versao do LEX disponivel.</span><button id="btn-install-update" style="background:var(--accent-color);color:var(--text-primary);border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer">Instalar e reiniciar</button>`;
             document.body.appendChild(banner);
             document.getElementById('btn-install-update')?.addEventListener('click', () => window.updaterApi.installNow());
         });
@@ -799,7 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (isSignUp) {
-                if (authError) { authError.style.color = '#34d399'; authError.textContent = 'Conta criada! Verifique seu email e entre.'; authError.style.display = 'block'; }
+                if (authError) { authError.style.color = 'var(--success-color)'; authError.textContent = 'Conta criada! Verifique seu email e entre.'; authError.style.display = 'block'; }
                 return;
             }
 
@@ -1105,6 +1105,138 @@ function setDynamicGreeting(displayName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Privacy Settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PRIVACY_LEVEL_HINTS = {
+    '1': 'Todos os dados sensiveis (CPF, nomes, valores, CNPJ, OAB, emails) sao mascarados antes de sair da maquina. A IA so ve tokens como [PARTE_AUTORA_1], [CPF_1].',
+    '2': 'Nomes de partes sao mantidos para respostas mais naturais. CPFs, CNPJs, valores e contatos sao mascarados.',
+    '3': 'Nenhum dado e anonimizado. Todos os dados reais sao enviados para o provedor de IA. Nao recomendado para dados de clientes.',
+    '0': 'Nenhum dado sai da sua maquina. Requer Ollama instalado localmente. Qualidade das respostas reduzida.'
+};
+
+async function initPrivacySettings() {
+    const select = document.getElementById('privacy-level');
+    const hint = document.getElementById('privacy-level-hint');
+    const btnSave = document.getElementById('btn-privacy-save');
+    const btnRevoke = document.getElementById('btn-privacy-revoke');
+    const feedback = document.getElementById('privacy-feedback');
+    const statsBox = document.getElementById('privacy-stats-box');
+
+    if (!select || !window.lexApi?.privacyGetConfig) return;
+
+    // Carrega config atual
+    try {
+        const config = await window.lexApi.privacyGetConfig();
+        select.value = String(config.defaultLevel);
+        if (hint) hint.textContent = PRIVACY_LEVEL_HINTS[select.value] || '';
+    } catch { /* ignore */ }
+
+    // Atualiza hint ao mudar nivel
+    select.addEventListener('change', () => {
+        if (hint) hint.textContent = PRIVACY_LEVEL_HINTS[select.value] || '';
+    });
+
+    // Salvar nivel
+    if (btnSave) {
+        btnSave.addEventListener('click', async () => {
+            try {
+                await window.lexApi.privacySetLevel(Number(select.value));
+                if (feedback) { feedback.style.display = 'block'; setTimeout(() => { feedback.style.display = 'none'; }, 2000); }
+            } catch (e) {
+                console.error('Erro ao salvar nivel de privacidade:', e);
+            }
+        });
+    }
+
+    // Revogar tudo
+    if (btnRevoke) {
+        btnRevoke.addEventListener('click', async () => {
+            if (!confirm('Revogar todo o consentimento? O nivel voltara para "Anonimizado completo" e o onboarding sera exibido novamente.')) return;
+            try {
+                await window.lexApi.privacyRevokeAll();
+                select.value = '1';
+                if (hint) hint.textContent = PRIVACY_LEVEL_HINTS['1'];
+                if (feedback) { feedback.textContent = 'Consentimento revogado.'; feedback.style.display = 'block'; setTimeout(() => { feedback.style.display = 'none'; feedback.textContent = 'Salvo!'; }, 3000); }
+            } catch (e) {
+                console.error('Erro ao revogar consentimento:', e);
+            }
+        });
+    }
+
+    // Carrega audit stats
+    loadPrivacyAuditStats(statsBox);
+}
+
+async function loadPrivacyAuditStats(statsBox) {
+    if (!statsBox || !window.lexApi?.privacyGetAuditSummary) return;
+    try {
+        const summary = await window.lexApi.privacyGetAuditSummary(7);
+        if (summary.totalCalls === 0) {
+            statsBox.style.display = 'none';
+            return;
+        }
+        statsBox.style.display = 'block';
+        const el = document.getElementById('privacy-audit-stats');
+        if (!el) return;
+
+        const providers = Object.entries(summary.byProvider)
+            .map(([p, c]) => `<span style="background:var(--bg-tertiary);padding:2px 8px;border-radius:4px;margin:2px;font-size:11px">${p} <b>${c}x</b></span>`)
+            .join('') || '<span style="color:var(--text-muted)">nenhum</span>';
+
+        el.innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <div style="background:rgba(var(--accent-rgb),0.1);border-radius:6px;padding:8px;text-align:center">
+                    <div style="font-size:18px;font-weight:700;color:var(--accent-color)">${summary.totalCalls}</div>
+                    <div style="font-size:10px;color:var(--text-muted)">Chamadas LLM</div>
+                </div>
+                <div style="background:rgba(121,170,138,0.1);border-radius:6px;padding:8px;text-align:center">
+                    <div style="font-size:18px;font-weight:700;color:var(--success-color)">${summary.totalPIIMasked}</div>
+                    <div style="font-size:10px;color:var(--text-muted)">PII mascaradas</div>
+                </div>
+            </div>
+            <div>Providers: ${providers}</div>
+        `;
+    } catch { statsBox.style.display = 'none'; }
+}
+
+async function initPrivacyOnboarding() {
+    if (!window.lexApi?.privacyIsOnboardingCompleted) return;
+    try {
+        const done = await window.lexApi.privacyIsOnboardingCompleted();
+        if (done) return;
+    } catch { return; }
+
+    const overlay = document.getElementById('privacy-onboarding-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+
+    // Selecao de opcao
+    const options = overlay.querySelectorAll('.lex-privacy-option');
+    options.forEach(opt => {
+        opt.addEventListener('click', () => {
+            options.forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            const radio = opt.querySelector('input[type="radio"]');
+            if (radio) radio.checked = true;
+        });
+    });
+
+    // Aceitar
+    const btnAccept = document.getElementById('privacy-onboarding-accept');
+    if (btnAccept) {
+        btnAccept.addEventListener('click', async () => {
+            const selected = overlay.querySelector('input[name="onb-privacy"]:checked');
+            const level = selected ? Number(selected.value) : 1;
+            try {
+                await window.lexApi.privacyCompleteOnboarding(level);
+            } catch { /* ignore */ }
+            overlay.style.display = 'none';
+        });
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Analytics Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1117,66 +1249,66 @@ async function loadAnalyticsDashboard() {
 
         const topSkillsHtml = s.topSkills.length > 0
             ? s.topSkills.slice(0, 5).map(sk =>
-                `<span style="display:inline-block;background:#1e293b;padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${sk.skill} <b>${sk.count}x</b></span>`
+                `<span style="display:inline-block;background:var(--bg-tertiary);padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${sk.skill} <b>${sk.count}x</b></span>`
             ).join('')
-            : '<span style="color:#64748b">Nenhuma skill usada ainda</span>';
+            : '<span style="color:var(--text-muted)">Nenhuma skill usada ainda</span>';
 
         const topModelsHtml = s.topModels.length > 0
             ? s.topModels.slice(0, 3).map(m =>
-                `<span style="display:inline-block;background:#1e293b;padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${m.model.split('/').pop()} <b>${m.count}x</b></span>`
+                `<span style="display:inline-block;background:var(--bg-tertiary);padding:2px 8px;border-radius:4px;margin:2px;font-size:12px">${m.model.split('/').pop()} <b>${m.count}x</b></span>`
             ).join('')
-            : '<span style="color:#64748b">Nenhum modelo usado ainda</span>';
+            : '<span style="color:var(--text-muted)">Nenhum modelo usado ainda</span>';
 
         const errCount = Object.values(s.todayErrors).reduce((a, b) => a + b, 0);
 
         el.innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
-                    <div style="font-size:24px;font-weight:700;color:#60a5fa">${s.totalMessages}</div>
-                    <div style="font-size:11px;color:#64748b;margin-top:2px">Mensagens (total)</div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--accent-color)">${s.totalMessages}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Mensagens (total)</div>
                 </div>
-                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
-                    <div style="font-size:24px;font-weight:700;color:#34d399">${s.totalSessions}</div>
-                    <div style="font-size:11px;color:#64748b;margin-top:2px">Sessoes (total)</div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--success-color)">${s.totalSessions}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Sessoes (total)</div>
                 </div>
-                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
-                    <div style="font-size:24px;font-weight:700;color:#fbbf24">${s.daysActive}</div>
-                    <div style="font-size:11px;color:#64748b;margin-top:2px">Dias ativos</div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--warning-color)">${s.daysActive}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Dias ativos</div>
                 </div>
-                <div style="background:#0f172a;border-radius:8px;padding:12px;text-align:center">
-                    <div style="font-size:24px;font-weight:700;color:#a78bfa">${s.totalConversations}</div>
-                    <div style="font-size:11px;color:#64748b;margin-top:2px">Conversas</div>
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+                    <div style="font-size:24px;font-weight:700;color:var(--text-secondary)">${s.totalConversations}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Conversas</div>
                 </div>
             </div>
 
             <div style="margin-bottom:10px">
-                <b style="color:#94a3b8;font-size:12px">Hoje</b><br>
+                <b style="color:var(--text-secondary);font-size:12px">Hoje</b><br>
                 <span>${s.todayMessages} msg</span> &middot;
                 <span>${s.todaySessions} sessoes</span> &middot;
                 <span>${s.todayActiveMinutes} min ativo</span>
-                ${errCount > 0 ? ` &middot; <span style="color:#f87171">${errCount} erros</span>` : ''}
+                ${errCount > 0 ? ` &middot; <span style="color:var(--danger-color)">${errCount} erros</span>` : ''}
             </div>
 
             <div style="margin-bottom:10px">
-                <b style="color:#94a3b8;font-size:12px">Sessao atual</b><br>
+                <b style="color:var(--text-secondary);font-size:12px">Sessao atual</b><br>
                 <span>${s.currentSessionMinutes} min</span> &middot;
                 <span>${s.currentSessionMessages} mensagens</span>
             </div>
 
             <div style="margin-bottom:10px">
-                <b style="color:#94a3b8;font-size:12px">Skills mais usadas</b><br>
+                <b style="color:var(--text-secondary);font-size:12px">Skills mais usadas</b><br>
                 ${topSkillsHtml}
             </div>
 
             <div style="margin-bottom:10px">
-                <b style="color:#94a3b8;font-size:12px">Modelos mais usados</b><br>
+                <b style="color:var(--text-secondary);font-size:12px">Modelos mais usados</b><br>
                 ${topModelsHtml}
             </div>
 
             <div>
-                <b style="color:#94a3b8;font-size:12px">Provider favorito:</b>
-                <span style="color:#60a5fa">${s.mostActiveProvider}</span>
-                ${s.firstSeen ? ` &middot; <span style="color:#64748b">Desde ${s.firstSeen}</span>` : ''}
+                <b style="color:var(--text-secondary);font-size:12px">Provider favorito:</b>
+                <span style="color:var(--accent-color)">${s.mostActiveProvider}</span>
+                ${s.firstSeen ? ` &middot; <span style="color:var(--text-muted)">Desde ${s.firstSeen}</span>` : ''}
             </div>
         `;
     } catch (e) {
@@ -1195,6 +1327,7 @@ const PROVIDER_KEY_LINKS = {
     openrouter: 'https://openrouter.ai/keys',
     google: 'https://aistudio.google.com/app/apikey',
     groq: 'https://console.groq.com/keys',
+    ollama: '',
 };
 
 let _providerPresets = null;
@@ -1286,11 +1419,23 @@ function updateProviderLink(providerId) {
         if (providerId === 'openrouter') {
             defaultHint.style.display = 'none';
             freeHint.style.display = 'block';
+        } else if (providerId === 'ollama') {
+            defaultHint.style.display = 'none';
+            freeHint.style.display = 'none';
         } else {
             defaultHint.style.display = 'block';
             freeHint.style.display = 'none';
         }
     }
+
+    // Esconde campo de API key para Ollama (não precisa de chave)
+    const apiKeyField = document.getElementById('ai-api-key')?.closest('.settings-field');
+    if (apiKeyField) apiKeyField.style.display = providerId === 'ollama' ? 'none' : '';
+
+    // Mostra/esconde seção Ollama
+    const ollamaSection = document.getElementById('ollama-section');
+    if (ollamaSection) ollamaSection.style.display = providerId === 'ollama' ? '' : 'none';
+    if (providerId === 'ollama') refreshOllamaStatus();
 }
 
 function updateApiKeyPlaceholder(providerId) {
@@ -1308,10 +1453,10 @@ function updateKeyStatusBadge(status) {
     if (!el) return;
     if (status?.configured) {
         el.textContent = '✓ ' + (status.preview || 'Configurada');
-        el.style.color = '#34d399';
+        el.style.color = 'var(--success-color)';
     } else {
         el.textContent = 'Nao configurada';
-        el.style.color = '#f87171';
+        el.style.color = 'var(--danger-color)';
     }
 }
 
@@ -1389,6 +1534,263 @@ async function saveSettings() {
     } catch (_) {}
 }
 
+// ── Ollama (Modelo Local) ────────────────────────────────────────────────────
+
+let _ollamaPulling = false;
+
+async function refreshOllamaStatus() {
+    if (!window.lexApi?.ollamaStatus) return;
+    const dot = document.getElementById('ollama-status-dot');
+    const text = document.getElementById('ollama-status-text');
+    const notFound = document.getElementById('ollama-not-found');
+    const modelsArea = document.getElementById('ollama-models-area');
+
+    try {
+        const status = await window.lexApi.ollamaStatus();
+        console.log('[Ollama] Status:', status);
+        if (status?.running) {
+            if (dot) dot.style.background = 'var(--success-color)';
+            if (text) text.textContent = `Ollama rodando${status.version ? ' (v' + status.version + ')' : ''} — ${status.models.length} modelo(s) instalado(s)`;
+            if (notFound) notFound.style.display = 'none';
+            if (modelsArea) modelsArea.style.display = '';
+            await renderOllamaModels();
+        } else {
+            if (dot) dot.style.background = 'var(--danger-color)';
+            if (text) text.textContent = 'Ollama nao detectado';
+            if (notFound) notFound.style.display = '';
+            if (modelsArea) modelsArea.style.display = 'none';
+        }
+    } catch (e) {
+        console.error('[Ollama] Erro ao verificar:', e);
+        if (dot) dot.style.background = 'var(--danger-color)';
+        if (text) text.textContent = 'Ollama nao detectado — verifique se esta instalado e rodando';
+        if (notFound) notFound.style.display = '';
+        if (modelsArea) modelsArea.style.display = 'none';
+    }
+}
+
+async function renderOllamaModels() {
+    const list = document.getElementById('ollama-models-list');
+    if (!list || !window.lexApi?.ollamaRecommended) return;
+
+    try {
+        const models = await window.lexApi.ollamaRecommended();
+        list.innerHTML = models.map(m => `
+            <div class="ollama-model-card" data-model="${m.id}" style="
+                background:var(--bg-secondary);border:1px solid ${m.installed ? 'var(--success-color)' : 'var(--border-color)'};border-radius:10px;
+                padding:10px 14px;display:flex;align-items:center;gap:12px;
+            ">
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:${m.installed ? 'var(--success-color)' : 'var(--text-primary)'}">${m.name}${m.vision ? ' <span style="font-size:10px;background:var(--accent-strong);color:var(--text-primary);padding:1px 6px;border-radius:4px;margin-left:4px">vision</span>' : ''}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${m.description}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${m.size} · RAM minima: ${m.minRam}</div>
+                </div>
+                <div style="flex-shrink:0">
+                    ${m.installed
+                        ? `<button class="ollama-btn-remove" data-model="${m.id}" style="
+                            background:none;border:1px solid var(--border-strong);border-radius:6px;color:var(--danger-color);
+                            font-size:11px;padding:4px 10px;cursor:pointer">Remover</button>`
+                        : `<button class="ollama-btn-install" data-model="${m.id}" style="
+                            background:var(--accent-strong);border:1px solid var(--accent-color);border-radius:6px;color:var(--text-primary);
+                            font-size:11px;padding:4px 10px;cursor:pointer">Baixar</button>`
+                    }
+                </div>
+            </div>
+        `).join('');
+
+        // Bind install buttons
+        list.querySelectorAll('.ollama-btn-install').forEach(btn => {
+            btn.addEventListener('click', () => ollamaPullModel(btn.dataset.model));
+        });
+
+        // Bind remove buttons
+        list.querySelectorAll('.ollama-btn-remove').forEach(btn => {
+            btn.addEventListener('click', () => ollamaRemoveModel(btn.dataset.model));
+        });
+    } catch (e) {
+        list.innerHTML = '<div style="font-size:12px;color:var(--danger-color)">Erro ao carregar modelos</div>';
+    }
+}
+
+async function ollamaPullModel(modelId) {
+    if (_ollamaPulling) return;
+    _ollamaPulling = true;
+
+    const pullBar = document.getElementById('ollama-pull-bar');
+    const pullLabel = document.getElementById('ollama-pull-label');
+    const pullPercent = document.getElementById('ollama-pull-percent');
+    const pullFill = document.getElementById('ollama-pull-fill');
+    const pullStatus = document.getElementById('ollama-pull-status');
+
+    if (pullBar) pullBar.style.display = '';
+    if (pullLabel) pullLabel.textContent = `Baixando ${modelId}...`;
+    if (pullPercent) pullPercent.textContent = '0%';
+    if (pullFill) pullFill.style.width = '0%';
+    if (pullStatus) pullStatus.textContent = 'Iniciando download...';
+
+    // Disable install buttons during download
+    document.querySelectorAll('.ollama-btn-install').forEach(b => b.disabled = true);
+
+    // Listen for progress
+    if (window.lexApi.onOllamaPullProgress) {
+        window.lexApi.onOllamaPullProgress((data) => {
+            const pct = data.percent || 0;
+            if (pullPercent) pullPercent.textContent = pct + '%';
+            if (pullFill) pullFill.style.width = pct + '%';
+            if (pullStatus) pullStatus.textContent = data.status || '';
+        });
+    }
+
+    if (window.lexApi.onOllamaPullComplete) {
+        window.lexApi.onOllamaPullComplete(() => {
+            if (pullLabel) pullLabel.textContent = 'Download concluido!';
+            if (pullPercent) pullPercent.textContent = '100%';
+            if (pullFill) pullFill.style.width = '100%';
+            if (pullStatus) pullStatus.textContent = '';
+            _ollamaPulling = false;
+            cleanupPullListeners();
+            setTimeout(() => {
+                if (pullBar) pullBar.style.display = 'none';
+                refreshOllamaStatus();
+            }, 2000);
+        });
+    }
+
+    if (window.lexApi.onOllamaPullError) {
+        window.lexApi.onOllamaPullError((data) => {
+            if (pullLabel) pullLabel.textContent = 'Erro no download';
+            if (pullStatus) pullStatus.textContent = data.error || 'Erro desconhecido';
+            if (pullPercent) pullPercent.textContent = '';
+            _ollamaPulling = false;
+            cleanupPullListeners();
+            document.querySelectorAll('.ollama-btn-install').forEach(b => b.disabled = false);
+        });
+    }
+
+    try {
+        await window.lexApi.ollamaPull(modelId);
+    } catch (e) {
+        if (pullLabel) pullLabel.textContent = 'Erro';
+        if (pullStatus) pullStatus.textContent = e.message || 'Falha ao iniciar download';
+        _ollamaPulling = false;
+        cleanupPullListeners();
+    }
+}
+
+function cleanupPullListeners() {
+    if (window.lexApi?.offOllamaPullEvents) window.lexApi.offOllamaPullEvents();
+    document.querySelectorAll('.ollama-btn-install').forEach(b => b.disabled = false);
+}
+
+async function ollamaRemoveModel(modelId) {
+    if (!window.lexApi?.ollamaDelete) return;
+    if (!confirm(`Remover o modelo "${modelId}"? O download precisara ser refeito.`)) return;
+    try {
+        await window.lexApi.ollamaDelete(modelId);
+        await refreshOllamaStatus();
+    } catch (e) {
+        console.error('[Ollama] Erro ao remover modelo:', e);
+    }
+}
+
+let _ollamaPollingInterval = null;
+
+function initOllamaSettings() {
+    // Initial check — show section if provider is already ollama
+    const providerSelect = document.getElementById('ai-provider');
+    if (providerSelect?.value === 'ollama') {
+        const ollamaSection = document.getElementById('ollama-section');
+        if (ollamaSection) ollamaSection.style.display = '';
+        const apiKeyField = document.getElementById('ai-api-key')?.closest('.settings-field');
+        if (apiKeyField) apiKeyField.style.display = 'none';
+        refreshOllamaStatus();
+    }
+
+    // Botão instalar Ollama
+    const btnInstall = document.getElementById('btn-ollama-install');
+    if (btnInstall) {
+        btnInstall.addEventListener('click', () => startOllamaInstall());
+    }
+}
+
+async function startOllamaInstall() {
+    if (!window.lexApi?.ollamaDownloadInstaller) return;
+
+    const btn = document.getElementById('btn-ollama-install');
+    const bar = document.getElementById('ollama-install-bar');
+    const label = document.getElementById('ollama-install-label');
+    const percent = document.getElementById('ollama-install-percent');
+    const fill = document.getElementById('ollama-install-fill');
+    const status = document.getElementById('ollama-install-status');
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Baixando...'; }
+    if (bar) bar.style.display = '';
+
+    // Listener de progresso
+    if (window.lexApi.onOllamaInstallProgress) {
+        window.lexApi.onOllamaInstallProgress((data) => {
+            if (data.status === 'downloading') {
+                if (label) label.textContent = 'Baixando installer...';
+                if (percent) percent.textContent = (data.percent || 0) + '%';
+                if (fill) fill.style.width = (data.percent || 0) + '%';
+            } else if (data.status === 'opening') {
+                if (label) label.textContent = 'Abrindo installer...';
+                if (percent) percent.textContent = '100%';
+                if (fill) fill.style.width = '100%';
+                if (status) status.textContent = 'Conclua a instalacao na janela que abriu. A LEX vai detectar automaticamente.';
+            } else if (data.status === 'error') {
+                if (label) label.textContent = 'Erro no download';
+                if (status) status.textContent = data.error || 'Tente novamente';
+                if (btn) { btn.disabled = false; btn.textContent = 'Tentar novamente'; }
+            }
+        });
+    }
+
+    try {
+        const result = await window.lexApi.ollamaDownloadInstaller();
+        if (window.lexApi.offOllamaInstallProgress) window.lexApi.offOllamaInstallProgress();
+
+        if (result?.success) {
+            if (btn) btn.textContent = 'Aguardando instalacao...';
+            if (status) status.textContent = 'Conclua a instalacao. A LEX detecta automaticamente quando o Ollama iniciar.';
+            // Inicia polling para detectar quando Ollama começa a rodar
+            startOllamaDetectionPolling();
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = 'Tentar novamente'; }
+            if (status) status.textContent = result?.error || 'Erro ao baixar installer';
+        }
+    } catch (e) {
+        if (window.lexApi.offOllamaInstallProgress) window.lexApi.offOllamaInstallProgress();
+        if (btn) { btn.disabled = false; btn.textContent = 'Tentar novamente'; }
+        if (status) status.textContent = e.message || 'Erro inesperado';
+    }
+}
+
+function startOllamaDetectionPolling() {
+    if (_ollamaPollingInterval) clearInterval(_ollamaPollingInterval);
+
+    _ollamaPollingInterval = setInterval(async () => {
+        if (!window.lexApi?.ollamaIsRunning) return;
+        try {
+            const running = await window.lexApi.ollamaIsRunning();
+            if (running) {
+                clearInterval(_ollamaPollingInterval);
+                _ollamaPollingInterval = null;
+                // Ollama detectado! Atualiza a UI
+                await refreshOllamaStatus();
+            }
+        } catch { /* ignora, tenta de novo */ }
+    }, 3000); // checa a cada 3s
+
+    // Para de tentar após 5 minutos
+    setTimeout(() => {
+        if (_ollamaPollingInterval) {
+            clearInterval(_ollamaPollingInterval);
+            _ollamaPollingInterval = null;
+        }
+    }, 5 * 60 * 1000);
+}
+
 // ── Telegram 24/7 ───────────────────────────────────────────────────────────
 
 async function initTelegramSettings() {
@@ -1413,29 +1815,29 @@ async function initTelegramSettings() {
             if (cfg.running) {
                 btnToggle.textContent = 'Desativar 24/7';
                 btnToggle.style.background = '#dc2626';
-                setStatus('Bot ativo — aguardando mensagens no Telegram', '#4ade80');
+                setStatus('Bot ativo — aguardando mensagens no Telegram', 'var(--success-color)');
             } else {
                 btnToggle.textContent = 'Ativar 24/7';
                 btnToggle.style.background = '';
                 setStatus(cfg.hasToken ? 'Bot configurado. Clique em "Ativar 24/7" para ligar.' : 'Configure o token e seu ID para ativar.');
             }
         } catch (e) {
-            setStatus('Erro ao carregar config: ' + e.message, '#f87171');
+            setStatus('Erro ao carregar config: ' + e.message, 'var(--danger-color)');
         }
     }
 
     btnSave.addEventListener('click', async () => {
         const token = tokenInput.value.trim();
         const userId = parseInt(userIdInput.value.trim(), 10);
-        if (!token && !userId) { setStatus('Preencha pelo menos um campo.', '#f87171'); return; }
+        if (!token && !userId) { setStatus('Preencha pelo menos um campo.', 'var(--danger-color)'); return; }
         btnSave.disabled = true;
         try {
             await window.lexApi.telegramSetConfig({ token: token || '', userId: userId || 0 });
-            setStatus('Config salva!', '#4ade80');
+            setStatus('Config salva!', 'var(--success-color)');
             tokenInput.value = '';
             await refreshUI();
         } catch (e) {
-            setStatus('Erro: ' + e.message, '#f87171');
+            setStatus('Erro: ' + e.message, 'var(--danger-color)');
         } finally {
             btnSave.disabled = false;
         }
@@ -1446,19 +1848,19 @@ async function initTelegramSettings() {
         try {
             const status = await window.lexApi.telegramGetStatus();
             if (status.running) {
-                setStatus('Desativando...', '#94a3b8');
+                setStatus('Desativando...', 'var(--text-secondary)');
                 const r = await window.lexApi.telegramDisable();
-                if (r.error) { setStatus('Erro: ' + r.error, '#f87171'); return; }
-                setStatus('Bot desativado.', '#94a3b8');
+                if (r.error) { setStatus('Erro: ' + r.error, 'var(--danger-color)'); return; }
+                setStatus('Bot desativado.', 'var(--text-secondary)');
             } else {
-                setStatus('Ativando...', '#94a3b8');
+                setStatus('Ativando...', 'var(--text-secondary)');
                 const r = await window.lexApi.telegramEnable();
-                if (r.error) { setStatus('Erro: ' + r.error, '#f87171'); return; }
-                setStatus('Bot ativo! Mande /start para o bot no Telegram.', '#4ade80');
+                if (r.error) { setStatus('Erro: ' + r.error, 'var(--danger-color)'); return; }
+                setStatus('Bot ativo! Mande /start para o bot no Telegram.', 'var(--success-color)');
             }
             await refreshUI();
         } catch (e) {
-            setStatus('Erro: ' + e.message, '#f87171');
+            setStatus('Erro: ' + e.message, 'var(--danger-color)');
         } finally {
             btnToggle.disabled = false;
         }
@@ -1478,10 +1880,10 @@ async function loadRagStats() {
         const stats = await window.lexApi.ragStats();
         if (stats.chunks > 0) {
             statsEl.textContent = `Indice atual: ${stats.chunks} trechos de ${stats.arquivos} arquivo(s)`;
-            statsEl.style.color = '#34d399';
+            statsEl.style.color = 'var(--success-color)';
         } else {
             statsEl.textContent = 'Nenhum documento indexado ainda.';
-            statsEl.style.color = '#94a3b8';
+            statsEl.style.color = 'var(--text-secondary)';
         }
     } catch {
         statsEl.textContent = '';
@@ -1499,21 +1901,21 @@ function initRagSettings() {
         if (!window.lexApi?.ragIndexWorkspace) return;
         btn.disabled = true;
         btn.textContent = 'Indexando...';
-        if (feedback) { feedback.textContent = 'Lendo e indexando documentos...'; feedback.style.color = '#94a3b8'; }
+        if (feedback) { feedback.textContent = 'Lendo e indexando documentos...'; feedback.style.color = 'var(--text-secondary)'; }
 
         try {
             const res = await window.lexApi.ragIndexWorkspace();
             if (res.success) {
                 if (feedback) {
                     feedback.textContent = `Concluido: ${res.chunks} trechos de ${res.arquivos} arquivo(s) indexados.`;
-                    feedback.style.color = '#34d399';
+                    feedback.style.color = 'var(--success-color)';
                 }
                 loadRagStats();
             } else {
-                if (feedback) { feedback.textContent = res.error || 'Erro ao indexar.'; feedback.style.color = '#f87171'; }
+                if (feedback) { feedback.textContent = res.error || 'Erro ao indexar.'; feedback.style.color = 'var(--danger-color)'; }
             }
         } catch (e) {
-            if (feedback) { feedback.textContent = 'Erro: ' + (e.message || 'falha desconhecida'); feedback.style.color = '#f87171'; }
+            if (feedback) { feedback.textContent = 'Erro: ' + (e.message || 'falha desconhecida'); feedback.style.color = 'var(--danger-color)'; }
         } finally {
             btn.disabled = false;
             btn.textContent = 'Indexar documentos do workspace';
@@ -1532,7 +1934,7 @@ async function loadLegislacaoStats() {
         const stats = await window.lexApi.ragLegislacaoStats();
         if (stats.baixados > 0) {
             statsEl.textContent = `${stats.baixados}/${stats.total} codigos indexados localmente`;
-            statsEl.style.color = '#34d399';
+            statsEl.style.color = 'var(--success-color)';
         } else {
             statsEl.textContent = 'Nenhum codigo baixado ainda.';
             statsEl.style.color = '#888';
@@ -1626,29 +2028,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 visionModel: document.getElementById('ai-vision-model')?.value || '',
             });
 
-            if (statusEl) { statusEl.textContent = 'Testando...'; statusEl.style.color = '#94a3b8'; }
+            if (statusEl) { statusEl.textContent = 'Testando...'; statusEl.style.color = 'var(--text-secondary)'; }
             btnTest.disabled = true;
 
             try {
                 const res = await window.lexApi.sendChat('ping — responda apenas "ok"');
                 if (res && !res.error) {
-                    if (statusEl) { statusEl.textContent = '✓ Funcionando'; statusEl.style.color = '#34d399'; }
+                    if (statusEl) { statusEl.textContent = '✓ Funcionando'; statusEl.style.color = 'var(--success-color)'; }
                     if (apiKey) document.getElementById('ai-api-key').value = '';
                 } else {
                     throw new Error(res?.error || 'Sem resposta');
                 }
             } catch (e) {
-                if (statusEl) { statusEl.textContent = '✗ ' + (e.message || 'Erro'); statusEl.style.color = '#f87171'; }
+                if (statusEl) { statusEl.textContent = '✗ ' + (e.message || 'Erro'); statusEl.style.color = 'var(--danger-color)'; }
             } finally {
                 btnTest.disabled = false;
             }
         });
     }
 
+    // Privacy onboarding (first-run dialog)
+    initPrivacyOnboarding();
+
+    // Privacy settings
+    initPrivacySettings();
+
     // Analytics dashboard
     loadAnalyticsDashboard();
     const btnRefreshStats = document.getElementById('btn-refresh-stats');
     if (btnRefreshStats) btnRefreshStats.addEventListener('click', loadAnalyticsDashboard);
+
+    // Ollama (Modelo Local)
+    initOllamaSettings();
 
     // Telegram 24/7
     initTelegramSettings();

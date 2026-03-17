@@ -30,6 +30,12 @@ import { getActivePage } from '../browser-manager';
 import { getDocIndex } from './doc-index';
 import { normalizeTribunalCode, inferTribunalKey } from '../pje/tribunal-urls';
 import { getAnalytics } from '../analytics';
+import {
+    createVault, clearVault, unmask, getVaultStats, getVaultSummary,
+    shouldMaskPII, shouldUseLocalModel, getEffectiveLevel,
+    logLLMCall
+} from '../privacy';
+import type { PIIVault, PIICategory } from '../privacy';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -87,11 +93,39 @@ export async function runAgentLoop(
         memoriaData.preferencias?.['tribunal_preferido'] || usuarioData.tribunal_preferido
     );
 
+    // Privacy: cria vault para este run (se mascaramento ativo)
+    let activeProviderId: string | undefined;
+    try {
+        const { getActiveConfig } = await import('../provider-config');
+        activeProviderId = getActiveConfig().providerId;
+    } catch { /* ignore */ }
+    const privacyEnabled = shouldMaskPII(activeProviderId);
+    const vault = privacyEnabled ? createVault() : undefined;
+
+    // Privacy level 0: auto-route to Ollama (nothing leaves the machine)
+    let _prevConfig: { providerId: string; agentModel: string; visionModel: string; apiKey: string } | undefined;
+    if (shouldUseLocalModel(activeProviderId) && activeProviderId !== 'ollama') {
+        try {
+            const { getActiveConfig, setActiveConfig, PROVIDER_PRESETS } = await import('../provider-config');
+            const prev = getActiveConfig();
+            _prevConfig = { ...prev };
+            const ollPreset = PROVIDER_PRESETS.ollama;
+            setActiveConfig({
+                providerId: 'ollama',
+                apiKey: 'ollama',
+                agentModel: ollPreset.defaultAgentModel,
+                visionModel: ollPreset.defaultVisionModel,
+            });
+            console.log('[Agent] Privacy level 0 → auto-routing to Ollama');
+        } catch { /* ignore */ }
+    }
+
     // Inicializa estado
     const state: AgentState = {
         id: runId,
         objetivo,
         status: 'running',
+        piiVault: vault,
         contexto: {
             documentos: [],
             resultados: new Map(),
@@ -215,8 +249,10 @@ export async function runAgentLoop(
             emit({ type: 'streaming_start' });
 
             // Callback de token: emitido apenas para tokens do campo "resposta" do JSON
+            // PII Vault: unmask tokens antes de emitir para a UI
             const onStreamToken = (token: string) => {
-                emit({ type: 'token', token });
+                const unmasked = vault ? unmask(vault, token) : token;
+                emit({ type: 'token', token: unmasked });
             };
 
             const decisao = await think(state, cfg, onStreamToken);
@@ -255,6 +291,23 @@ export async function runAgentLoop(
                     state.status = 'completed';
                     state.endTime = Date.now();
                     const duracao = state.endTime - state.startTime;
+
+                    // PII Vault: unmask resposta final antes de exibir ao usuário
+                    if (vault && decisao.resposta) {
+                        decisao.resposta = unmask(vault, decisao.resposta);
+                    }
+
+                    // Privacy: emitir stats de mascaramento
+                    if (vault) {
+                        const stats = getVaultStats(vault);
+                        if (stats.totalMasked > 0) {
+                            log(cfg.verbose, `🔒 PII mascaradas: ${stats.totalMasked} entidades`);
+                            emit({
+                                type: 'privacy_stats',
+                                stats: getVaultSummary(vault)
+                            });
+                        }
+                    }
 
                     log(cfg.verbose, `✅ Objetivo completo em ${state.iteracao} passos (${duracao}ms)`);
 
@@ -319,6 +372,11 @@ export async function runAgentLoop(
                 // ────────────────────────────────────────────────────────
                 case 'pergunta': {
                     state.status = 'waiting_user';
+
+                    // PII Vault: unmask pergunta antes de exibir
+                    if (vault && decisao.pergunta) {
+                        decisao.pergunta = unmask(vault, decisao.pergunta);
+                    }
 
                     log(cfg.verbose, `❓ Aguardando usuário: ${decisao.pergunta}`);
 
@@ -504,6 +562,20 @@ export async function runAgentLoop(
 
         activeRuns.delete(runId);
         return `Desculpe, ocorreu um erro: ${error.message}`;
+    } finally {
+        // Privacy: limpa vault (dados sensíveis nunca persistem)
+        if (vault) {
+            clearVault(vault);
+            state.piiVault = undefined;
+        }
+        // Restaura provider original se foi auto-roteado para Ollama
+        if (_prevConfig) {
+            try {
+                const { setActiveConfig } = await import('../provider-config');
+                setActiveConfig(_prevConfig as any);
+                console.log('[Agent] Provider restaurado para', _prevConfig.providerId);
+            } catch { /* ignore */ }
+        }
     }
 }
 

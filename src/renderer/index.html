@@ -232,12 +232,13 @@
                                         <option value="openai">OpenAI (GPT)</option>
                                         <option value="google">Google AI (Gemini)</option>
                                         <option value="groq">Groq (ultra-rapido)</option>
+                                        <option value="ollama">Modelo Local (Ollama)</option>
                                     </select>
                                     <span class="settings-hint" id="ai-provider-hint">
-                                        Obter chave: <a id="ai-provider-key-link" href="#" target="_blank" style="color:#60a5fa">console.anthropic.com</a>
+                                        Obter chave: <a id="ai-provider-key-link" href="#" target="_blank" style="color:var(--accent-color)">console.anthropic.com</a>
                                     </span>
-                                    <span class="settings-hint" id="ai-provider-free-hint" style="display:none;color:#34d399">
-                                        Crie uma conta gratuita em <a href="https://openrouter.ai/keys" target="_blank" style="color:#34d399">openrouter.ai</a> e copie sua chave — sem cartao, sem custo.
+                                    <span class="settings-hint" id="ai-provider-free-hint" style="display:none;color:var(--success-color)">
+                                        Crie uma conta gratuita em <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--success-color)">openrouter.ai</a> e copie sua chave — sem cartao, sem custo.
                                     </span>
                                 </div>
                                 <div class="settings-field">
@@ -245,7 +246,7 @@
                                     <div style="display:flex;gap:8px;align-items:center">
                                         <input class="settings-input" type="password" id="ai-api-key" placeholder="Cole sua chave aqui" autocomplete="off" style="flex:1">
                                         <button class="settings-save-btn" id="btn-test-api" style="white-space:nowrap;padding:8px 14px;font-size:12px">Testar</button>
-                                        <span id="ai-key-status" style="font-size:12px;color:#64748b"></span>
+                                        <span id="ai-key-status" style="font-size:12px;color:var(--text-muted)"></span>
                                     </div>
                                 </div>
                                 <div class="settings-row">
@@ -258,6 +259,54 @@
                                         <label class="settings-label" for="ai-vision-model">Modelo browser (vision)</label>
                                         <select class="settings-input settings-select" id="ai-vision-model"></select>
                                         <span class="settings-hint">Deve suportar vision para automacao PJe</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Modelo Local (Ollama) -->
+                        <section class="settings-section" id="ollama-section" style="display:none">
+                            <h3 class="settings-section-title">Modelo Local (Ollama)</h3>
+                            <div class="settings-form">
+                                <div id="ollama-status-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                                    <span id="ollama-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+                                    <span id="ollama-status-text" style="font-size:12px;color:var(--text-secondary)">Verificando Ollama...</span>
+                                </div>
+
+                                <div id="ollama-not-found" style="display:none;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+                                    <div style="font-weight:600;color:var(--danger-color);margin-bottom:6px">Ollama nao detectado</div>
+                                    <div>O Ollama permite rodar modelos de IA 100% no seu computador — nenhum dado sai da maquina.</div>
+                                    <button id="btn-ollama-install" class="settings-save-btn" style="width:100%;margin-top:10px;background:var(--accent-strong);border:1px solid var(--accent-color);color:var(--text-primary)">
+                                        Instalar Ollama automaticamente
+                                    </button>
+                                    <div id="ollama-install-bar" style="display:none;margin-top:8px">
+                                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                                            <span id="ollama-install-label" style="font-size:11px;color:var(--text-secondary)">Baixando installer...</span>
+                                            <span id="ollama-install-percent" style="font-size:11px;color:var(--accent-color);font-weight:600">0%</span>
+                                        </div>
+                                        <div style="background:var(--bg-tertiary);border-radius:4px;height:5px;overflow:hidden">
+                                            <div id="ollama-install-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
+                                        </div>
+                                        <div id="ollama-install-status" style="font-size:10px;color:var(--text-muted);margin-top:4px"></div>
+                                    </div>
+                                    <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">
+                                        Ou instale manualmente: <a href="https://ollama.com/download" target="_blank" style="color:var(--accent-color)">ollama.com/download</a>
+                                    </div>
+                                </div>
+
+                                <div id="ollama-models-area" style="display:none">
+                                    <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Modelos recomendados</div>
+                                    <div id="ollama-models-list" style="display:flex;flex-direction:column;gap:6px"></div>
+
+                                    <div id="ollama-pull-bar" style="display:none;margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px">
+                                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                                            <span id="ollama-pull-label" style="font-size:12px;color:var(--text-secondary)">Baixando modelo...</span>
+                                            <span id="ollama-pull-percent" style="font-size:12px;color:var(--accent-color);font-weight:600">0%</span>
+                                        </div>
+                                        <div style="background:var(--bg-tertiary);border-radius:4px;height:6px;overflow:hidden">
+                                            <div id="ollama-pull-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
+                                        </div>
+                                        <div id="ollama-pull-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
                                     </div>
                                 </div>
                             </div>
@@ -279,7 +328,7 @@
                                 </div>
                                 <div class="settings-row" style="gap:10px;margin-top:8px">
                                     <button class="settings-save-btn" id="btn-telegram-save" style="flex:1">Salvar config</button>
-                                    <button class="settings-save-btn" id="btn-telegram-toggle" style="flex:1;background:var(--accent,#1a73e8)">Ativar 24/7</button>
+                                    <button class="settings-save-btn" id="btn-telegram-toggle" style="flex:1;background:var(--accent-color)">Ativar 24/7</button>
                                 </div>
                                 <div id="telegram-status" style="margin-top:8px;font-size:12px;color:#888"></div>
                             </div>
@@ -312,11 +361,37 @@
                             </div>
                         </section>
 
+                        <!-- Privacidade -->
+                        <section class="settings-section">
+                            <h3 class="settings-section-title">Privacidade e Protecao de Dados</h3>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="privacy-level">Nivel de protecao</label>
+                                    <select class="settings-input settings-select" id="privacy-level">
+                                        <option value="1">Anonimizado completo (recomendado)</option>
+                                        <option value="2">Anonimizado parcial (nomes mantidos)</option>
+                                        <option value="3">Sem anonimizacao (opt-in)</option>
+                                        <option value="0">Modelo local — nada sai da maquina</option>
+                                    </select>
+                                    <span class="settings-hint" id="privacy-level-hint">Dados sensiveis (CPF, nomes, valores) sao mascarados antes de enviar para a IA.</span>
+                                </div>
+                                <div id="privacy-stats-box" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;font-size:12px;color:var(--text-secondary);display:none">
+                                    <div style="font-weight:600;color:var(--text-primary);margin-bottom:8px;font-size:13px">Resumo de privacidade (ultimos 7 dias)</div>
+                                    <div id="privacy-audit-stats">Carregando...</div>
+                                </div>
+                                <div style="display:flex;gap:8px;margin-top:4px">
+                                    <button class="settings-save-btn" id="btn-privacy-save" style="flex:1">Salvar nivel</button>
+                                    <button class="settings-save-btn" id="btn-privacy-revoke" style="flex:0 0 auto;background:var(--bg-tertiary);color:var(--danger-color)">Revogar tudo</button>
+                                </div>
+                                <div id="privacy-feedback" style="margin-top:6px;font-size:12px;color:var(--success-color);display:none">Salvo!</div>
+                            </div>
+                        </section>
+
                         <!-- Estatisticas de Uso -->
                         <section class="settings-section">
                             <h3 class="settings-section-title">Estatisticas de Uso</h3>
                             <div class="settings-form">
-                                <div id="analytics-dashboard" style="font-size:13px;color:#cbd5e1;line-height:1.8">
+                                <div id="analytics-dashboard" style="font-size:13px;color:var(--text-secondary);line-height:1.8">
                                     Carregando...
                                 </div>
                                 <button class="settings-save-btn" id="btn-refresh-stats" style="width:100%;margin-top:10px">Atualizar Estatisticas</button>
@@ -397,6 +472,40 @@
         </main>
     </div>
 
+    <!-- ===== OVERLAY: Privacidade (First-Run) ===== -->
+    <div id="privacy-onboarding-overlay" class="lex-overlay" style="display:none">
+        <div class="lex-card" style="width:420px">
+            <div class="lex-card-logo">LEX</div>
+            <h2 class="lex-card-title">Protecao de Dados</h2>
+            <p class="lex-card-sub">A LEX usa IA para te ajudar. Para funcionar, envia dados para provedores externos (Anthropic, OpenAI, etc).</p>
+            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:4px">Como protegemos seus dados:</div>
+            <div class="lex-privacy-options">
+                <label class="lex-privacy-option selected" data-level="1">
+                    <input type="radio" name="onb-privacy" value="1" checked style="display:none">
+                    <div class="lex-privacy-option-title">Anonimizacao completa</div>
+                    <div class="lex-privacy-option-desc">Nomes, CPFs, valores sao substituidos por codigos antes de sair da sua maquina. A IA analisa sem ver dados reais.</div>
+                </label>
+                <label class="lex-privacy-option" data-level="2">
+                    <input type="radio" name="onb-privacy" value="2" style="display:none">
+                    <div class="lex-privacy-option-title">Anonimizacao parcial</div>
+                    <div class="lex-privacy-option-desc">Nomes mantidos para output mais natural. CPFs, valores e documentos mascarados.</div>
+                </label>
+                <label class="lex-privacy-option" data-level="3">
+                    <input type="radio" name="onb-privacy" value="3" style="display:none">
+                    <div class="lex-privacy-option-title">Sem anonimizacao</div>
+                    <div class="lex-privacy-option-desc">Dados enviados como estao. Nao recomendado para dados de clientes.</div>
+                </label>
+                <label class="lex-privacy-option" data-level="0">
+                    <input type="radio" name="onb-privacy" value="0" style="display:none">
+                    <div class="lex-privacy-option-title">Modelo local (Ollama)</div>
+                    <div class="lex-privacy-option-desc">Nenhum dado sai da sua maquina. Qualidade reduzida.</div>
+                </label>
+            </div>
+            <button id="privacy-onboarding-accept" class="lex-card-btn-primary" style="margin-top:6px">Aceitar e Continuar</button>
+            <p class="lex-card-sub" style="font-size:11px;margin-top:2px">Voce pode mudar isso a qualquer momento em Configuracoes &gt; Privacidade.</p>
+        </div>
+    </div>
+
     <!-- ===== OVERLAY: Login / Cadastro ===== -->
     <div id="auth-overlay" class="lex-overlay" style="display:none">
         <div class="lex-card">
@@ -434,46 +543,57 @@
     <style>
     .lex-overlay {
         position: fixed; inset: 0; z-index: 9999;
-        background: rgba(10,15,25,0.96);
+        background: rgba(8,8,8,0.96);
         display: flex; align-items: center; justify-content: center;
     }
     .lex-card {
-        background: #1a2332; border: 1px solid #2d3748; border-radius: 16px;
+        background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 16px;
         padding: 40px 36px; width: 360px; display: flex; flex-direction: column; gap: 12px;
         box-shadow: 0 24px 60px rgba(0,0,0,0.5);
     }
     .lex-card-logo {
-        font-size: 28px; font-weight: 800; color: #60a5fa;
+        font-size: 28px; font-weight: 800; color: var(--accent-color);
         letter-spacing: 3px; text-align: center; margin-bottom: 4px;
     }
-    .lex-card-title { font-size: 18px; font-weight: 600; color: #e2e8f0; text-align: center; margin: 0; }
-    .lex-card-sub   { font-size: 13px; color: #64748b; text-align: center; margin: 0 0 8px; }
+    .lex-card-title { font-size: 18px; font-weight: 600; color: var(--text-primary); text-align: center; margin: 0; }
+    .lex-card-sub   { font-size: 13px; color: var(--text-muted); text-align: center; margin: 0 0 8px; }
     .lex-card-input {
-        background: #0f1621; border: 1px solid #2d3748; border-radius: 8px;
-        color: #e2e8f0; padding: 10px 14px; font-size: 14px; outline: none; width: 100%; box-sizing: border-box;
+        background: var(--bg-canvas); border: 1px solid var(--border-color); border-radius: 8px;
+        color: var(--text-primary); padding: 10px 14px; font-size: 14px; outline: none; width: 100%; box-sizing: border-box;
     }
-    .lex-card-input:focus { border-color: #60a5fa; }
-    .lex-card-error { font-size: 12px; color: #f87171; text-align: center; margin: 0; }
+    .lex-card-input:focus { border-color: var(--accent-color); }
+    .lex-card-error { font-size: 12px; color: var(--danger-color); text-align: center; margin: 0; }
     .lex-card-btn-primary {
-        background: #60a5fa; color: #0f1621; border: none; border-radius: 8px;
+        background: var(--accent-color); color: var(--text-primary); border: none; border-radius: 8px;
         padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; display: block; width: 100%;
     }
-    .lex-card-btn-primary:hover { background: #93c5fd; }
+    .lex-card-btn-primary:hover { background: var(--accent-strong); }
     .lex-card-btn-link {
-        background: none; border: none; color: #64748b; font-size: 12px;
+        background: none; border: none; color: var(--text-muted); font-size: 12px;
         cursor: pointer; padding: 2px; text-align: center; width: 100%;
     }
-    .lex-card-btn-link:hover { color: #94a3b8; }
+    .lex-card-btn-link:hover { color: var(--text-secondary); }
     .lex-paywall-features { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .lex-paywall-feat {
-        background: #0f1621; border-left: 3px solid #34d399; border-radius: 0 6px 6px 0;
-        padding: 7px 12px; font-size: 13px; color: #cbd5e1;
+        background: var(--bg-canvas); border-left: 3px solid var(--success-color); border-radius: 0 6px 6px 0;
+        padding: 7px 12px; font-size: 13px; color: var(--text-secondary);
     }
     #trial-badge {
-        background: #0f1621; border: 1px solid #fbbf24; border-radius: 20px;
-        color: #fbbf24; font-size: 11px; padding: 3px 10px;
+        background: var(--bg-canvas); border: 1px solid var(--warning-color); border-radius: 20px;
+        color: var(--warning-color); font-size: 11px; padding: 3px 10px;
         position: fixed; bottom: 16px; right: 16px; z-index: 100; cursor: default;
     }
+    /* Privacy onboarding options */
+    .lex-privacy-options { display: flex; flex-direction: column; gap: 6px; }
+    .lex-privacy-option {
+        background: var(--bg-canvas); border: 1px solid var(--border-color); border-radius: 10px;
+        padding: 10px 14px; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    }
+    .lex-privacy-option:hover { border-color: var(--border-strong); }
+    .lex-privacy-option.selected { border-color: var(--accent-color); background: rgba(var(--accent-rgb),0.08); }
+    .lex-privacy-option-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .lex-privacy-option-desc  { font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+    .lex-privacy-option.selected .lex-privacy-option-title { color: var(--accent-color); }
     </style>
 
     <script src="js/marked.min.js"></script>

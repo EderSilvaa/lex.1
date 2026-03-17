@@ -12,7 +12,7 @@ import { createGroq } from '@ai-sdk/groq';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModel } from 'ai';
 
-export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'google' | 'groq';
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'google' | 'groq' | 'ollama';
 
 export interface ModelInfo {
     id: string;
@@ -114,6 +114,24 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (texto)', vision: false },
         ],
     },
+    ollama: {
+        id: 'ollama',
+        name: 'Modelo Local (Ollama)',
+        baseUrl: 'http://localhost:11434',
+        apiKeyUrl: '',   // não precisa de chave
+        defaultAgentModel: 'llama3.1:8b',
+        defaultVisionModel: 'llava:13b',
+        models: [
+            // Preenchido dinamicamente via ollama-manager.ts (listModels)
+            // Fallbacks estáticos para quando Ollama não estiver rodando
+            { id: 'llama3.1:8b', name: 'Llama 3.1 8B (leve)', vision: false },
+            { id: 'qwen2.5:14b', name: 'Qwen 2.5 14B', vision: false },
+            { id: 'deepseek-r1:14b', name: 'DeepSeek R1 14B', vision: false },
+            { id: 'llama3.1:70b', name: 'Llama 3.1 70B (pesado)', vision: false },
+            { id: 'llava:13b', name: 'LLaVA 13B (vision)', vision: true },
+            { id: 'llava:34b', name: 'LLaVA 34B (vision)', vision: true },
+        ],
+    },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +180,11 @@ export function getActiveModel(modelId?: string): LanguageModel {
             return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(name);
         case 'groq':
             return createGroq({ apiKey: cfg.apiKey })(name);
+        case 'ollama':
+            return createOpenAI({
+                baseURL: 'http://localhost:11434/v1',
+                apiKey: 'ollama',  // Ollama aceita qualquer string
+            })(name);
         default:
             return createAnthropic({ apiKey: cfg.apiKey })(name);
     }
@@ -185,6 +208,11 @@ export function getActiveVisionModel(): LanguageModel {
             return createGoogleGenerativeAI({ apiKey: cfg.apiKey })(name);
         case 'groq':
             return createGroq({ apiKey: cfg.apiKey })(name);
+        case 'ollama':
+            return createOpenAI({
+                baseURL: 'http://localhost:11434/v1',
+                apiKey: 'ollama',
+            })(name);
         default:
             return createAnthropic({ apiKey: cfg.apiKey })(name);
     }

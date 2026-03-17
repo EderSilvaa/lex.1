@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 
 // ============================================================================
 // TYPES
@@ -153,10 +154,7 @@ export class SessionManager {
 
     private loadFromDisk(): void {
         try {
-            if (!fs.existsSync(this.sessionsFile)) return;
-
-            const raw = fs.readFileSync(this.sessionsFile, 'utf-8');
-            const data: Record<string, ChatSession> = JSON.parse(raw);
+            const data = loadEncrypted<Record<string, ChatSession>>(this.sessionsFile, {});
             const now = Date.now();
             let loaded = 0;
 
@@ -168,7 +166,9 @@ export class SessionManager {
                 if (loaded >= MAX_STORED_SESSIONS) break;
             }
 
-            console.log(`[Session] Carregadas ${loaded} sessões do disco`);
+            if (loaded > 0) {
+                console.log(`[Session] Carregadas ${loaded} sessões do disco (criptografado)`);
+            }
         } catch (e: any) {
             console.warn('[Session] Não foi possível carregar sessões:', e.message);
         }
@@ -176,9 +176,6 @@ export class SessionManager {
 
     private async saveToDisk(): Promise<void> {
         try {
-            const dir = path.dirname(this.sessionsFile);
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
             const sorted = Array.from(this.sessions.values())
                 .sort((a, b) => b.updatedAt - a.updatedAt)
                 .slice(0, MAX_STORED_SESSIONS);
@@ -186,7 +183,7 @@ export class SessionManager {
             const data: Record<string, ChatSession> = {};
             for (const s of sorted) data[s.id] = s;
 
-            fs.writeFileSync(this.sessionsFile, JSON.stringify(data), 'utf-8');
+            saveEncrypted(this.sessionsFile, data);
         } catch (e: any) {
             console.warn('[Session] Falha ao salvar sessões:', e.message);
         }

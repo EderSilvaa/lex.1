@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 
 const CHUNK_SIZE = 600;       // chars por chunk
 const CHUNK_OVERLAP = 120;    // overlap para não perder contexto entre chunks
@@ -60,16 +61,10 @@ class DocIndex {
      */
     init(userDataDir: string): void {
         this.storePath = path.join(userDataDir, 'lex-doc-index.json');
-        try {
-            if (fs.existsSync(this.storePath)) {
-                const raw = fs.readFileSync(this.storePath, 'utf8');
-                const data: IndexStore = JSON.parse(raw);
-                this.chunks = data.chunks ?? [];
-                console.log(`[DocIndex] Carregados ${this.chunks.length} chunks do índice persistido`);
-            }
-        } catch (e: any) {
-            console.warn('[DocIndex] Falha ao carregar índice:', e.message);
-            this.chunks = [];
+        const data = loadEncrypted<IndexStore>(this.storePath, { chunks: [], indexadoEm: '', workspacePaths: [] });
+        this.chunks = data.chunks ?? [];
+        if (this.chunks.length > 0) {
+            console.log(`[DocIndex] Carregados ${this.chunks.length} chunks do índice (criptografado)`);
         }
     }
 
@@ -224,7 +219,7 @@ class DocIndex {
                 indexadoEm: new Date().toISOString(),
                 workspacePaths
             };
-            fs.writeFileSync(this.storePath, JSON.stringify(data), 'utf8');
+            saveEncrypted(this.storePath, data);
         } catch (e: any) {
             console.warn('[DocIndex] Falha ao persistir índice:', e.message);
         }

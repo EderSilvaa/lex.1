@@ -6,6 +6,7 @@
 
 import { AgentConfig, AgentState, CriticDecision } from './types';
 import { normalizeTribunalCode } from '../pje/tribunal-urls';
+import { mask } from '../privacy/pii-vault';
 
 interface PlannedSkillAction {
     skill: string;
@@ -389,7 +390,14 @@ function buildCriticUserPrompt(state: AgentState, action: PlannedSkillAction): s
         acaoPlanejada: action
     };
 
-    return `Avalie a ação planejada abaixo:\n\n${JSON.stringify(contexto, null, 2)}`;
+    let prompt = `Avalie a ação planejada abaixo:\n\n${JSON.stringify(contexto, null, 2)}`;
+
+    // PII Vault: mascara dados sensíveis antes de enviar pro LLM
+    if (state.piiVault) {
+        prompt = mask(state.piiVault, prompt, state.contexto.processo);
+    }
+
+    return prompt;
 }
 
 function getRecentSkillResults(state: AgentState): Array<{ skill?: string; sucesso: boolean; erro?: string }> {

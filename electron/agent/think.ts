@@ -8,6 +8,11 @@
 import { AgentState, ThinkDecision, AgentConfig } from './types';
 import { getSkillsForPrompt } from './executor';
 import { buildPromptLayerSystem } from './prompt-layer';
+import { mask, maskPatterns } from '../privacy/pii-vault';
+import { logLLMCall } from '../privacy/audit-log';
+import { getEffectiveLevel } from '../privacy/consent-manager';
+import { getVaultStats } from '../privacy/pii-vault';
+import type { PIIVault } from '../privacy/pii-vault';
 
 /**
  * Decide próximo passo baseado no estado atual.
@@ -21,6 +26,26 @@ export async function think(
     const systemPrompt = buildSystemPrompt(state);
     const userPrompt = buildUserPrompt(state);
     const response = await callLLM(systemPrompt, userPrompt, config, onToken);
+
+    // Audit log: registra chamada LLM com stats de privacidade
+    try {
+        const vault = state.piiVault;
+        const stats = vault ? getVaultStats(vault) : null;
+        const { getActiveConfig } = await import('../provider-config');
+        const providerCfg = getActiveConfig();
+        logLLMCall({
+            provider: providerCfg.providerId,
+            model: config.model || providerCfg.agentModel,
+            piiMasked: stats?.totalMasked ?? 0,
+            piiTypes: stats ? Object.entries(stats.byCategory)
+                .filter(([_, count]) => count > 0)
+                .map(([cat]) => cat as any) : [],
+            consentLevel: getEffectiveLevel(providerCfg.providerId),
+            dataSize: systemPrompt.length + userPrompt.length,
+            runId: state.id
+        });
+    } catch { /* audit log is best-effort */ }
+
     return parseThinkResponse(response);
 }
 
@@ -374,7 +399,15 @@ function buildContextSection(state: AgentState): string {
         parts.push(`## Histórico Recente da Conversa\n${chatHistory}`);
     }
 
-    return parts.join('\n\n');
+    let context = parts.join('\n\n');
+
+    // PII Vault: mascara dados sensíveis antes de enviar pro LLM
+    const vault = state.piiVault;
+    if (vault) {
+        context = mask(vault, context, state.contexto.processo);
+    }
+
+    return context;
 }
 
 /**
@@ -455,7 +488,15 @@ function buildUserPrompt(state: AgentState): string {
 
 Analise o objetivo e o contexto. Decida o próximo passo e responda em JSON.`);
 
-    return parts.join('\n\n');
+    let prompt = parts.join('\n\n');
+
+    // PII Vault: mascara objetivo e histórico
+    const vault = state.piiVault;
+    if (vault) {
+        prompt = mask(vault, prompt, state.contexto.processo);
+    }
+
+    return prompt;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -15,6 +15,17 @@ import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense } from './auth/license';
 import { getAnalytics } from './analytics';
 import { autoUpdater } from 'electron-updater';
+import {
+    initConsentManager, initAuditLog, flushAuditLog,
+    getConsentConfig, setDefaultLevel, setProviderConsent,
+    completeOnboarding, isOnboardingCompleted, revokeAllConsent,
+    getEffectiveLevel, getAuditSummary
+} from './privacy';
+import {
+    getOllamaStatus, isOllamaRunning, listModels as ollamaListModels, pullModel,
+    deleteModel, getRecommendedModelsWithStatus, ollamaEmitter,
+    RECOMMENDED_MODELS
+} from './ollama-manager';
 
 // Suprime EPIPE (pipe quebrado ao rodar via terminal/background) — evita crash dialog
 process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code === 'EPIPE') return })
@@ -487,6 +498,161 @@ ipcMain.handle('store-get-provider-presets', () => {
     return PROVIDER_PRESETS;
 });
 
+// ── Privacy / Consent ──────────────────────────────────────────────────────
+
+ipcMain.handle('privacy-get-config', () => {
+    return getConsentConfig();
+});
+
+ipcMain.handle('privacy-set-level', (_event, level: 0 | 1 | 2 | 3) => {
+    setDefaultLevel(level);
+    return { success: true };
+});
+
+ipcMain.handle('privacy-set-provider-consent', (_event, { providerId, level, consented }: { providerId: string; level: 0 | 1 | 2 | 3; consented: boolean }) => {
+    setProviderConsent(providerId, level, consented);
+    return { success: true };
+});
+
+ipcMain.handle('privacy-complete-onboarding', (_event, level: 0 | 1 | 2 | 3) => {
+    completeOnboarding(level);
+    return { success: true };
+});
+
+ipcMain.handle('privacy-is-onboarding-completed', () => {
+    return isOnboardingCompleted();
+});
+
+ipcMain.handle('privacy-revoke-all', () => {
+    revokeAllConsent();
+    return { success: true };
+});
+
+ipcMain.handle('privacy-get-effective-level', (_event, providerId?: string) => {
+    return getEffectiveLevel(providerId);
+});
+
+ipcMain.handle('privacy-get-audit-summary', (_event, days?: number) => {
+    return getAuditSummary(days ?? 7);
+});
+
+// ── Ollama (Modelo Local) ──────────────────────────────────────────────────
+
+ipcMain.handle('ollama-status', async () => {
+    try {
+        return await getOllamaStatus();
+    } catch (e: any) {
+        console.error('[IPC] ollama-status error:', e.message);
+        return { running: false, models: [], error: e.message };
+    }
+});
+
+ipcMain.handle('ollama-list-models', async () => {
+    try {
+        return await ollamaListModels();
+    } catch (e: any) {
+        console.error('[IPC] ollama-list-models error:', e.message);
+        return [];
+    }
+});
+
+ipcMain.handle('ollama-recommended', async () => {
+    try {
+        return await getRecommendedModelsWithStatus();
+    } catch (e: any) {
+        console.error('[IPC] ollama-recommended error:', e.message);
+        return [];
+    }
+});
+
+ipcMain.handle('ollama-pull', async (_event, modelName: string) => {
+    // Forward de progresso para o renderer
+    const onProgress = (data: any) => {
+        if (mainWindow) mainWindow.webContents.send('ollama-pull-progress', data);
+    };
+    const onComplete = (data: any) => {
+        if (mainWindow) mainWindow.webContents.send('ollama-pull-complete', data);
+        ollamaEmitter.off('pull-progress', onProgress);
+        ollamaEmitter.off('pull-complete', onComplete);
+        ollamaEmitter.off('pull-error', onError);
+    };
+    const onError = (data: any) => {
+        if (mainWindow) mainWindow.webContents.send('ollama-pull-error', data);
+        ollamaEmitter.off('pull-progress', onProgress);
+        ollamaEmitter.off('pull-complete', onComplete);
+        ollamaEmitter.off('pull-error', onError);
+    };
+
+    ollamaEmitter.on('pull-progress', onProgress);
+    ollamaEmitter.on('pull-complete', onComplete);
+    ollamaEmitter.on('pull-error', onError);
+
+    return pullModel(modelName);
+});
+
+ipcMain.handle('ollama-delete', async (_event, modelName: string) => {
+    return deleteModel(modelName);
+});
+
+ipcMain.handle('ollama-get-recommended-list', () => {
+    return RECOMMENDED_MODELS;
+});
+
+ipcMain.handle('ollama-is-running', async () => {
+    try {
+        return await isOllamaRunning();
+    } catch {
+        return false;
+    }
+});
+
+ipcMain.handle('ollama-download-installer', async () => {
+    const url = process.platform === 'darwin'
+        ? 'https://ollama.com/download/Ollama-darwin.zip'
+        : 'https://ollama.com/download/OllamaSetup.exe';
+    const fileName = process.platform === 'darwin' ? 'Ollama-darwin.zip' : 'OllamaSetup.exe';
+    const destPath = path.join(app.getPath('temp'), fileName);
+
+    try {
+        // Notifica progresso
+        if (mainWindow) mainWindow.webContents.send('ollama-install-progress', { status: 'downloading', percent: 0 });
+
+        const res = await fetch(url);
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+        const total = Number(res.headers.get('content-length') || 0);
+        let downloaded = 0;
+        const chunks: Buffer[] = [];
+        const reader = res.body.getReader();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(Buffer.from(value));
+            downloaded += value.byteLength;
+            if (total > 0 && mainWindow) {
+                mainWindow.webContents.send('ollama-install-progress', {
+                    status: 'downloading',
+                    percent: Math.round(downloaded / total * 100)
+                });
+            }
+        }
+
+        fs.writeFileSync(destPath, Buffer.concat(chunks));
+
+        if (mainWindow) mainWindow.webContents.send('ollama-install-progress', { status: 'opening', percent: 100 });
+
+        // Abre o installer para o usuário
+        await shell.openPath(destPath);
+
+        return { success: true, path: destPath };
+    } catch (e: any) {
+        console.error('[Ollama] Erro ao baixar installer:', e.message);
+        if (mainWindow) mainWindow.webContents.send('ollama-install-progress', { status: 'error', error: e.message });
+        return { success: false, error: e.message };
+    }
+});
+
 // ── Aliases legados (retrocompat com código antigo) ──
 ipcMain.handle('store-set-anthropic-key', async (_event, key: string) => {
     if (!store) return { error: 'Store not initialized' };
@@ -945,6 +1111,9 @@ app.whenReady().then(async () => {
     initMemoryDir(userData);
     // Inicializa salt de criptografia antes de qualquer encrypt/decrypt
     initCryptoStoreSalt(userData);
+    // Inicializa módulos de privacidade
+    initConsentManager(userData);
+    initAuditLog(userData);
     // Inicializa índice RAG (carrega índice persistido do disco)
     getDocIndex().init(userData);
     await initStore();
@@ -1073,6 +1242,9 @@ function initLegislacaoSync(): void {
 app.on('window-all-closed', async function () {
     // Finaliza sessão de analytics
     getAnalytics().endSession();
+
+    // Flush audit log de privacidade
+    await flushAuditLog();
 
     // No modo 24/7 com tray ativo, não encerra o processo
     if (trayModeActive) return;
