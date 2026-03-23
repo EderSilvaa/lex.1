@@ -3,6 +3,7 @@ import fs from 'fs'
 import http from 'http'
 import { spawn, ChildProcess } from 'child_process'
 import { chromium, Browser, BrowserContext, Page } from 'playwright-core'
+import { normalizeText } from './text-normalize'
 
 // Porta 9222 é interceptada pelo Comet/Perplexity — usar porta alternativa
 const CDP_PORT = 19222
@@ -176,6 +177,7 @@ process.on('disconnect', () => { try { chromeProc.kill(); } catch {} process.exi
 
 let bridgeProc: ChildProcess | null = null
 let bridgePort: number | null = null
+let bridgeDied = false  // P2.3: flag para recovery sem matar Chrome
 
 /** Inicia o CDP bridge + Chrome como processo Node.js separado (não Electron)
  *  Chrome é spawnado DENTRO do bridge para evitar herança de handles do Electron */
@@ -233,6 +235,8 @@ async function startCdpBridge(chromePath: string, userDataDir: string, cdpPort: 
       if (!resolved) reject(new Error(`Bridge saiu com código ${code}`))
       bridgeProc = null
       bridgePort = null
+      // P2.3: marca bridge como morto para recovery sem matar Chrome
+      if (resolved) bridgeDied = true
     })
 
     setTimeout(() => { if (!resolved) reject(new Error('CDP bridge timeout (30s)')) }, 30000)
@@ -332,6 +336,7 @@ let context: BrowserContext | null = null
 let chromeProc: ChildProcess | null = null
 let initPromise: Promise<void> | null = null
 let heartbeatTimer: NodeJS.Timeout | null = null
+let activePageIndex = 0
 
 export async function initBrowser(): Promise<void> {
   if (initPromise) return initPromise
@@ -361,6 +366,8 @@ async function _doInit(): Promise<void> {
     const contexts = cdpBrowser.contexts()
     context = contexts[0] ?? await cdpBrowser.newContext()
     if (context.pages().length === 0) await context.newPage()
+    activePageIndex = 0
+    setupPageListeners()
     console.log('[Browser] Reconectado ao Chrome existente')
     startHeartbeat()
     return
@@ -414,6 +421,8 @@ async function launchWithPlaywright(userDataDir: string, executablePath: string)
   })
 
   if (context.pages().length === 0) await context.newPage()
+  activePageIndex = 0
+  setupPageListeners()
 
   console.log('[Browser] Playwright Chromium conectado')
   startHeartbeat()
@@ -453,6 +462,8 @@ async function launchWithGoogleChrome(userDataDir: string): Promise<void> {
   })
 
   if (context.pages().length === 0) await context.newPage()
+  activePageIndex = 0
+  setupPageListeners()
 
   console.log('[Browser] Google Chrome conectado via CDP bridge')
   startHeartbeat()
@@ -486,15 +497,49 @@ export function getBrowserContext(): BrowserContext {
   return context
 }
 
-/** Retorna a Page ativa (primeira aba aberta) */
+/** Retorna a Page ativa (rastreia aba ativa por índice) */
 export function getActivePage(): Page | null {
   if (!context) return null
   const pages = context.pages()
-  return pages[0] ?? null
+  if (pages.length === 0) return null
+  // Garante que o índice é válido
+  if (activePageIndex >= pages.length) activePageIndex = pages.length - 1
+  if (activePageIndex < 0) activePageIndex = 0
+  return pages[activePageIndex] ?? pages[0] ?? null
+}
+
+/** Define qual aba é a ativa por índice */
+export function setActivePage(index: number): void {
+  activePageIndex = Math.max(0, index)
+}
+
+/** Retorna o índice da aba ativa */
+export function getActivePageIndex(): number {
+  return activePageIndex
 }
 
 /** Garante que o browser está inicializado e a conexão está viva.
  *  Auto-recupera se o Chrome morreu ou a conexão CDP caiu. */
+/** Registra listeners de novas abas/popups no contexto */
+function setupPageListeners(): void {
+  if (!context) return
+  context.on('page', (newPage) => {
+    const pages = context!.pages()
+    const newIndex = pages.indexOf(newPage)
+    console.log(`[Browser] Nova aba detectada: [${newIndex}] ${newPage.url()}`)
+    // Auto-switch para a nova aba (PJe abre docs/popups em abas novas)
+    if (newIndex >= 0) {
+      activePageIndex = newIndex
+      console.log(`[Browser] Aba ativa atualizada para [${newIndex}]`)
+    }
+  })
+  context.on('close', () => {
+    console.log('[Browser] Contexto fechado')
+    context = null
+    activePageIndex = 0
+  })
+}
+
 export async function ensureBrowser(): Promise<void> {
   if (!context) {
     console.log('[Browser] Não estava inicializado — inicializando agora...')
@@ -502,10 +547,33 @@ export async function ensureBrowser(): Promise<void> {
     return
   }
 
-  // Health check: tenta acessar as pages — se a conexão morreu, lança
+  // P2.3: Se o bridge morreu mas Chrome pode estar vivo, tenta reconectar via proxy-only
+  if (bridgeDied && isElectronProcess()) {
+    console.log('[Browser] Bridge morreu — tentando reconectar sem matar Chrome...')
+    bridgeDied = false
+    try {
+      cdpBrowser = await connectViaBridgeProxyOnly(CDP_PORT)
+      const contexts = cdpBrowser.contexts()
+      context = contexts[0] ?? await cdpBrowser.newContext()
+      if (context.pages().length === 0) await context.newPage()
+      activePageIndex = 0
+      setupPageListeners()
+      startHeartbeat()
+      console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)')
+      return
+    } catch (e: any) {
+      console.warn('[Browser] Recovery do bridge falhou, reinit completo:', e.message)
+      context = null
+      cdpBrowser = null
+      activePageIndex = 0
+      await initBrowser()
+      return
+    }
+  }
+
+  // Health check: testa se a conexão CDP está realmente viva
   try {
     const pages = context.pages()
-    // Testa se a conexão CDP está realmente viva (não só o objeto JS)
     if (pages.length > 0) {
       await pages[0]!.evaluate(() => true)
     } else {
@@ -513,9 +581,9 @@ export async function ensureBrowser(): Promise<void> {
     }
   } catch (e: any) {
     console.warn('[Browser] Conexão morta detectada — reinicializando...', e.message)
-    // Limpa estado stale
     context = null
     cdpBrowser = null
+    activePageIndex = 0
     await initBrowser()
   }
 }
@@ -604,11 +672,121 @@ async function _showCursorAt(x: number, y: number): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Element Refs — sistema de referência por número para LLMs fracos
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ElementRef {
+  ref: number
+  selector: string       // CSS selector construído
+  tag: string
+  type: string
+  text: string           // texto visível (label, textContent, placeholder)
+  role: string           // semantic role (input, button, link, tab, select)
+}
+
+let elementRefMap: ElementRef[] = []
+let elementRefUrl: string = ''
+
+/** Armazena refs coletados pelo browser_get_state */
+export function storeElementRefs(refs: ElementRef[], url: string): void {
+  elementRefMap = refs
+  elementRefUrl = url
+}
+
+/** Resolve ref numérico para ElementRef */
+export function resolveElementRef(ref: number): ElementRef | null {
+  return elementRefMap[ref] ?? null
+}
+
+/** Verifica se os refs estão potencialmente stale (URL mudou) */
+export function isRefMapStale(currentUrl: string): boolean {
+  return elementRefUrl !== '' && elementRefUrl !== currentUrl
+}
+
+/**
+ * Encontra elemento pelo texto visível (case-insensitive, accent-insensitive).
+ * Retorna o melhor match dos refs armazenados, ou constrói seletor text-based.
+ */
+export function findElementByText(texto: string): { selector: string; source: 'ref' | 'constructed' } | null {
+  const normTexto = normalizeText(texto)
+
+  // 1. Busca exata nos refs armazenados
+  for (const ref of elementRefMap) {
+    if (normalizeText(ref.text) === normTexto) {
+      return { selector: ref.selector, source: 'ref' }
+    }
+  }
+
+  // 2. Busca parcial (contains)
+  for (const ref of elementRefMap) {
+    const normRef = normalizeText(ref.text)
+    if (normRef && normTexto && (normRef.includes(normTexto) || normTexto.includes(normRef))) {
+      return { selector: ref.selector, source: 'ref' }
+    }
+  }
+
+  // 3. Constrói seletor text-based (funciona mesmo sem get_state prévio)
+  const escaped = texto.replace(/"/g, '\\"')
+  return { selector: `text="${escaped}"`, source: 'constructed' }
+}
+
+// ── resolveTarget — unifica ref/elemento/seletor ──
+
+export interface ResolveTargetResult {
+  selector: string
+  source: 'ref' | 'elemento' | 'seletor'
+  refInfo?: ElementRef
+}
+
+/**
+ * Resolve target de elemento: ref → elemento → seletor.
+ * Usado por todas as skills de ação browser (click, fill, type).
+ */
+export function resolveTarget(params: {
+  ref?: number
+  elemento?: string
+  seletor?: string
+}): ResolveTargetResult | null {
+  // 1. Ref numérico
+  if (params.ref !== undefined && params.ref >= 0) {
+    const refInfo = resolveElementRef(params.ref)
+    if (refInfo) {
+      // Warning se stale (não bloqueia)
+      try {
+        const page = getActivePage()
+        if (page && isRefMapStale(page.url())) {
+          console.log(`[ElementRef] Warning: refs podem estar stale (URL mudou desde get_state)`)
+        }
+      } catch {}
+      console.log(`[ResolveTarget] ref:${params.ref} → ${refInfo.selector} ("${refInfo.text}")`)
+      return { selector: refInfo.selector, source: 'ref', refInfo }
+    }
+    console.log(`[ResolveTarget] ref:${params.ref} não encontrado (${elementRefMap.length} refs armazenados)`)
+  }
+
+  // 2. Texto visível do elemento
+  if (params.elemento && params.elemento.trim()) {
+    const found = findElementByText(params.elemento)
+    if (found) {
+      console.log(`[ResolveTarget] elemento:"${params.elemento}" → ${found.selector} (${found.source})`)
+      return { selector: found.selector, source: 'elemento' }
+    }
+  }
+
+  // 3. CSS selector direto
+  if (params.seletor && params.seletor.trim()) {
+    return { selector: params.seletor, source: 'seletor' }
+  }
+
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers de ação com iframe awareness
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Tenta fill no main frame e depois em todos os iframes */
-async function fillInFrames(page: Page, selector: string, value: string): Promise<void> {
+export async function fillInFrames(page: Page, selector: string, value: string): Promise<void> {
   try { await page.fill(selector, value, { timeout: 3000 }); return } catch {}
   for (const frame of page.frames()) {
     try { await frame.fill(selector, value, { timeout: 3000 }); return } catch {}
@@ -617,12 +795,146 @@ async function fillInFrames(page: Page, selector: string, value: string): Promis
 }
 
 /** Tenta click no main frame e depois em todos os iframes */
-async function clickInFrames(page: Page, selector: string): Promise<void> {
+export async function clickInFrames(page: Page, selector: string): Promise<void> {
   try { await page.click(selector, { timeout: 3000 }); return } catch {}
   for (const frame of page.frames()) {
     try { await frame.click(selector, { timeout: 3000 }); return } catch {}
   }
   throw new Error(`click: elemento não encontrado — ${selector}`)
+}
+
+/** Tenta type no main frame: foca o elemento e digita keystroke-by-keystroke */
+export async function typeInFrames(page: Page, selector: string, text: string, options?: { delay?: number }): Promise<void> {
+  const delay = options?.delay ?? 30
+  try { await page.click(selector, { timeout: 3000 }); await page.keyboard.type(text, { delay }); return } catch {}
+  for (const frame of page.frames()) {
+    try { await frame.click(selector, { timeout: 3000 }); await page.keyboard.type(text, { delay }); return } catch {}
+  }
+  throw new Error(`type: elemento não encontrado — ${selector}`)
+}
+
+/** Tenta waitForSelector no main frame e depois em todos os iframes */
+export async function waitForSelectorInFrames(page: Page, selector: string, options?: { timeout?: number; state?: 'attached' | 'visible' | 'hidden' }): Promise<void> {
+  const timeout = options?.timeout ?? 10000
+  const state = options?.state ?? 'visible'
+  try { await page.waitForSelector(selector, { timeout, state }); return } catch {}
+  for (const frame of page.frames()) {
+    try { await frame.waitForSelector(selector, { timeout: Math.min(timeout, 3000), state }); return } catch {}
+  }
+  throw new Error(`wait: elemento não apareceu — ${selector} (timeout: ${timeout}ms)`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Smart Click — retry com estratégias alternativas
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SmartClickResult {
+  success: boolean
+  strategy: 'selector' | 'retry' | 'text' | 'coordinates' | 'none'
+  selector?: string
+  coordinates?: { x: number; y: number }
+  error?: string
+}
+
+/**
+ * Click inteligente com waterfall de estratégias:
+ * 1. Seletor CSS direto (iframe-aware)
+ * 2. Wait 500ms + retry seletor (DOM pode estar carregando)
+ * 3. Busca por texto visível do elemento (fallback text-based)
+ * 4. Localiza bounding box e clica por coordenadas
+ */
+export async function smartClick(
+  page: Page,
+  selector: string,
+  options?: { duplo?: boolean; timeout?: number }
+): Promise<SmartClickResult> {
+  const duplo = options?.duplo ?? false
+  const timeout = options?.timeout ?? 3000
+
+  const doClick = async (target: Page | import('playwright-core').Frame, sel: string) => {
+    if (duplo) await target.dblclick(sel, { timeout })
+    else await target.click(sel, { timeout })
+  }
+
+  // ── Strategy 1: Seletor direto (iframe-aware) ──
+  try {
+    await doClick(page, selector)
+    return { success: true, strategy: 'selector', selector }
+  } catch {}
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue
+    try {
+      await doClick(frame, selector)
+      return { success: true, strategy: 'selector', selector }
+    } catch {}
+  }
+
+  // ── Strategy 2: Wait 500ms + retry (DOM loading) ──
+  await page.waitForTimeout(500)
+  try {
+    await doClick(page, selector)
+    return { success: true, strategy: 'retry', selector }
+  } catch {}
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue
+    try {
+      await doClick(frame, selector)
+      return { success: true, strategy: 'retry', selector }
+    } catch {}
+  }
+
+  // ── Strategy 3: Texto visível (extrai texto do seletor e busca) ──
+  // Se o seletor contém texto (ex: has-text, value=, etc), tenta variantes
+  const textMatch = selector.match(/has-text\("([^"]+)"\)/) ||
+                    selector.match(/value[*]?="([^"]+)"/) ||
+                    selector.match(/placeholder[*]?="([^"]+)"/)
+  if (textMatch) {
+    const text = textMatch[1]
+    const textSelectors = [
+      `text="${text}"`,
+      `*:has-text("${text}"):visible`,
+      `button:has-text("${text}")`,
+      `a:has-text("${text}")`,
+      `input[value*="${text}"]`,
+    ]
+    for (const textSel of textSelectors) {
+      try {
+        await doClick(page, textSel)
+        return { success: true, strategy: 'text', selector: textSel }
+      } catch {}
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue
+        try {
+          await doClick(frame, textSel)
+          return { success: true, strategy: 'text', selector: textSel }
+        } catch {}
+      }
+    }
+  }
+
+  // ── Strategy 4: Bounding box → coordenadas ──
+  // Tenta localizar o elemento (pode existir mas não ser clickable) e pegar centro
+  for (const target of [page as Page | import('playwright-core').Frame, ...page.frames()]) {
+    try {
+      const el = await target.$(selector)
+      if (!el) continue
+      const box = await el.boundingBox()
+      if (box && box.width > 0 && box.height > 0) {
+        const x = Math.round(box.x + box.width / 2)
+        const y = Math.round(box.y + box.height / 2)
+        showCursorAt(x, y)
+        if (duplo) await page.mouse.dblclick(x, y)
+        else await page.mouse.click(x, y)
+        return { success: true, strategy: 'coordinates', selector, coordinates: { x, y } }
+      }
+    } catch {}
+  }
+
+  return {
+    success: false,
+    strategy: 'none',
+    error: `Todas as estratégias falharam para: ${selector}`
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,6 +1119,8 @@ export async function runBrowserTask(
 // Heartbeat — mantém sessão PJe viva a cada 6h
 // ─────────────────────────────────────────────────────────────────────────────
 
+const HEARTBEAT_TIMEOUT = 30_000 // 30s — evita travar em CDP hang
+
 function startHeartbeat(): void {
   stopHeartbeat()
   heartbeatTimer = setInterval(async () => {
@@ -815,11 +1129,16 @@ function startHeartbeat(): void {
       if (!page) return
       const url: string = page.url()
       if (!url.includes('.jus.br') && !url.includes('pje')) return
-      await page.evaluate(async (u: string) => {
-        try { await fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' }) } catch { /* ignora */ }
-      }, url)
+      await Promise.race([
+        page.evaluate(async (u: string) => {
+          try { await fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' }) } catch { /* ignora */ }
+        }, url),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('heartbeat timeout')), HEARTBEAT_TIMEOUT))
+      ])
       console.log('[Browser] Heartbeat PJe —', new Date().toLocaleTimeString('pt-BR'))
-    } catch { /* ignorar */ }
+    } catch (err: any) {
+      console.warn('[Browser] Heartbeat falhou:', err?.message || err)
+    }
   }, 6 * 60 * 60 * 1000)
 }
 
@@ -857,6 +1176,7 @@ export async function closeBrowser(): Promise<void> {
     } catch { /* ignorar */ }
     chromeProc = null
   }
+  activePageIndex = 0
   console.log('[Browser] Chromium encerrado')
 }
 

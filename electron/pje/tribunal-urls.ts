@@ -1,3 +1,5 @@
+import { normalizeId } from '../text-normalize';
+
 export interface TribunalRoutes {
     loginUrl: string;
     consultaUrl: string;
@@ -78,16 +80,8 @@ const DEFAULT_ROUTES: TribunalRoutes = ROUTES['tjpa'] || {
     pages: {}
 };
 
-/**
- * Normaliza texto para comparação de tribunal: lowercase, sem acentos, sem caracteres especiais.
- */
-function normalizeForTribunal(value: unknown): string {
-    return String(value || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-}
+/** Normaliza texto para comparação de tribunal */
+const normalizeForTribunal = (value: unknown): string => normalizeId(String(value || ''));
 
 /**
  * Infere a chave do tribunal a partir de texto livre (nome, URL, sigla, etc.).

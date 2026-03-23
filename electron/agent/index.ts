@@ -43,6 +43,13 @@ export { SessionManager, getSessionManager } from './session';
 // Action Queue (C2)
 export { ActionQueue, getActionQueue } from './action-queue';
 
+// Phase 1 AIOS: Planning & Multi-Agent
+export { Blackboard } from './blackboard';
+export { getAgentSpec, listAgentTypes, getAgentTypeIds } from './agent-types';
+export { AgentPool } from './agent-pool';
+export { createPlan, shouldUsePlanner } from './planner';
+export { Orchestrator } from './orchestrator';
+
 // Types
 export * from './types';
 

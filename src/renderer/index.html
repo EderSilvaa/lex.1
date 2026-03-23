@@ -5,8 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: file: https://*.googleusercontent.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.anthropic.com https://nspauxzztflgmxjgevmo.supabase.co; object-src file:; frame-src file:;">
     <title>Lex - AI Legal Agent</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/file-manager.css">
 </head>
@@ -16,7 +17,14 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo">Lex</div>
+                <div class="logo">
+                    <svg viewBox="0 0 60 62" width="24" height="25">
+                        <polygon points="30,2 58,58 2,58" fill="#FFFFFF"/>
+                        <line x1="30" y1="2" x2="30" y2="58" stroke="#08080C" stroke-width="3.5" stroke-linecap="round"/>
+                        <circle cx="30" cy="58" r="3.5" fill="#08080C"/>
+                    </svg>
+                    <span>Lex</span>
+                </div>
             </div>
 
             <nav class="nav-menu">
@@ -50,7 +58,9 @@
 
             <div class="sidebar-footer">
                 <button class="nav-item" id="nav-settings" title="Configuracoes">
-                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                    <img id="sidebar-avatar" src="" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;display:none">
+                    <span id="sidebar-avatar-placeholder" class="icon" style="width:22px;height:22px;border-radius:50%;background:var(--accent-color);display:none;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text-primary);flex-shrink:0"></span>
+                    <svg id="sidebar-settings-icon" class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"></circle>
                         <path
@@ -80,13 +90,7 @@
                     </div>
 
                     <div class="input-area">
-                        <div id="attachment-chip" class="attachment-chip hidden">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                            </svg>
-                            <span class="attachment-name" id="attachment-name"></span>
-                            <button class="attachment-remove" id="btn-remove-attachment" title="Remover arquivo">×</button>
-                        </div>
+                        <div id="attachment-chips" class="attachment-chips hidden"></div>
                         <div class="input-wrapper">
                             <textarea placeholder="Responder..."></textarea>
                             <button class="stop-btn" title="Parar agente" style="display:none">
@@ -174,16 +178,37 @@
 
             <!-- Settings View -->
             <div class="settings-wrapper hidden">
-                <div class="settings-container">
-                    <div class="settings-header">
-                        <h2 class="settings-title">Configuracoes</h2>
-                        <p class="settings-subtitle">Gerencie seu perfil e preferencias</p>
-                    </div>
+                <div class="settings-layout">
+                    <!-- Sidebar de navegacao -->
+                    <nav class="settings-nav">
+                        <h2 class="settings-nav-title">Configuracoes</h2>
+                        <ul class="settings-nav-list">
+                            <li class="settings-nav-item active" data-tab="perfil">Perfil</li>
+                            <li class="settings-nav-item" data-tab="ia">Provedor de IA</li>
+                            <li class="settings-nav-item" data-tab="privacidade">Privacidade</li>
+                            <li class="settings-nav-item" data-tab="dados">Base de Dados</li>
+                            <li class="settings-nav-item" data-tab="telegram">Telegram</li>
+                            <li class="settings-nav-item" data-tab="integracoes">Integracoes</li>
+                            <li class="settings-nav-item" data-tab="uso">Uso</li>
+                        </ul>
+                    </nav>
 
-                    <div class="settings-sections">
-                        <!-- Perfil -->
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Perfil</h3>
+                    <!-- Conteudo do painel -->
+                    <div class="settings-content">
+
+                        <!-- Tab: Perfil -->
+                        <div class="settings-tab-panel active" id="tab-perfil">
+                            <h2 class="settings-panel-title">Perfil</h2>
+                            <div id="profile-card" style="display:flex;align-items:center;gap:14px;padding:16px 0;margin-bottom:20px;border-bottom:1px solid var(--border-color)">
+                                <img id="profile-avatar" src="" alt="" style="width:56px;height:56px;border-radius:50%;border:2px solid var(--border-color);object-fit:cover;display:none">
+                                <div id="profile-avatar-placeholder" style="width:56px;height:56px;border-radius:50%;background:var(--accent-color);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:var(--text-primary)"></div>
+                                <div style="flex:1;min-width:0">
+                                    <div id="profile-name" style="font-size:16px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                                    <div id="profile-email" style="font-size:13px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                                    <div id="profile-plan" style="font-size:11px;color:var(--success-color);margin-top:3px"></div>
+                                </div>
+                                <button id="profile-logout-btn" style="background:none;border:1px solid var(--border-color);border-radius:6px;color:var(--text-muted);font-size:11px;padding:6px 12px;cursor:pointer;white-space:nowrap">Sair</button>
+                            </div>
                             <div class="settings-form">
                                 <div class="settings-field">
                                     <label class="settings-label" for="pref-display-name">Como quer ser chamado</label>
@@ -217,12 +242,16 @@
                                     <input class="settings-input" type="text" id="pref-tribunal" placeholder="Ex: TRT8" autocomplete="off">
                                     <span class="settings-hint">Usado ao abrir o PJe automaticamente</span>
                                 </div>
+                                <div class="settings-actions">
+                                    <button class="settings-save-btn" id="btn-save-settings">Salvar alteracoes</button>
+                                    <span class="settings-save-feedback hidden" id="settings-save-feedback">Salvo!</span>
+                                </div>
                             </div>
-                        </section>
+                        </div>
 
-                        <!-- Provedor de IA -->
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Provedor de IA</h3>
+                        <!-- Tab: Provedor de IA -->
+                        <div class="settings-tab-panel" id="tab-ia">
+                            <h2 class="settings-panel-title">Provedor de IA</h2>
                             <div class="settings-form">
                                 <div class="settings-field">
                                     <label class="settings-label" for="ai-provider">Provedor</label>
@@ -262,108 +291,59 @@
                                     </div>
                                 </div>
                             </div>
-                        </section>
 
-                        <!-- Modelo Local (Ollama) -->
-                        <section class="settings-section" id="ollama-section" style="display:none">
-                            <h3 class="settings-section-title">Modelo Local (Ollama)</h3>
-                            <div class="settings-form">
-                                <div id="ollama-status-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                                    <span id="ollama-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
-                                    <span id="ollama-status-text" style="font-size:12px;color:var(--text-secondary)">Verificando Ollama...</span>
-                                </div>
-
-                                <div id="ollama-not-found" style="display:none;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-                                    <div style="font-weight:600;color:var(--danger-color);margin-bottom:6px">Ollama nao detectado</div>
-                                    <div>O Ollama permite rodar modelos de IA 100% no seu computador — nenhum dado sai da maquina.</div>
-                                    <button id="btn-ollama-install" class="settings-save-btn" style="width:100%;margin-top:10px;background:var(--accent-strong);border:1px solid var(--accent-color);color:var(--text-primary)">
-                                        Instalar Ollama automaticamente
-                                    </button>
-                                    <div id="ollama-install-bar" style="display:none;margin-top:8px">
-                                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                                            <span id="ollama-install-label" style="font-size:11px;color:var(--text-secondary)">Baixando installer...</span>
-                                            <span id="ollama-install-percent" style="font-size:11px;color:var(--accent-color);font-weight:600">0%</span>
-                                        </div>
-                                        <div style="background:var(--bg-tertiary);border-radius:4px;height:5px;overflow:hidden">
-                                            <div id="ollama-install-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
-                                        </div>
-                                        <div id="ollama-install-status" style="font-size:10px;color:var(--text-muted);margin-top:4px"></div>
+                            <!-- Modelo Local (Ollama) -->
+                            <div id="ollama-section" style="display:none;margin-top:28px;padding-top:24px;border-top:1px solid var(--border-color)">
+                                <h3 class="settings-panel-subtitle">Modelo Local (Ollama)</h3>
+                                <div class="settings-form">
+                                    <div id="ollama-status-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                                        <span id="ollama-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+                                        <span id="ollama-status-text" style="font-size:12px;color:var(--text-secondary)">Verificando Ollama...</span>
                                     </div>
-                                    <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">
-                                        Ou instale manualmente: <a href="https://ollama.com/download" target="_blank" style="color:var(--accent-color)">ollama.com/download</a>
+
+                                    <div id="ollama-not-found" style="display:none;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+                                        <div style="font-weight:600;color:var(--danger-color);margin-bottom:6px">Ollama nao detectado</div>
+                                        <div>O Ollama permite rodar modelos de IA 100% no seu computador — nenhum dado sai da maquina.</div>
+                                        <button id="btn-ollama-install" class="settings-save-btn" style="width:100%;margin-top:10px;background:var(--accent-strong);border:1px solid var(--accent-color);color:var(--text-primary)">
+                                            Instalar Ollama automaticamente
+                                        </button>
+                                        <div id="ollama-install-bar" style="display:none;margin-top:8px">
+                                            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                                                <span id="ollama-install-label" style="font-size:11px;color:var(--text-secondary)">Baixando installer...</span>
+                                                <span id="ollama-install-percent" style="font-size:11px;color:var(--accent-color);font-weight:600">0%</span>
+                                            </div>
+                                            <div style="background:var(--bg-tertiary);border-radius:4px;height:5px;overflow:hidden">
+                                                <div id="ollama-install-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
+                                            </div>
+                                            <div id="ollama-install-status" style="font-size:10px;color:var(--text-muted);margin-top:4px"></div>
+                                        </div>
+                                        <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">
+                                            Ou instale manualmente: <a href="https://ollama.com/download" target="_blank" style="color:var(--accent-color)">ollama.com/download</a>
+                                        </div>
+                                    </div>
+
+                                    <div id="ollama-models-area" style="display:none">
+                                        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Modelos recomendados</div>
+                                        <div id="ollama-models-list" style="display:flex;flex-direction:column;gap:6px"></div>
+
+                                        <div id="ollama-pull-bar" style="display:none;margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px">
+                                            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                                                <span id="ollama-pull-label" style="font-size:12px;color:var(--text-secondary)">Baixando modelo...</span>
+                                                <span id="ollama-pull-percent" style="font-size:12px;color:var(--accent-color);font-weight:600">0%</span>
+                                            </div>
+                                            <div style="background:var(--bg-tertiary);border-radius:4px;height:6px;overflow:hidden">
+                                                <div id="ollama-pull-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
+                                            </div>
+                                            <div id="ollama-pull-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+                                        </div>
                                     </div>
                                 </div>
-
-                                <div id="ollama-models-area" style="display:none">
-                                    <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Modelos recomendados</div>
-                                    <div id="ollama-models-list" style="display:flex;flex-direction:column;gap:6px"></div>
-
-                                    <div id="ollama-pull-bar" style="display:none;margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px">
-                                        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                                            <span id="ollama-pull-label" style="font-size:12px;color:var(--text-secondary)">Baixando modelo...</span>
-                                            <span id="ollama-pull-percent" style="font-size:12px;color:var(--accent-color);font-weight:600">0%</span>
-                                        </div>
-                                        <div style="background:var(--bg-tertiary);border-radius:4px;height:6px;overflow:hidden">
-                                            <div id="ollama-pull-fill" style="background:var(--accent-color);height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>
-                                        </div>
-                                        <div id="ollama-pull-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
-                                    </div>
-                                </div>
                             </div>
-                        </section>
+                        </div>
 
-                        <!-- Modo 24/7 — Telegram -->
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Modo 24/7 — Telegram</h3>
-                            <div class="settings-form">
-                                <div class="settings-field">
-                                    <label class="settings-label" for="telegram-token">Token do Bot</label>
-                                    <input class="settings-input" type="password" id="telegram-token" placeholder="Ex: 123456789:AAF..." autocomplete="off">
-                                    <span class="settings-hint">Crie um bot em @BotFather e cole o token aqui</span>
-                                </div>
-                                <div class="settings-field">
-                                    <label class="settings-label" for="telegram-userid">Seu ID do Telegram</label>
-                                    <input class="settings-input" type="number" id="telegram-userid" placeholder="Ex: 123456789" autocomplete="off">
-                                    <span class="settings-hint">Envie /start para @userinfobot para descobrir seu ID</span>
-                                </div>
-                                <div class="settings-row" style="gap:10px;margin-top:8px">
-                                    <button class="settings-save-btn" id="btn-telegram-save" style="flex:1">Salvar config</button>
-                                    <button class="settings-save-btn" id="btn-telegram-toggle" style="flex:1;background:var(--accent-color)">Ativar 24/7</button>
-                                </div>
-                                <div id="telegram-status" style="margin-top:8px;font-size:12px;color:#888"></div>
-                            </div>
-                        </section>
-
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Documentos do Escritorio (RAG)</h3>
-                            <div class="settings-form">
-                                <div class="settings-field">
-                                    <span class="settings-hint">Indexa os documentos do seu workspace para que a LEX use como base de conhecimento nas respostas. Adicione o workspace no Gerenciador de Arquivos antes de indexar.</span>
-                                </div>
-                                <div id="rag-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
-                                <button class="settings-save-btn" id="btn-rag-index" style="width:100%">Indexar documentos do workspace</button>
-                                <div id="rag-feedback" style="margin-top:8px;font-size:12px;color:#888"></div>
-                            </div>
-                        </section>
-
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Base de Legislacao Brasileira</h3>
-                            <div class="settings-form">
-                                <div class="settings-field">
-                                    <span class="settings-hint">Baixa os principais codigos brasileiros diretamente do Planalto.gov.br (CF/88, CC, CPC, CLT, CP, CDC, ECA, CTN e mais). Ficam indexados localmente no RAG — a LEX consulta o texto real da lei ao responder, sem alucinar artigos.</span>
-                                </div>
-                                <div id="leg-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
-                                <div style="display:flex;gap:8px">
-                                    <button class="settings-save-btn" id="btn-leg-download" style="flex:1">Baixar / Atualizar Legislacao</button>
-                                    <button class="settings-save-btn" id="btn-leg-redownload" style="flex:0 0 auto;background:#333" title="Forca re-download de todos os arquivos">Forcar</button>
-                                </div>
-                                <div id="leg-progress" style="margin-top:8px;font-size:11px;color:#888;max-height:120px;overflow-y:auto;font-family:monospace;white-space:pre-wrap"></div>
-                            </div>
-                        </section>
-
-                        <!-- Privacidade -->
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Privacidade e Protecao de Dados</h3>
+                        <!-- Tab: Privacidade -->
+                        <div class="settings-tab-panel" id="tab-privacidade">
+                            <h2 class="settings-panel-title">Privacidade e Protecao de Dados</h2>
                             <div class="settings-form">
                                 <div class="settings-field">
                                     <label class="settings-label" for="privacy-level">Nivel de protecao</label>
@@ -385,23 +365,91 @@
                                 </div>
                                 <div id="privacy-feedback" style="margin-top:6px;font-size:12px;color:var(--success-color);display:none">Salvo!</div>
                             </div>
-                        </section>
+                        </div>
 
-                        <!-- Estatisticas de Uso -->
-                        <section class="settings-section">
-                            <h3 class="settings-section-title">Estatisticas de Uso</h3>
+                        <!-- Tab: Base de Dados -->
+                        <div class="settings-tab-panel" id="tab-dados">
+                            <h2 class="settings-panel-title">Base de Dados</h2>
+
+                            <h3 class="settings-panel-subtitle">Documentos do Escritorio (RAG)</h3>
+                            <div class="settings-form" style="margin-bottom:28px">
+                                <div class="settings-field">
+                                    <span class="settings-hint">Indexa os documentos do seu workspace para que a LEX use como base de conhecimento nas respostas. Adicione o workspace no Gerenciador de Arquivos antes de indexar.</span>
+                                </div>
+                                <div id="rag-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
+                                <button class="settings-save-btn" id="btn-rag-index" style="width:100%">Indexar documentos do workspace</button>
+                                <div id="rag-feedback" style="margin-top:8px;font-size:12px;color:#888"></div>
+                            </div>
+
+                            <div style="border-top:1px solid var(--border-color);padding-top:24px">
+                                <h3 class="settings-panel-subtitle">Base de Legislacao Brasileira</h3>
+                                <div class="settings-form">
+                                    <div class="settings-field">
+                                        <span class="settings-hint">Baixa os principais codigos brasileiros diretamente do Planalto.gov.br (CF/88, CC, CPC, CLT, CP, CDC, ECA, CTN e mais). Ficam indexados localmente no RAG — a LEX consulta o texto real da lei ao responder, sem alucinar artigos.</span>
+                                    </div>
+                                    <div id="leg-stats" style="font-size:12px;color:#888;margin-bottom:8px"></div>
+                                    <div style="display:flex;gap:8px">
+                                        <button class="settings-save-btn" id="btn-leg-download" style="flex:1">Baixar / Atualizar Legislacao</button>
+                                        <button class="settings-save-btn" id="btn-leg-redownload" style="flex:0 0 auto;background:#333" title="Forca re-download de todos os arquivos">Forcar</button>
+                                    </div>
+                                    <div id="leg-progress" style="margin-top:8px;font-size:11px;color:#888;max-height:120px;overflow-y:auto;font-family:monospace;white-space:pre-wrap"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Telegram -->
+                        <div class="settings-tab-panel" id="tab-telegram">
+                            <h2 class="settings-panel-title">Modo 24/7 — Telegram</h2>
+                            <div class="settings-form">
+                                <div class="settings-field">
+                                    <label class="settings-label" for="telegram-token">Token do Bot</label>
+                                    <input class="settings-input" type="password" id="telegram-token" placeholder="Ex: 123456789:AAF..." autocomplete="off">
+                                    <span class="settings-hint">Crie um bot em @BotFather e cole o token aqui</span>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="settings-label" for="telegram-userid">Seu ID do Telegram</label>
+                                    <input class="settings-input" type="number" id="telegram-userid" placeholder="Ex: 123456789" autocomplete="off">
+                                    <span class="settings-hint">Envie /start para @userinfobot para descobrir seu ID</span>
+                                </div>
+                                <div class="settings-row" style="gap:10px;margin-top:8px">
+                                    <button class="settings-save-btn" id="btn-telegram-save" style="flex:1">Salvar config</button>
+                                    <button class="settings-save-btn" id="btn-telegram-toggle" style="flex:1;background:var(--accent-color)">Ativar 24/7</button>
+                                </div>
+                                <div id="telegram-status" style="margin-top:8px;font-size:12px;color:#888"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Integracoes -->
+                        <div class="settings-tab-panel" id="tab-integracoes">
+                            <h2 class="settings-panel-title">Integracoes</h2>
+                            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Conecte servicos externos para expandir as capacidades do LEX.</p>
+                            <div id="plugins-grid" class="plugins-grid">
+                                <div style="font-size:13px;color:var(--text-muted)">Carregando plugins...</div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Uso -->
+                        <div class="settings-tab-panel" id="tab-uso">
+                            <h2 class="settings-panel-title">Estatisticas de Uso</h2>
                             <div class="settings-form">
                                 <div id="analytics-dashboard" style="font-size:13px;color:var(--text-secondary);line-height:1.8">
                                     Carregando...
                                 </div>
                                 <button class="settings-save-btn" id="btn-refresh-stats" style="width:100%;margin-top:10px">Atualizar Estatisticas</button>
                             </div>
-                        </section>
+                        </div>
 
-                        <!-- Salvar -->
-                        <div class="settings-actions">
-                            <button class="settings-save-btn" id="btn-save-settings">Salvar alteracoes</button>
-                            <span class="settings-save-feedback hidden" id="settings-save-feedback">Salvo!</span>
+                    </div>
+                </div>
+
+                <!-- Modal OAuth / API Key -->
+                <div id="plugin-modal" class="plugin-modal hidden">
+                    <div class="plugin-modal-content">
+                        <div class="plugin-modal-header">
+                            <h3 id="plugin-modal-title">Conectar Plugin</h3>
+                            <button id="plugin-modal-close" class="plugin-modal-close">&times;</button>
+                        </div>
+                        <div id="plugin-modal-body" class="plugin-modal-body">
                         </div>
                     </div>
                 </div>
@@ -445,7 +493,6 @@
                 <div id="fm-preview" class="fm-preview hidden">
                     <div class="fm-preview-header">
                         <div class="fm-preview-title-group">
-                            <span class="fm-preview-icon" id="fm-preview-icon"></span>
                             <span class="fm-preview-name" id="fm-preview-name"></span>
                         </div>
                         <button class="fm-preview-close" id="fm-preview-close" title="Fechar">&times;</button>
@@ -460,12 +507,6 @@
                             </svg>
                             Enviar ao Chat
                         </button>
-                        <button class="fm-preview-btn" id="fm-preview-analyze" title="Analisar com IA">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                            </svg>
-                            Analisar
-                        </button>
                     </div>
                 </div>
             </div>
@@ -475,7 +516,13 @@
     <!-- ===== OVERLAY: Privacidade (First-Run) ===== -->
     <div id="privacy-onboarding-overlay" class="lex-overlay" style="display:none">
         <div class="lex-card" style="width:420px">
-            <div class="lex-card-logo">LEX</div>
+            <div class="lex-card-logo">
+                <svg viewBox="0 0 60 62" width="36" height="37">
+                    <polygon points="30,2 58,58 2,58" fill="#FFFFFF"/>
+                    <line x1="30" y1="2" x2="30" y2="58" stroke="#08080C" stroke-width="3.5" stroke-linecap="round"/>
+                    <circle cx="30" cy="58" r="3.5" fill="#08080C"/>
+                </svg>
+            </div>
             <h2 class="lex-card-title">Protecao de Dados</h2>
             <p class="lex-card-sub">A LEX usa IA para te ajudar. Para funcionar, envia dados para provedores externos (Anthropic, OpenAI, etc).</p>
             <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:4px">Como protegemos seus dados:</div>
@@ -509,21 +556,38 @@
     <!-- ===== OVERLAY: Login / Cadastro ===== -->
     <div id="auth-overlay" class="lex-overlay" style="display:none">
         <div class="lex-card">
-            <div class="lex-card-logo">LEX</div>
-            <h2 class="lex-card-title" id="auth-title">Entrar</h2>
+            <div class="lex-card-logo">
+                <svg viewBox="0 0 60 62" width="36" height="37">
+                    <polygon points="30,2 58,58 2,58" fill="#FFFFFF"/>
+                    <line x1="30" y1="2" x2="30" y2="58" stroke="#08080C" stroke-width="3.5" stroke-linecap="round"/>
+                    <circle cx="30" cy="58" r="3.5" fill="#08080C"/>
+                </svg>
+            </div>
+            <h2 class="lex-card-title">Entrar</h2>
             <p class="lex-card-sub">Assistente juridico para PJe</p>
-            <input type="email" id="auth-email" class="lex-card-input" placeholder="Email" autocomplete="off">
-            <input type="password" id="auth-password" class="lex-card-input" placeholder="Senha">
             <p id="auth-error" class="lex-card-error" style="display:none"></p>
-            <button id="auth-submit-btn" class="lex-card-btn-primary">Entrar</button>
-            <button id="auth-toggle-btn" class="lex-card-btn-link">Nao tem conta? Criar conta</button>
+            <button id="auth-google-btn" class="lex-card-btn-google">
+                <svg viewBox="0 0 24 24" width="18" height="18" style="margin-right:8px;flex-shrink:0">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                Entrar com Google
+            </button>
         </div>
     </div>
 
     <!-- ===== OVERLAY: Trial Expirado / Paywall ===== -->
     <div id="paywall-overlay" class="lex-overlay" style="display:none">
         <div class="lex-card">
-            <div class="lex-card-logo">LEX</div>
+            <div class="lex-card-logo">
+                <svg viewBox="0 0 60 62" width="36" height="37">
+                    <polygon points="30,2 58,58 2,58" fill="#FFFFFF"/>
+                    <line x1="30" y1="2" x2="30" y2="58" stroke="#08080C" stroke-width="3.5" stroke-linecap="round"/>
+                    <circle cx="30" cy="58" r="3.5" fill="#08080C"/>
+                </svg>
+            </div>
             <h2 class="lex-card-title">Periodo de teste encerrado</h2>
             <p class="lex-card-sub">Seu trial de 4 dias terminou. Assine para continuar usando o LEX Juridico.</p>
             <div class="lex-paywall-features">
@@ -573,6 +637,20 @@
         cursor: pointer; padding: 2px; text-align: center; width: 100%;
     }
     .lex-card-btn-link:hover { color: var(--text-secondary); }
+    .lex-card-divider {
+        display: flex; align-items: center; gap: 12px; margin: 4px 0;
+    }
+    .lex-card-divider::before, .lex-card-divider::after {
+        content: ''; flex: 1; height: 1px; background: var(--border-color);
+    }
+    .lex-card-divider span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+    .lex-card-btn-google {
+        display: flex; align-items: center; justify-content: center;
+        background: var(--bg-canvas); border: 1px solid var(--border-color); border-radius: 8px;
+        color: var(--text-primary); padding: 10px; font-size: 14px; font-weight: 600;
+        cursor: pointer; width: 100%; transition: border-color 0.15s, background 0.15s;
+    }
+    .lex-card-btn-google:hover { border-color: var(--accent-color); background: var(--bg-secondary); }
     .lex-paywall-features { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .lex-paywall-feat {
         background: var(--bg-canvas); border-left: 3px solid var(--success-color); border-radius: 0 6px 6px 0;

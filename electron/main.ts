@@ -6,13 +6,14 @@ import { getKnownPJeHosts } from './pje/tribunal-urls';
 import { closeBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
 import { initMemoryDir } from './agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
+import { initSelectorMemory, flushSelectorMemory } from './browser';
 import { startBackend, stopBackend, rpcCall, backendEvents, syncConfigToBackend, isBackendAlive } from './backend-client';
 import { encryptApiKey, safeDecrypt, isEncrypted, initCryptoStoreSalt } from './crypto-store';
 import { getDocIndex } from './agent/doc-index';
 import { downloadIncremental, downloadTudo, getLegislacaoStats, verificarDesatualizados } from './agent/legislacao-downloader';
 import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } from './provider-config';
 import { initSupabase } from './auth/supabase-client';
-import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense } from './auth/license';
+import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
 import { autoUpdater } from 'electron-updater';
 import {
@@ -38,7 +39,7 @@ app.commandLine.appendSwitch('disable-gpu-sandbox')
 // Agent module loaded dynamically after app ready
 let agentModule: {
     initializeAgent: () => Promise<void>;
-    runAgentLoop: (objetivo: string, config: any, tenantConfig: any, sessionId?: string) => Promise<string>;
+    runAgentLoop: (objetivo: string, config: any, tenantConfig: any, sessionId?: string, agentSpec?: any, parentAbort?: AbortSignal) => Promise<string>;
     cancelAgentLoop: (runId?: string) => boolean;
     agentEmitter: import('events').EventEmitter;
     getDefaultTenantConfig: () => any;
@@ -776,17 +777,7 @@ ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
 });
 
 function createTray() {
-    // Tenta ícone da build, cai para empty se não existir
-    const candidates = [
-        path.join(__dirname, '../build-assets/icon.ico'),
-        path.join(__dirname, '../build-assets/icon.png'),
-        path.join(process.cwd(), 'build-assets/icon.ico'),
-        path.join(process.cwd(), 'build-assets/icon.png'),
-    ];
-    const iconPath = candidates.find(p => fs.existsSync(p));
-    const icon = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
-
-    tray = new Tray(icon);
+    tray = new Tray(getAppIcon());
     tray.setToolTip('LEX — Assistente Jurídico (24/7)');
     refreshTrayMenu();
 
@@ -830,10 +821,22 @@ function refreshTrayMenu() {
     tray.setContextMenu(contextMenu);
 }
 
+function getAppIcon(): Electron.NativeImage {
+    const candidates = [
+        path.join(__dirname, '../build-assets/icon.ico'),
+        path.join(__dirname, '../build-assets/icon.png'),
+        path.join(process.cwd(), 'build-assets/icon.ico'),
+        path.join(process.cwd(), 'build-assets/icon.png'),
+    ];
+    const iconPath = candidates.find(p => fs.existsSync(p));
+    return iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400, // Wider for split view
         height: 900,
+        icon: getAppIcon(),
         titleBarStyle: 'hidden', // Look "modern"
         titleBarOverlay: {
             color: '#1e1e1e',
@@ -955,6 +958,17 @@ ipcMain.handle('files-read', async (_event, filePath: string) => {
         console.error('[Files] Erro ao ler arquivo:', e);
         return { success: false, error: e.message };
     }
+});
+
+// Retorna file:// URL para preview de arquivos (PDF, imagens)
+ipcMain.handle('files-get-url', async (_event, filePath: string) => {
+    const normalizedFilePath = normalizeFsPath(filePath);
+    if (!isPathApprovedForRead(normalizedFilePath)) {
+        return null;
+    }
+    // Converte caminho Windows para file:// URL
+    const fileUrl = `file:///${normalizedFilePath.replace(/\\/g, '/').replace(/^\//, '')}`;
+    return fileUrl;
 });
 
 // Seleciona arquivo (dialog)
@@ -1122,6 +1136,7 @@ app.whenReady().then(async () => {
     registerCrawlerHandlers();
 
     initRouteMemory(userData);
+    initSelectorMemory(userData);
 
     // Inicia backend Node.js separado (agent + browser + skills)
     try {
@@ -1151,6 +1166,29 @@ app.whenReady().then(async () => {
     initTelegramBotIfConfigured().catch(e => {
         console.error('[Telegram] Falha ao auto-iniciar:', e);
     }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
+
+    // Phase 3 AIOS: Inicializa plugins ANTES do scheduler
+    // (scheduler pode executar goals que usam skills de plugins)
+    try {
+        const { initPlugins } = await import('./plugins');
+        await initPlugins();
+        if (mainWindow) mainWindow.webContents.send('plugins-ready');
+    } catch (err: any) {
+        console.error('[Plugins] Falha ao inicializar:', err.message);
+    }
+
+    // Phase 2 AIOS: Inicializa scheduler + notifications
+    try {
+        const { initScheduler, setJobRunnerWindow } = await import('./scheduler');
+        const { setNotificationWindow, setTelegramUserId } = await import('./notifications');
+        setNotificationWindow(mainWindow);
+        setJobRunnerWindow(mainWindow);
+        const telegramUserId = store?.get('telegramUserId', 0) as number;
+        if (telegramUserId) setTelegramUserId(telegramUserId);
+        await initScheduler();
+    } catch (err: any) {
+        console.error('[Scheduler] Falha ao inicializar:', err.message);
+    }
 
     // Sync de legislação em background (não bloqueia boot)
     initLegislacaoSync();
@@ -1246,6 +1284,12 @@ app.on('window-all-closed', async function () {
     // Flush audit log de privacidade
     await flushAuditLog();
 
+    // Phase 2 AIOS: Para scheduler (limpa timers/watchers)
+    try {
+        const { stopScheduler } = await import('./scheduler');
+        stopScheduler();
+    } catch { /* ignore */ }
+
     // No modo 24/7 com tray ativo, não encerra o processo
     if (trayModeActive) return;
 
@@ -1254,6 +1298,7 @@ app.on('window-all-closed', async function () {
 
     // Fallback local caso backend não estivesse rodando
     flushRouteMemory();
+    flushSelectorMemory();
     await closeBrowser();
     try {
         if (agentModule) {
@@ -1523,9 +1568,13 @@ async function ensureAgentInitialized() {
     return agent;
 }
 
-// Forward agent events to renderer
+// Forward agent events to renderer (com guard contra listeners duplicados)
+let agentEventForwardingActive = false;
 async function setupAgentEventForwarding() {
+    if (agentEventForwardingActive) return;
+    agentEventForwardingActive = true;
     const agent = await loadAgentModule();
+    agent.agentEmitter.removeAllListeners('agent-event');
     agent.agentEmitter.on('agent-event', (event: any) => {
         console.log('[Agent Event]', event.type);
         if (mainWindow) {
@@ -1998,6 +2047,218 @@ ipcMain.handle('agent-cancel', async () => {
 });
 
 // ============================================================================
+// IPC: Plan & Orchestrator (Phase 1 AIOS)
+// ============================================================================
+
+ipcMain.handle('ai-plan-execute', async (_event, { goal, sessionId }: { goal: string; sessionId?: string }) => {
+    const license = await checkLicense();
+    if (license.status === 'not_authenticated') {
+        return { success: false, error: 'not_authenticated' };
+    }
+    if (license.status === 'trial_expired') {
+        return { success: false, error: 'trial_expired' };
+    }
+
+    try {
+        await ensureAgentInitialized();
+        const { Orchestrator } = await import('./agent/orchestrator');
+        const orchestrator = new Orchestrator();
+
+        // Forward orchestrator events to renderer
+        orchestrator.on('event', (evt: any) => {
+            mainWindow?.webContents.send('agent-event', {
+                type: 'orchestrator',
+                data: evt,
+            });
+        });
+
+        const result = await orchestrator.execute(goal, sessionId || AGENT_SESSION_ID);
+        return { success: true, result };
+    } catch (error: any) {
+        console.error('[Orchestrator] Erro:', error.message);
+        return { success: false, error: error.message };
+    }
+});
+
+// ============================================================================
+// IPC: Scheduler (Phase 2 AIOS — Autonomia)
+// ============================================================================
+
+ipcMain.handle('scheduler-list-goals', async () => {
+    const { getGoalStore } = await import('./scheduler');
+    return getGoalStore().getAllGoals();
+});
+
+ipcMain.handle('scheduler-add-goal', async (_event, goalInput: any) => {
+    try {
+        const { getGoalStore, getScheduler } = await import('./scheduler');
+        const goal = await getGoalStore().addGoal(goalInput);
+        getScheduler().scheduleGoal(goal);
+        return { success: true, goal };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('scheduler-update-goal', async (_event, { id, updates }: { id: string; updates: any }) => {
+    try {
+        const { getGoalStore, getScheduler } = await import('./scheduler');
+        const goal = await getGoalStore().updateGoal(id, updates);
+        if (goal) await getScheduler().rescheduleGoal(id);
+        return { success: true, goal };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('scheduler-remove-goal', async (_event, id: string) => {
+    const { getGoalStore, getScheduler } = await import('./scheduler');
+    getScheduler().unscheduleGoal(id);
+    const removed = await getGoalStore().removeGoal(id);
+    return { success: removed };
+});
+
+ipcMain.handle('scheduler-pause-goal', async (_event, id: string) => {
+    const { getGoalStore, getScheduler } = await import('./scheduler');
+    await getGoalStore().setStatus(id, 'paused');
+    getScheduler().unscheduleGoal(id);
+    return { success: true };
+});
+
+ipcMain.handle('scheduler-resume-goal', async (_event, id: string) => {
+    const { getGoalStore, getScheduler } = await import('./scheduler');
+    const goal = await getGoalStore().updateGoal(id, { status: 'active' });
+    if (goal) getScheduler().scheduleGoal(goal);
+    return { success: true };
+});
+
+ipcMain.handle('scheduler-run-now', async (_event, id: string) => {
+    try {
+        const { getScheduler } = await import('./scheduler');
+        await getScheduler().runNow(id);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('scheduler-get-runs', async (_event, { goalId, limit }: { goalId: string; limit?: number }) => {
+    const { getGoalStore } = await import('./scheduler');
+    return getGoalStore().getRunsForGoal(goalId, limit || 10);
+});
+
+ipcMain.handle('scheduler-get-status', async () => {
+    const { getScheduler, getRunningCount } = await import('./scheduler');
+    const status = getScheduler().getStatus();
+    return { ...status, runningJobs: getRunningCount() };
+});
+
+ipcMain.handle('scheduler-set-auto-launch', async (_event, enabled: boolean) => {
+    app.setLoginItemSettings({
+        openAtLogin: enabled,
+        args: enabled ? ['--background'] : [],
+    });
+    return { success: true, enabled };
+});
+
+ipcMain.handle('scheduler-get-auto-launch', async () => {
+    const settings = app.getLoginItemSettings();
+    return { enabled: settings.openAtLogin };
+});
+
+// ============================================================================
+// IPC: Plugins (Phase 3 AIOS — Integrações Externas)
+// ============================================================================
+
+ipcMain.handle('plugins-list', async () => {
+    const { getPluginManager } = await import('./plugins');
+    return getPluginManager().listPlugins();
+});
+
+ipcMain.handle('plugins-get-status', async (_event, pluginId: string) => {
+    const { getPluginManager } = await import('./plugins');
+    return getPluginManager().getPluginStatus(pluginId);
+});
+
+ipcMain.handle('plugins-get-auth-config', async (_event, pluginId: string) => {
+    const { getPluginManager } = await import('./plugins');
+    return getPluginManager().getPluginAuthConfig(pluginId);
+});
+
+ipcMain.handle('plugins-start-oauth', async (_event, { pluginId, apiKey }: { pluginId: string; apiKey?: string }) => {
+    try {
+        const { getPluginManager } = await import('./plugins');
+        const pm = getPluginManager();
+        const plugin = pm.getPlugin(pluginId);
+        if (!plugin) return { success: false, error: 'Plugin não encontrado' };
+
+        const auth = plugin.manifest.auth;
+
+        // Desktop plugins sem auth — ativar direto
+        if (!auth) {
+            try {
+                await pm.connectPlugin(pluginId, { accessToken: 'local' });
+                return { success: true };
+            } catch (e: any) {
+                return { success: false, error: `Erro ao ativar plugin local: ${e.message}` };
+            }
+        }
+
+        // API Key auth — apiKey contém a chave
+        if (auth.type === 'api_key') {
+            if (!apiKey) return { success: false, error: 'API key obrigatória' };
+            await pm.connectPlugin(pluginId, { accessToken: apiKey });
+            return { success: true };
+        }
+
+        // OAuth2 — usa credenciais embarcadas do providerGroup
+        if (!auth.oauth2) return { success: false, error: 'Plugin não suporta OAuth' };
+
+        const { getEmbeddedCredentials } = await import('./plugins/credentials');
+        const group = plugin.manifest.providerGroup;
+        const embedded = group ? getEmbeddedCredentials(group) : null;
+
+        const clientId = embedded?.clientId || auth.oauth2.clientId || '';
+        const clientSecret = embedded?.clientSecret;
+
+        if (!clientId) {
+            return { success: false, error: `Credenciais não configuradas para o provedor "${group || pluginId}". Contate o desenvolvedor.` };
+        }
+
+        const { runOAuthFlow } = await import('./plugins/oauth-flow');
+        const oauthOpts: import('./plugins/oauth-flow').OAuthFlowOptions = {
+            authorizationUrl: auth.oauth2.authorizationUrl,
+            tokenUrl: auth.oauth2.tokenUrl,
+            clientId,
+            scopes: auth.oauth2.scopes,
+        };
+        if (clientSecret) oauthOpts.clientSecret = clientSecret;
+        if (auth.oauth2.pkce != null) oauthOpts.pkce = auth.oauth2.pkce;
+        if (auth.oauth2.additionalParams) oauthOpts.additionalParams = auth.oauth2.additionalParams;
+        const result = await runOAuthFlow(oauthOpts);
+
+        if (!result.success || !result.tokens) {
+            return { success: false, error: result.error || 'OAuth falhou' };
+        }
+
+        await pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('plugins-disconnect', async (_event, pluginId: string) => {
+    try {
+        const { getPluginManager } = await import('./plugins');
+        await getPluginManager().disconnectPlugin(pluginId);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+// ============================================================================
 // IPC: Auth / Licença
 // ============================================================================
 
@@ -2014,6 +2275,117 @@ ipcMain.handle('auth-sign-out', async () => {
     return { ok: true };
 });
 
+ipcMain.handle('auth-google', async () => {
+    try {
+        const http = await import('http');
+
+        // Cria servidor local para capturar o callback
+        const { port, tokenPromise, server } = await new Promise<{ port: number; tokenPromise: Promise<string | null>; server: import('http').Server }>((resolve, reject) => {
+            let resolveToken: (url: string | null) => void;
+            const tokenPromise = new Promise<string | null>(r => { resolveToken = r; });
+
+            const server = http.createServer((req, res) => {
+                const url = new URL(req.url || '/', 'http://localhost');
+                if (url.pathname === '/auth/callback') {
+                    // Supabase retorna tokens no hash fragment, mas o server não recebe fragments.
+                    // Servimos um HTML que lê o fragment e envia de volta via query string.
+                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                    res.end(`<html><body><script>
+                        const hash = window.location.hash.substring(1);
+                        if (hash) {
+                            fetch('/auth/tokens?' + hash).then(() => {
+                                document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
+                            });
+                        } else {
+                            document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Erro no login. Tente novamente.</h2>';
+                        }
+                    </script></body></html>`);
+                } else if (url.pathname === '/auth/tokens') {
+                    const accessToken = url.searchParams.get('access_token');
+                    const refreshToken = url.searchParams.get('refresh_token');
+                    res.writeHead(200);
+                    res.end('ok');
+                    if (accessToken) {
+                        resolveToken(`access_token=${accessToken}&refresh_token=${refreshToken || ''}`);
+                    } else {
+                        resolveToken(null);
+                    }
+                } else {
+                    res.writeHead(404);
+                    res.end('Not found');
+                }
+            });
+
+            server.listen(0, '127.0.0.1', () => {
+                const addr = server.address();
+                const port = typeof addr === 'object' && addr ? addr.port : 0;
+                resolve({ port, tokenPromise, server });
+            });
+            server.on('error', reject);
+        });
+
+        const redirectTo = `http://localhost:${port}/auth/callback`;
+
+        // Gera URL OAuth via Supabase com redirect para nosso server local
+        const { getSupabase } = await import('./auth/supabase-client');
+        const sb = getSupabase();
+        const { data, error } = await sb.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo,
+                skipBrowserRedirect: true,
+            },
+        });
+
+        if (error || !data?.url) {
+            server.close();
+            return { ok: false, error: error?.message || 'Falha ao gerar URL de login' };
+        }
+
+        // Abre no navegador do sistema (Chrome, Edge, etc.) onde o usuário já está logado
+        shell.openExternal(data.url);
+
+        // Timeout de 5 minutos
+        const timeout = setTimeout(() => { server.close(); }, 5 * 60 * 1000);
+
+        const tokenString = await tokenPromise;
+        clearTimeout(timeout);
+        server.close();
+
+        if (!tokenString) {
+            return { ok: false, error: 'Login cancelado ou falhou' };
+        }
+
+        // Seta sessão no Supabase
+        const params = new URLSearchParams(tokenString);
+        const accessToken = params.get('access_token') || '';
+        const refreshToken = params.get('refresh_token') || '';
+
+        const { error: sessionError } = await sb.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+        });
+
+        if (sessionError) {
+            return { ok: false, error: sessionError.message };
+        }
+
+        // Garante perfil no banco
+        const { data: { user } } = await sb.auth.getUser();
+        if (user) {
+            await sb.from('profiles').upsert(
+                { id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' },
+                { onConflict: 'id', ignoreDuplicates: true }
+            );
+        }
+
+        return { ok: true };
+    } catch (err: any) {
+        console.error('[Auth] Google OAuth error:', err);
+        return { ok: false, error: err.message };
+    }
+});
+
 ipcMain.handle('auth-check-license', async () => {
     return checkLicense();
 });
@@ -2021,6 +2393,10 @@ ipcMain.handle('auth-check-license', async () => {
 ipcMain.handle('auth-refresh-license', async () => {
     refreshLicense();
     return checkLicense();
+});
+
+ipcMain.handle('auth-get-profile', async () => {
+    return getProfile();
 });
 
 ipcMain.handle('update-install-now', () => {

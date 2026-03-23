@@ -15,6 +15,7 @@ import {
     AgentStep,
     AgentConfig,
     AgentEvent,
+    AgentSpec,
     ThinkDecision,
     SkillResult,
     DEFAULT_CONFIG,
@@ -74,11 +75,22 @@ export async function runAgentLoop(
     objetivo: string,
     config: Partial<AgentConfig> = {},
     tenantConfig?: TenantConfig,
-    sessionId?: string   // A2: ID da sessão para multi-turn
+    sessionId?: string,   // A2: ID da sessão para multi-turn
+    agentSpec?: AgentSpec,  // Phase 1 AIOS: especialização do agente
+    parentAbort?: AbortSignal  // P0 Fix 4: abort propagation from parent
 ): Promise<string> {
-    const cfg = { ...DEFAULT_CONFIG, ...config };
+    const cfg = { ...DEFAULT_CONFIG, ...config, ...(agentSpec?.configOverrides || {}) };
     const runId = randomUUID();
     const abort = new AbortController();
+
+    // P0 Fix 4: Encadeia parent abort → child abort
+    let parentCleanup: (() => void) | undefined;
+    if (parentAbort) {
+        if (parentAbort.aborted) return 'Operação cancelada.';
+        const onParentAbort = () => abort.abort();
+        parentAbort.addEventListener('abort', onParentAbort, { once: true });
+        parentCleanup = () => parentAbort.removeEventListener('abort', onParentAbort);
+    }
 
     // Carrega memória persistente e RAG em paralelo
     const memory = getMemory();
@@ -157,7 +169,7 @@ export async function runAgentLoop(
     if (sessionId) {
         activeSessionId = sessionId;
         const session = sessionManager.getOrCreate(sessionId);
-        const historyPrompt = sessionManager.formatHistoryForPrompt(sessionId);
+        const historyPrompt = await sessionManager.formatHistoryWithSummary(sessionId);
         if (historyPrompt) {
             // Injeta histórico no contexto para uso pelo think.ts
             (state.contexto as any).chatHistory = historyPrompt;
@@ -194,6 +206,7 @@ export async function runAgentLoop(
             state.endTime = Date.now();
             emit({ type: 'completed', resposta: cached, passos: 0, duracao: Date.now() - state.startTime });
             activeRuns.delete(runId);
+            parentCleanup?.();
             return cached;
         }
     }
@@ -215,7 +228,9 @@ export async function runAgentLoop(
                 log(cfg.verbose, `🚫 Cancelado pelo usuário`);
                 emit({ type: 'cancelled' });
                 activeRuns.delete(runId);
-                return 'Operação cancelada pelo usuário.';
+                const cancelMsg = 'Operação cancelada pelo usuário.';
+                if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', cancelMsg);
+                return cancelMsg;
             }
 
             // Verificar limites
@@ -224,7 +239,9 @@ export async function runAgentLoop(
                 state.status = 'timeout';
                 emit({ type: 'timeout' });
                 activeRuns.delete(runId);
-                return formatTimeoutResponse(state);
+                const timeoutMsg = formatTimeoutResponse(state);
+                if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', timeoutMsg);
+                return timeoutMsg;
             }
 
             if (Date.now() - state.startTime > cfg.timeoutMs) {
@@ -232,7 +249,9 @@ export async function runAgentLoop(
                 state.status = 'timeout';
                 emit({ type: 'timeout' });
                 activeRuns.delete(runId);
-                return formatTimeoutResponse(state);
+                const timeoutMsg = formatTimeoutResponse(state);
+                if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', timeoutMsg);
+                return timeoutMsg;
             }
 
             state.iteracao++;
@@ -255,7 +274,7 @@ export async function runAgentLoop(
                 emit({ type: 'token', token: unmasked });
             };
 
-            const decisao = await think(state, cfg, onStreamToken);
+            const decisao = await think(state, cfg, onStreamToken, agentSpec);
 
             const thinkDuration = Date.now() - thinkStart;
 
@@ -492,7 +511,7 @@ export async function runAgentLoop(
                     // FASE 3: ACT (Execução)
                     // ════════════════════════════════════════════════════
                     const actStart = Date.now();
-                    let resultado = await executeSkill(skillName, params, state.contexto);
+                    let resultado = await executeSkill(skillName, params, state.contexto, abort.signal);
                     const actDuration = Date.now() - actStart;
 
                     // Hook: afterToolCall
@@ -561,8 +580,16 @@ export async function runAgentLoop(
         }
 
         activeRuns.delete(runId);
-        return `Desculpe, ocorreu um erro: ${error.message}`;
+        const errorMsg = `Desculpe, ocorreu um erro: ${error.message}`;
+        if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', errorMsg);
+        return errorMsg;
     } finally {
+        // Garante que sessão é salva em disco independente do exit path
+        if (activeSessionId) {
+            try { await sessionManager.flush(); } catch { /* best-effort */ }
+        }
+        // P0 Fix 4: cleanup parent abort listener
+        parentCleanup?.();
         // Privacy: limpa vault (dados sensíveis nunca persistem)
         if (vault) {
             clearVault(vault);

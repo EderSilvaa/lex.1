@@ -1,6 +1,6 @@
 .thinking-container {
     width: min(86%, 800px);
-    margin: 4px 0 2px 0;
+    margin: 4px 0 2px 4px;
     animation: message-in 0.2s ease-out;
 }
 

@@ -190,20 +190,45 @@ const fmPreviewName = document.getElementById('fm-preview-name');
 const fmPreviewContent = document.getElementById('fm-preview-content');
 const fmPreviewClose = document.getElementById('fm-preview-close');
 const fmPreviewSend = document.getElementById('fm-preview-send');
-const fmPreviewAnalyze = document.getElementById('fm-preview-analyze');
 
 async function openPreview(file) {
     if (!window.filesApi || !fmPreview) return;
 
     const fileName = file.name || file.path.replace(/\\/g, '/').split('/').pop();
+    const ext = fileName.split('.').pop().toLowerCase();
     if (fmPreviewName) fmPreviewName.textContent = fileName;
     if (fmPreviewContent) fmPreviewContent.innerHTML = '<p class="fm-preview-placeholder">Carregando...</p>';
     fmPreview.classList.remove('hidden');
 
     try {
+        // PDF — renderiza visualmente via embed
+        if (ext === 'pdf') {
+            const fileUrl = await window.filesApi.getFileUrl(file.path);
+            if (fileUrl && fmPreviewContent) {
+                fmPreviewContent.innerHTML = `<embed src="${fileUrl}" type="application/pdf" style="width:100%;height:100%;border:none;border-radius:6px">`;
+                // Também extrai texto para envio ao chat
+                const result = await window.filesApi.readFile(file.path);
+                previewedFile = { path: file.path, name: fileName, content: result?.text || '' };
+            } else {
+                if (fmPreviewContent) fmPreviewContent.innerHTML = '<p class="fm-preview-placeholder">Nao foi possivel carregar o PDF.</p>';
+                previewedFile = null;
+            }
+            return;
+        }
+
+        // Imagens — renderiza visualmente
+        if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) {
+            const fileUrl = await window.filesApi.getFileUrl(file.path);
+            if (fileUrl && fmPreviewContent) {
+                fmPreviewContent.innerHTML = `<img src="${fileUrl}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:6px" alt="${escapeHtml(fileName)}">`;
+                previewedFile = { path: file.path, name: fileName, content: '[imagem]' };
+            }
+            return;
+        }
+
+        // Texto e outros — extrai texto
         const result = await window.filesApi.readFile(file.path);
         if (result?.success && result.text) {
-            const safeText = escapeHtml(result.text.slice(0, 10000));
             const truncated = result.text.length > 10000 ? '\n\n[... truncado ...]' : '';
             if (fmPreviewContent) fmPreviewContent.textContent = result.text.slice(0, 10000) + truncated;
             previewedFile = { path: file.path, name: fileName, content: result.text };
@@ -246,35 +271,6 @@ if (fmPreviewSend) {
     });
 }
 
-// "Analisar" — sends as prompt to analyze the document
-if (fmPreviewAnalyze) {
-    fmPreviewAnalyze.addEventListener('click', () => {
-        if (!previewedFile) return;
-
-        // Switch to chat view and send analysis prompt
-        const navChat = document.getElementById('nav-chat');
-        if (navChat) navChat.click();
-
-        // Attach file + auto-send analysis request
-        if (typeof window.attachFileToChat === 'function') {
-            window.attachFileToChat(previewedFile);
-        }
-
-        // Fill textarea with analysis prompt
-        const textarea = document.querySelector('textarea');
-        if (textarea) {
-            textarea.value = `Analise este documento: ${previewedFile.name}`;
-            textarea.dispatchEvent(new Event('input'));
-            // Auto-send
-            setTimeout(() => {
-                const sendBtn = document.querySelector('.send-btn');
-                if (sendBtn && !sendBtn.disabled) sendBtn.click();
-            }, 100);
-        }
-
-        closePreview();
-    });
-}
 
 function getEmptyStateHTML() {
     return '<div class="empty-state"><p>Selecione um workspace ou abra uma pasta</p></div>';

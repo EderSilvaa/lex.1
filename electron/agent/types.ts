@@ -166,7 +166,7 @@ export interface CriticDecision {
 export interface Skill {
     nome: string;
     descricao: string;
-    categoria: 'pje' | 'documentos' | 'pesquisa' | 'utils' | 'os' | 'pc' | 'browser';
+    categoria: string;  // Core: 'pje'|'documentos'|'pesquisa'|'utils'|'os'|'pc'|'browser' + plugins adicionam novas
 
     // Schema de parâmetros
     parametros: Record<string, SkillParametro>;
@@ -176,6 +176,9 @@ export interface Skill {
 
     // Exemplos de uso (para o prompt)
     exemplos?: string[];
+
+    // Timeout em ms para esta skill. Sobrescreve o default da categoria.
+    timeoutMs?: number;
 
     // Execução
     execute: (params: Record<string, any>, context: AgentContext) => Promise<SkillResult>;
@@ -219,6 +222,54 @@ export type AgentEvent =
     | { type: 'streaming_start' }
     | { type: 'token'; token: string }
     | { type: 'privacy_stats'; stats: Array<{ category: string; count: number }> };
+
+// ============================================================================
+// PLANNING & ORCHESTRATION (Phase 1 AIOS)
+// ============================================================================
+
+export type AgentTypeId = string;  // Core: 'general'|'pje'|'document'|'research'|'browser'|'os' + plugins adicionam novos
+
+export interface AgentSpec {
+    typeId: AgentTypeId;
+    displayName: string;
+    /** Categorias de skills que este agente pode acessar */
+    allowedSkillCategories: Array<Skill['categoria']>;
+    /** Prompt extra injetado no system prompt do think.ts */
+    systemPromptExtra?: string;
+    /** Override de config para este tipo de agente */
+    configOverrides?: Partial<AgentConfig>;
+}
+
+export interface SubTask {
+    id: string;
+    description: string;
+    agentType: AgentTypeId;
+    /** Parâmetros opcionais para o agente */
+    params?: Record<string, any>;
+    /** IDs de subtasks que devem completar antes desta */
+    dependsOn: string[];
+    /** Preenchido pelo orchestrator após execução */
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+    result?: string;
+    error?: string;
+}
+
+export interface Plan {
+    id: string;
+    goal: string;
+    subtasks: SubTask[];
+    createdAt: number;
+    status: 'planning' | 'executing' | 'completed' | 'failed' | 'cancelled';
+    finalAnswer?: string;
+}
+
+export type OrchestratorEvent =
+    | { type: 'plan_created'; plan: Plan }
+    | { type: 'subtask_started'; subtaskId: string; agentType: AgentTypeId }
+    | { type: 'subtask_completed'; subtaskId: string; result: string }
+    | { type: 'subtask_failed'; subtaskId: string; error: string }
+    | { type: 'plan_completed'; finalAnswer: string }
+    | { type: 'plan_failed'; error: string };
 
 // ============================================================================
 // CONFIG

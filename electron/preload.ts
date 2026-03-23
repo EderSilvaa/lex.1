@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('filesApi', {
     writeFile: (path: string, content: string) => ipcRenderer.invoke('files-write', { path, content }),
     saveDocument: (name: string, content: string) => ipcRenderer.invoke('files-save-document', { name, content }),
     selectFile: (filters?: any[]) => ipcRenderer.invoke('files-select-file', filters),
+    getFileUrl: (path: string) => ipcRenderer.invoke('files-get-url', path),
 });
 
 contextBridge.exposeInMainWorld('workspacesApi', {
@@ -114,9 +115,39 @@ contextBridge.exposeInMainWorld('lexApi', {
 contextBridge.exposeInMainWorld('authApi', {
     signIn: (email: string, password: string) => ipcRenderer.invoke('auth-sign-in', { email, password }),
     signUp: (email: string, password: string) => ipcRenderer.invoke('auth-sign-up', { email, password }),
+    signInWithGoogle: () => ipcRenderer.invoke('auth-google'),
     signOut: () => ipcRenderer.invoke('auth-sign-out'),
     checkLicense: () => ipcRenderer.invoke('auth-check-license'),
     refreshLicense: () => ipcRenderer.invoke('auth-refresh-license'),
+    getProfile: () => ipcRenderer.invoke('auth-get-profile'),
+});
+
+contextBridge.exposeInMainWorld('schedulerApi', {
+    listGoals: () => ipcRenderer.invoke('scheduler-list-goals'),
+    addGoal: (goal: any) => ipcRenderer.invoke('scheduler-add-goal', goal),
+    updateGoal: (id: string, updates: any) => ipcRenderer.invoke('scheduler-update-goal', { id, updates }),
+    removeGoal: (id: string) => ipcRenderer.invoke('scheduler-remove-goal', id),
+    pauseGoal: (id: string) => ipcRenderer.invoke('scheduler-pause-goal', id),
+    resumeGoal: (id: string) => ipcRenderer.invoke('scheduler-resume-goal', id),
+    runNow: (id: string) => ipcRenderer.invoke('scheduler-run-now', id),
+    getRuns: (goalId: string, limit?: number) => ipcRenderer.invoke('scheduler-get-runs', { goalId, limit }),
+    getStatus: () => ipcRenderer.invoke('scheduler-get-status'),
+    setAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('scheduler-set-auto-launch', enabled),
+    getAutoLaunch: () => ipcRenderer.invoke('scheduler-get-auto-launch'),
+    onSchedulerEvent: (cb: (event: any) => void) => ipcRenderer.on('scheduler-event', (_, e) => cb(e)),
+    offSchedulerEvent: () => ipcRenderer.removeAllListeners('scheduler-event'),
+    onNotificationBadge: (cb: (data: any) => void) => ipcRenderer.on('notification-badge', (_, d) => cb(d)),
+    offNotificationBadge: () => ipcRenderer.removeAllListeners('notification-badge'),
+});
+
+contextBridge.exposeInMainWorld('pluginsApi', {
+    list: () => ipcRenderer.invoke('plugins-list'),
+    getStatus: (pluginId: string) => ipcRenderer.invoke('plugins-get-status', pluginId),
+    getAuthConfig: (pluginId: string) => ipcRenderer.invoke('plugins-get-auth-config', pluginId),
+    startOAuth: (pluginId: string, apiKey?: string) =>
+        ipcRenderer.invoke('plugins-start-oauth', { pluginId, apiKey }),
+    disconnect: (pluginId: string) => ipcRenderer.invoke('plugins-disconnect', pluginId),
+    onReady: (cb: () => void) => ipcRenderer.on('plugins-ready', () => cb()),
 });
 
 contextBridge.exposeInMainWorld('updaterApi', {

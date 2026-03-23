@@ -14,6 +14,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
+import { htmlHasCaptcha } from '../../browser/captcha';
 
 // ============================================================================
 // TYPES
@@ -171,6 +172,13 @@ async function buscarComFallback(
     limite:   number
 ): Promise<Acordao[]> {
     const html   = await httpGetHtml(url);
+
+    // Detecta CAPTCHA no HTML de resposta
+    if (htmlHasCaptcha(html)) {
+        console.warn(`[Jurisprudência] ${tribunal}: CAPTCHA detectado na resposta HTTP`);
+        throw new Error(`CAPTCHA_DETECTED|${tribunal}|${url}`);
+    }
+
     const fixos  = parser(html, limite);
     if (fixos.length > 0) {
         console.log(`[Jurisprudência] ${tribunal} parser: ${fixos.length} resultado(s)`);
@@ -575,6 +583,7 @@ const pesquisaJurisprudencia: Skill = {
         const acordaos:            Acordao[] = [];
         const fontesSucesso:       string[]  = [];
         const fontesIndisponiveis: string[]  = [];
+        const fontesCaptcha:       { tribunal: string; url: string }[] = [];
 
         resultados.forEach((r, i) => {
             const id = fontes[i]!;
@@ -584,19 +593,29 @@ const pesquisaJurisprudencia: Skill = {
             } else {
                 fontesIndisponiveis.push(id);
                 if (r.status === 'rejected') {
-                    console.warn(`[Jurisprudência] ${id}: ${(r.reason as Error)?.message ?? 'erro'}`);
+                    const msg = (r.reason as Error)?.message ?? 'erro';
+                    if (msg.startsWith('CAPTCHA_DETECTED|')) {
+                        const parts = msg.split('|');
+                        fontesCaptcha.push({ tribunal: parts[1] || id, url: parts[2] || '' });
+                    }
+                    console.warn(`[Jurisprudência] ${id}: ${msg}`);
                 }
             }
         });
 
         if (acordaos.length === 0) {
+            const captchaMsg = fontesCaptcha.length > 0
+                ? `\n🔒 CAPTCHA detectado em: ${fontesCaptcha.map(c => `${c.tribunal}`).join(', ')}. Use browser_navigate para acessar o site e resolver o CAPTCHA.`
+                : '';
             return {
                 sucesso: false,
                 erro:    `Nenhum resultado para "${consulta}"`,
+                dados:   fontesCaptcha.length > 0 ? { captchaDetected: true, captchaSites: fontesCaptcha } : undefined,
                 mensagem: [
                     `🔍 Nenhum resultado para **"${consulta}"**`,
                     `Fontes: ${fontes.join(', ')}`,
                     fontesIndisponiveis.length === fontes.length ? `(todas indisponíveis — verifique conexão)` : '',
+                    captchaMsg,
                     ``,
                     `⚠️ **Não cite jurisprudência sem verificação por esta ferramenta.**`
                 ].filter(Boolean).join('\n')
@@ -615,6 +634,10 @@ const pesquisaJurisprudencia: Skill = {
             ? `\n\n⚠️ Indisponíveis: ${fontesIndisponiveis.join(', ')}`
             : '';
 
+        const avisoCaptcha = fontesCaptcha.length > 0
+            ? `\n\n🔒 CAPTCHA detectado em: ${fontesCaptcha.map(c => `${c.tribunal} (${c.url})`).join(', ')}. Use browser_navigate para acessar o site e resolver o CAPTCHA via browser.`
+            : '';
+
         return {
             sucesso: true,
             dados: {
@@ -629,8 +652,9 @@ const pesquisaJurisprudencia: Skill = {
                 `⚖️ **"${consulta}"** — ${acordaos.length} resultado(s) de [${fontesSucesso.join(', ')}]`,
                 '',
                 linhas.join('\n\n'),
-                aviso
-            ].join('\n')
+                aviso,
+                avisoCaptcha
+            ].filter(Boolean).join('\n')
         };
     }
 };

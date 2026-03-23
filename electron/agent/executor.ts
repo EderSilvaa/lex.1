@@ -5,9 +5,85 @@
  * Inspirado no OpenClaw.
  */
 
-import { Skill, SkillResult, SkillRegistry, AgentContext } from './types';
+import { Skill, SkillResult, SkillRegistry, AgentContext, AgentSpec } from './types';
 import * as path from 'path';
 import * as fs from 'fs';
+import { captureDOMSnapshot, computeValidation } from '../browser/validation';
+import type { DOMSnapshot } from '../browser/validation';
+import { detectCaptcha, solveCaptchaWithVision } from '../browser/captcha';
+
+// ============================================================================
+// PER-SKILL TIMEOUT
+// ============================================================================
+
+const CATEGORY_TIMEOUTS: Record<string, number> = {
+    pje: 120_000,
+    browser: 120_000,
+    pesquisa: 90_000,
+    documentos: 60_000,
+    os: 60_000,
+    pc: 60_000,
+};
+
+const VISION_SKILLS = new Set(['browser_auto_task', 'pje_agir']);
+const VISION_TIMEOUT = 180_000;
+const DEFAULT_TIMEOUT = 60_000;
+
+function getSkillTimeout(skill: Skill): number {
+    if (skill.timeoutMs) return skill.timeoutMs;
+    if (VISION_SKILLS.has(skill.nome)) return VISION_TIMEOUT;
+    return CATEGORY_TIMEOUTS[skill.categoria] ?? DEFAULT_TIMEOUT;
+}
+
+class SkillTimeoutError extends Error {
+    readonly isTimeout = true;
+    constructor(skillName: string, ms: number) {
+        super(`Timeout após ${Math.round(ms / 1000)}s executando ${skillName}`);
+        this.name = 'SkillTimeoutError';
+    }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, skillName: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new SkillTimeoutError(skillName, ms)), ms);
+        promise.then(
+            val => { clearTimeout(timer); resolve(val); },
+            err => { clearTimeout(timer); reject(err); }
+        );
+    });
+}
+
+// ============================================================================
+// TRANSIENT ERROR DETECTION (para retry)
+// ============================================================================
+
+const TRANSIENT_PATTERNS = [
+    'timeout', 'navigation timeout', 'target closed', 'session closed',
+    'execution context was destroyed', 'frame was detached',
+    'connection refused', 'net::err_', 'protocol error', 'cdp',
+    'websocket', 'econnreset', 'econnrefused', 'etimedout', 'epipe',
+    'fetch failed',
+];
+
+const PERMANENT_PATTERNS = [
+    'não encontrad', 'obrigatório', 'inválid', 'não disponível',
+    'não logado', 'sem permissão', 'captcha', 'certificado',
+];
+
+function isTransientError(msg: string): boolean {
+    const lower = (msg || '').toLowerCase();
+    if (PERMANENT_PATTERNS.some(p => lower.includes(p))) return false;
+    return TRANSIENT_PATTERNS.some(p => lower.includes(p));
+}
+
+function getMaxRetries(skill: Skill): number {
+    if (['pje', 'browser'].includes(skill.categoria)) return 2;
+    return 1;
+}
+
+// ============================================================================
+// REGISTRY
+// ============================================================================
 
 // Registry de skills carregadas
 let skillRegistry: SkillRegistry = {};
@@ -49,12 +125,13 @@ export function getSkill(nome: string): Skill | undefined {
 }
 
 /**
- * Executa uma skill
+ * Executa uma skill com timeout + retry para erros transientes.
  */
 export async function executeSkill(
     nome: string,
     parametros: Record<string, any>,
-    context: AgentContext
+    context: AgentContext,
+    abortSignal?: AbortSignal
 ): Promise<SkillResult> {
     console.log(`[Executor] Executando: ${nome}`);
     console.log(`[Executor] Parâmetros:`, JSON.stringify(parametros, null, 2));
@@ -82,25 +159,128 @@ export async function executeSkill(
     // Aplica defaults
     const paramsComDefaults = applyDefaults(skill, parametros);
 
-    // Executa
-    try {
-        const startTime = Date.now();
-        const resultado = await skill.execute(paramsComDefaults, context);
-        const duration = Date.now() - startTime;
-
-        console.log(`[Executor] ${nome} completou em ${duration}ms`);
-        console.log(`[Executor] Sucesso: ${resultado.sucesso}`);
-
-        return resultado;
-
-    } catch (error: any) {
-        console.error(`[Executor] Erro em ${nome}:`, error);
-
-        return {
-            sucesso: false,
-            erro: error.message || 'Erro desconhecido na execução da skill'
-        };
+    // Captura snapshot DOM antes da ação (se for skill de browser/pje)
+    const isBrowserAction = skill.categoria === 'browser' || skill.categoria === 'pje';
+    let snapshot: DOMSnapshot | null = null;
+    if (isBrowserAction) {
+        try {
+            const { getActivePage } = require('../browser-manager');
+            const page = getActivePage();
+            if (page) snapshot = await captureDOMSnapshot(page);
+        } catch { /* non-blocking */ }
     }
+
+    // Executa com retry + timeout
+    const startTime = Date.now();
+    const maxRetries = getMaxRetries(skill);
+    const timeoutMs = getSkillTimeout(skill);
+    let resultado: SkillResult | null = null;
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        // Checar abort entre tentativas
+        if (abortSignal?.aborted) {
+            return { sucesso: false, erro: 'Operação cancelada.' };
+        }
+
+        try {
+            resultado = await withTimeout(
+                skill.execute(paramsComDefaults, context),
+                timeoutMs,
+                nome
+            );
+
+            // Sucesso ou erro permanente → para
+            if (resultado.sucesso || !isTransientError(resultado.erro || '')) break;
+
+            // Erro transiente retornado pela skill → retry
+            console.log(`[Executor] ${nome} transient (attempt ${attempt + 1}/${maxRetries + 1}): ${resultado.erro}`);
+            lastError = resultado;
+
+        } catch (thrown: any) {
+            // Timeout → não retryable (já consumiu seu tempo)
+            if (thrown instanceof SkillTimeoutError) {
+                console.warn(`[Executor] ${nome} timeout após ${timeoutMs}ms`);
+                return { sucesso: false, erro: thrown.message };
+            }
+
+            // Erro permanente → não retryar
+            if (!isTransientError(thrown.message || '')) {
+                console.error(`[Executor] Erro em ${nome}:`, thrown);
+                return { sucesso: false, erro: thrown.message || 'Erro desconhecido na execução da skill' };
+            }
+
+            // Erro transiente thrown → retry
+            console.log(`[Executor] ${nome} threw transient (attempt ${attempt + 1}/${maxRetries + 1}): ${thrown.message}`);
+            lastError = thrown;
+        }
+
+        // Backoff entre retries (não no último attempt)
+        if (attempt < maxRetries) {
+            const delay = 1000 * Math.pow(2, attempt) + Math.random() * 500;
+            await new Promise(r => setTimeout(r, delay));
+        }
+    }
+
+    // Se todas as tentativas falharam
+    if (!resultado) {
+        return { sucesso: false, erro: lastError?.message || 'Erro após retries esgotados' };
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(`[Executor] ${nome} completou em ${duration}ms`);
+    console.log(`[Executor] Sucesso: ${resultado.sucesso}`);
+
+    // Validação pós-ação: compara DOM antes/depois
+    if (snapshot && resultado.sucesso) {
+        try {
+            const { getActivePage } = require('../browser-manager');
+            const page = getActivePage();
+            if (page) {
+                const after = await captureDOMSnapshot(page);
+                const validation = computeValidation(snapshot, after, nome, paramsComDefaults);
+                resultado.dados = { ...(resultado.dados || {}), validation };
+                if (resultado.mensagem) {
+                    resultado.mensagem += `\n[Validação: ${validation.summary}]`;
+                }
+            }
+        } catch { /* non-blocking */ }
+    }
+
+    // CAPTCHA detection pós-ação
+    if (isBrowserAction) {
+        try {
+            const { getActivePage } = require('../browser-manager');
+            const page = getActivePage();
+            if (page) {
+                const detection = await detectCaptcha(page);
+                if (detection) {
+                    const url = page.url();
+                    const isPje = url.includes('pje.') || url.includes('cnj.jus.br');
+
+                    if (isPje) {
+                        resultado.dados = { ...(resultado.dados || {}), captcha: detection };
+                        resultado.mensagem = (resultado.mensagem || '') +
+                            '\n⚠️ CAPTCHA detectado na página PJe. O usuário precisa resolver manualmente no browser.';
+                    } else {
+                        const solveResult = await solveCaptchaWithVision(page, detection);
+                        if (solveResult.solved) {
+                            resultado.mensagem = (resultado.mensagem || '') +
+                                `\n✅ CAPTCHA resolvido automaticamente: "${solveResult.answer}"`;
+                        } else {
+                            resultado.dados = { ...(resultado.dados || {}), captcha: detection, autoSolveFailed: true };
+                            resultado.mensagem = (resultado.mensagem || '') +
+                                `\n⚠️ CAPTCHA detectado mas auto-solve falhou: ${solveResult.error}`;
+                        }
+                    }
+                }
+            }
+        } catch (captchaErr: any) {
+            console.warn('[Executor] Erro na detecção de CAPTCHA:', captchaErr.message);
+        }
+    }
+
+    return resultado;
 }
 
 /**
@@ -169,8 +349,12 @@ function applyDefaults(
  * Na primeira iteração (iteracao <= 1), formato completo com parâmetros e exemplos.
  * A partir da 2ª iteração, formato compacto (nome + descrição) para economizar tokens.
  */
-export function getSkillsForPrompt(iteracao = 1): string {
-    const skills = Object.values(skillRegistry);
+export function getSkillsForPrompt(iteracao = 1, allowedCategories?: Array<Skill['categoria']>): string {
+    let skills = Object.values(skillRegistry);
+
+    if (allowedCategories && allowedCategories.length > 0) {
+        skills = skills.filter(s => allowedCategories.includes(s.categoria));
+    }
 
     if (skills.length === 0) {
         return '# Skills Disponíveis\n\nNenhuma skill registrada.';
@@ -253,7 +437,31 @@ function formatCategoria(cat: string): string {
         browser: 'Browser - Controle do Navegador',
         documentos: 'Documentos',
         pesquisa: 'Pesquisa',
-        utils: 'Utilitários'
+        utils: 'Utilitários',
+        os: 'Sistema Operacional',
+        pc: 'PC - Mouse/Teclado',
+        gmail: 'Gmail - Email',
+        gcalendar: 'Google Calendar - Agenda',
+        outlook: 'Outlook - Email Office 365',
+        gdrive: 'Google Drive - Arquivos',
+        gdocs: 'Google Docs - Documentos',
+        whatsapp: 'WhatsApp Business',
+        notion: 'Notion - Organização',
+        trello: 'Trello - Kanban',
+        todoist: 'Todoist - Tarefas',
+        zapier: 'Zapier - Automação',
+        apify: 'Apify - Web Scraping',
+        gcontacts: 'Google Contacts - Contatos',
+        teams: 'Microsoft Teams - Comunicação',
+        docusign: 'DocuSign - Assinatura Eletrônica',
+        dropbox: 'Dropbox - Armazenamento',
+        onedrive: 'OneDrive / SharePoint',
+        slack: 'Slack - Mensagens',
+        pdf: 'PDF - Ferramentas',
+        screenshot: 'Screenshot - Captura de Tela',
+        excel: 'Excel - Planilhas',
+        desktop: 'Desktop - Controle do Sistema',
+        clipboard: 'Clipboard - Área de Transferência',
     };
     return map[cat] || cat.charAt(0).toUpperCase() + cat.slice(1);
 }

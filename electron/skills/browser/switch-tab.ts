@@ -6,7 +6,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getBrowserContext, ensureBrowser } from '../../browser-manager';
+import { getBrowserContext, ensureBrowser, setActivePage } from '../../browser-manager';
 
 export const browserSwitchTab: Skill = {
     nome: 'browser_switch_tab',
@@ -43,6 +43,7 @@ export const browserSwitchTab: Skill = {
 
             const page = pages[indice]!;
             await page.bringToFront();
+            setActivePage(indice);
 
             const url = page.url();
             const title = await page.title();

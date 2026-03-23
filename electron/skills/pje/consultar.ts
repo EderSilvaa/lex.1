@@ -9,6 +9,7 @@ import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { ensureBrowser, injectOverlay, getActivePage } from '../../browser-manager';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
 import { agentEmitter } from '../../agent/loop';
+import { resolveSelector, confirmResolved } from '../../browser';
 
 function emitProgress(step: string): void {
     agentEmitter.emit('agent-event', { type: 'thinking', pensamento: `🌐 ${step}`, iteracao: 0 });
@@ -88,13 +89,22 @@ export const pjeConsultar: Skill = {
 
             emitProgress('Procurando campo de número...');
 
-            // 2. Encontra o campo de número do processo
+            // 2. Encontra o campo de número do processo via resolveSelector (3-tier waterfall)
+            const numResolved = await resolveSelector(
+                page, tribunal, 'campo_numero_processo',
+                NUM_PROCESSO_SELECTORS, 'Número do Processo', 'input'
+            );
+
             let numInput: any = null;
-            for (const sel of NUM_PROCESSO_SELECTORS) {
-                try {
-                    const el = await page.$(sel);
-                    if (el) { numInput = el; break; }
-                } catch { /* tenta próximo */ }
+            if (numResolved) {
+                numInput = await page.$(numResolved.selector);
+                // Tenta iframes se não encontrou no main
+                if (!numInput) {
+                    for (const frame of page.frames()) {
+                        numInput = await frame.$(numResolved.selector);
+                        if (numInput) break;
+                    }
+                }
             }
 
             if (!numInput) {
@@ -104,8 +114,6 @@ export const pjeConsultar: Skill = {
             }
 
             if (!numInput) {
-                // Captura screenshot para diagnóstico
-                const shot = await page.screenshot({ type: 'jpeg', quality: 60 });
                 const url = page.url();
                 return {
                     sucesso: false,
@@ -122,14 +130,25 @@ export const pjeConsultar: Skill = {
             await numInput.type(numero, { delay: 30 });
             await page.waitForTimeout(500);
 
-            // 4. Clica em Pesquisar
+            confirmResolved(tribunal, 'campo_numero_processo', numResolved);
+
+            // 4. Clica em Pesquisar via resolveSelector
             emitProgress('Pesquisando...');
+            const btnResolved = await resolveSelector(
+                page, tribunal, 'botao_pesquisar',
+                PESQUISAR_SELECTORS, 'Pesquisar', 'button'
+            );
+
             let searched = false;
-            for (const sel of PESQUISAR_SELECTORS) {
+            if (btnResolved) {
                 try {
-                    const btn = await page.$(sel);
-                    if (btn) { await btn.click(); searched = true; break; }
-                } catch { /* tenta próximo */ }
+                    const btn = await page.$(btnResolved.selector);
+                    if (btn) {
+                        await btn.click();
+                        searched = true;
+                        confirmResolved(tribunal, 'botao_pesquisar', btnResolved);
+                    }
+                } catch { /* fallback Enter */ }
             }
             if (!searched) {
                 await page.keyboard.press('Enter');

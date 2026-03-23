@@ -6,7 +6,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getBrowserContext, ensureBrowser } from '../../browser-manager';
+import { getBrowserContext, ensureBrowser, getActivePageIndex } from '../../browser-manager';
 
 export const browserListTabs: Skill = {
     nome: 'browser_list_tabs',
@@ -45,15 +45,16 @@ export const browserListTabs: Skill = {
                 })
             );
 
+            const currentActive = getActivePageIndex();
             const lines = tabs.map((t, i) => {
-                const active = i === 0 ? ' ← ativa' : '';
+                const active = i === currentActive ? ' ← ativa' : '';
                 const label = t.title || '(sem título)';
                 return `  [${t.index}] ${label} — ${t.url}${active}`;
             });
 
             return {
                 sucesso: true,
-                dados: { tabs, count: tabs.length, activeIndex: 0 },
+                dados: { tabs, count: tabs.length, activeIndex: currentActive },
                 mensagem: `${tabs.length} aba(s) aberta(s):\n${lines.join('\n')}`
             };
         } catch (error: any) {

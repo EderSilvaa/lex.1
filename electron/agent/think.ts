@@ -5,7 +5,7 @@
  * Inspirado no OpenClaw, integrado com Prompt-Layer.
  */
 
-import { AgentState, ThinkDecision, AgentConfig } from './types';
+import { AgentState, AgentStep, ThinkDecision, AgentConfig, AgentSpec } from './types';
 import { getSkillsForPrompt } from './executor';
 import { buildPromptLayerSystem } from './prompt-layer';
 import { mask, maskPatterns } from '../privacy/pii-vault';
@@ -21,9 +21,10 @@ import type { PIIVault } from '../privacy/pii-vault';
 export async function think(
     state: AgentState,
     config: AgentConfig,
-    onToken?: (token: string) => void
+    onToken?: (token: string) => void,
+    agentSpec?: AgentSpec
 ): Promise<ThinkDecision> {
-    const systemPrompt = buildSystemPrompt(state);
+    const systemPrompt = buildSystemPrompt(state, agentSpec);
     const userPrompt = buildUserPrompt(state);
     const response = await callLLM(systemPrompt, userPrompt, config, onToken);
 
@@ -52,7 +53,7 @@ export async function think(
 /**
  * Monta o system prompt completo
  */
-function buildSystemPrompt(state: AgentState): string {
+function buildSystemPrompt(state: AgentState, agentSpec?: AgentSpec): string {
     const parts: string[] = [];
 
     // 1. Prompt-Layer (personalidade do tenant)
@@ -62,11 +63,17 @@ function buildSystemPrompt(state: AgentState): string {
         parts.push(getDefaultPersonality());
     }
 
+    // 1.5. Prompt extra do AgentSpec (especialização AIOS)
+    if (agentSpec?.systemPromptExtra) {
+        parts.push(agentSpec.systemPromptExtra);
+    }
+
     // 2. Comportamento do agente
     parts.push(getAgentBehavior());
 
-    // 3. Skills disponíveis (compacto a partir da 2ª iteração para economizar tokens)
-    parts.push(getSkillsForPrompt(state.iteracao));
+    // 3. Skills disponíveis (filtradas por categoria se agentSpec definido)
+    const allowedCategories = agentSpec?.allowedSkillCategories;
+    parts.push(getSkillsForPrompt(state.iteracao, allowedCategories));
 
     // 4. Contexto atual
     parts.push(buildContextSection(state));
@@ -126,8 +133,8 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 - Para executar ações no PJe ou gerar documentos
 - Combine múltiplas skills quando necessário
 - Se o usuario der comando operacional no PJe (ex: "vai", "abra", "entre", "clique", "navegue"), prefira tipo=skill.
-- Para navegar, clicar ou preencher campos no PJe, use pje_agir com o objetivo em linguagem natural.
-- Se o usuario pedir "ir para", "abrir aba", "menu", "peticionamento", "novo processo", "preencher campo" ou comandos equivalentes, use pje_agir.
+- Para navegar, clicar ou preencher campos no browser, prefira skills atomicas (browser_click, browser_fill, browser_type, browser_press). Use browser_get_state primeiro para ver seletores.
+- Se o usuario pedir "ir para", "abrir aba", "menu", "peticionamento", "novo processo", "preencher campo" ou comandos equivalentes, use as skills atomicas de browser ou pje_navegar.
 - NUNCA responda apenas com instrucoes textuais quando ha uma skill que executa a acao.
 - EXCECAO CRITICA - TERMOS AMBIGUOS: As palavras "pastas", "arquivos", "documentos" podem referir-se ao PC Windows OU ao PJe. Se o usuario nao mencionar explicitamente PJe, tribunal, processo ou numero de processo, use tipo=pergunta ANTES de qualquer skill. Exemplo: "pode acessar minhas pastas?" -> tipo=pergunta perguntando se e PC ou PJe.
 
@@ -152,12 +159,19 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 1. Use \`pje_consultar\` com o numero do processo
 2. Analise os dados retornados
 3. Para movimentacoes ou documentos, use \`pje_movimentacoes\` ou \`pje_documentos\`
+4. OU manualmente: browser_get_state → browser_fill { ref: 0, valor: "numero" } → browser_click { ref: 1 }
 
-### Navegar/Clicar/Preencher dentro do PJe
-1. Use \`pje_agir\` com o objetivo em linguagem natural
-2. pje_agir executa um loop visual inteligente — se adapta a qualquer tela e tribunal
-3. Exemplos de objetivo: "ir para peticionamento novo processo", "preencher Jurisdicao com Belem", "clicar em Pesquisar"
-4. Inclua sempre o parametro tribunal se o usuario mencionou
+### Navegar/Clicar/Preencher no browser
+1. PRIMEIRO use \`browser_get_state\` para ver os elementos numerados na pagina
+2. Use o numero \`ref\` para apontar o elemento. Ex: browser_click { ref: 1 }
+3. Ou use \`elemento\` com texto visivel. Ex: browser_click { elemento: "Pesquisar" }
+4. Ou use \`seletor\` CSS direto se precisar de precisao maxima
+5. Para preencher campo: browser_fill { ref: 0, valor: "texto" }
+6. Para digitar tecla a tecla (autocomplete): browser_type { ref: 0, texto: "texto" }
+7. Use \`browser_navigate\` para ir a uma URL especifica
+8. Use \`browser_wait\` { tipo: "seletor" } para aguardar elemento aparecer
+9. Use \`browser_auto_task\` ou \`pje_agir\` APENAS se nenhuma skill atomica funcionar
+10. Inclua sempre o parametro tribunal em skills pje_* se o usuario mencionou
 
 ### Ver movimentacoes ou documentos
 1. Use \`pje_movimentacoes\` ou \`pje_documentos\` apos o processo estar aberto na tela
@@ -187,29 +201,62 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 
 ### Buscar pagina web / portal publico
 1. Use \`os_fetch\` com a URL completa
-2. Para portais que exigem login, use \`pje_agir\` no lugar
+2. Para portais que exigem login, use skills de browser (browser_navigate + browser_fill + browser_click)
 
 ### Ver processos ou fechar programa
 1. \`os_sistema\` operacao="processos" para listar o que esta aberto
 2. \`os_sistema\` operacao="encerrar" com nome/PID (pede confirmacao automaticamente)
 
-### Browser Tools — Controle fino do navegador
-Use browser_* quando precisar de controle granular do Chrome:
-- \`browser_get_state\`: ver URL, titulo e elementos DOM da pagina (consciencia sem agir)
-- \`browser_get_html\`: extrair texto/HTML da pagina sem Vision (rapido e gratuito em tokens)
-- \`browser_scroll\`: descer/subir a pagina — essencial para tabelas longas e listas no PJe
-- \`browser_go_back\`: voltar para pagina anterior (equivalente ao botao voltar)
-- \`browser_list_tabs\`: listar abas abertas — o PJe abre documentos em abas novas constantemente
+### Browser Tools — Controle do navegador
+
+**Observar (read-only):**
+- \`browser_get_state\`: ver URL, titulo e elementos DOM interativos — USAR ANTES de clicar/preencher
+- \`browser_get_html\`: extrair texto/HTML da pagina (rapido, sem Vision)
+- \`browser_screenshot\`: capturar screenshot para analise visual
+- \`browser_extract\`: extrair tabela, lista ou texto estruturado
+- \`browser_scroll\`: descer/subir a pagina — essencial para tabelas longas
+- \`browser_list_tabs\`: listar abas abertas
+- \`browser_go_back\`: voltar para pagina anterior
+
+**Agir (interacao direta — RAPIDO, sem custo LLM extra):**
+- \`browser_click\`: clicar em elemento por ref, texto visivel, seletor CSS ou coordenadas
+- \`browser_fill\`: preencher input por ref, texto/label do campo ou seletor CSS
+- \`browser_type\`: digitar tecla por tecla por ref, texto/label ou seletor (autocomplete)
+- \`browser_press\`: pressionar tecla (Enter, Tab, Escape, setas, etc.)
+- \`browser_navigate\`: navegar para URL especifica
+- \`browser_wait\`: esperar elemento aparecer, sumir, ou tempo fixo
+
+**Como referenciar elementos (3 formas, da mais simples a mais precisa):**
+- \`ref: N\` — numero do elemento listado por browser_get_state (RECOMENDADO, mais simples)
+- \`elemento: "texto"\` — localiza pelo texto visivel do elemento (funciona sem get_state)
+- \`seletor: "#id"\` — CSS selector direto (para precisao maxima)
+
+**Abas:**
 - \`browser_switch_tab\`: trocar para outra aba por indice
 - \`browser_close_tab\`: fechar aba para liberar memoria
-- \`browser_extract\`: extrair tabela, lista ou texto estruturado de qualquer pagina
-- \`browser_screenshot\`: capturar screenshot para analise visual
 
-**Quando usar browser_* vs pje_agir:**
-- \`pje_agir\`: tarefas complexas multi-step (navegar+clicar+preencher). Delega para Vision loop autonomo.
-- \`browser_*\`: acoes atomicas quando voce sabe exatamente o que fazer (scroll, trocar aba, ler HTML, voltar).
-- **DICA:** Se o PJe abriu uma aba nova (ex: documento, PDF), use \`browser_list_tabs\` + \`browser_switch_tab\` para acessar.
-- **DICA:** Se precisa ler conteudo da pagina sem executar acao, prefira \`browser_get_html\` (zero tokens LLM) ao inves de \`pje_agir\`.
+**Fallback (LENTO, usa Vision — apenas para telas complexas/desconhecidas):**
+- \`browser_auto_task\`: executa tarefa via agente visual com screenshot+DOM a cada passo
+- \`pje_agir\`: mesmo que browser_auto_task mas com contexto PJe
+
+**Quando usar o que:**
+- \`browser_get_state\` → ver refs → \`browser_click { ref: N }\`: caminho PADRAO. Rapido, barato, confiavel.
+- \`browser_click { elemento: "Pesquisar" }\`: se nao fez get_state, pode localizar por texto direto.
+- \`browser_auto_task\` / \`pje_agir\`: APENAS quando skills atomicas nao funcionam.
+- **DICA:** Sempre tente ref ou elemento primeiro. Se falhar, ai sim use auto_task/pje_agir.
+- **DICA:** Se o PJe abriu aba nova (documento, PDF), use \`browser_list_tabs\` + \`browser_switch_tab\`.
+- **DICA:** Use \`browser_wait\` { tipo: "seletor" } apos clicks que disparam carregamento (ex: submit).
+
+### CAPTCHA
+- Se o resultado de uma acao contiver "CAPTCHA detectado" em pagina PJe:
+  → Use tipo "pergunta" e peca ao usuario para resolver o CAPTCHA no browser
+  → Apos resposta do usuario, use browser_get_state para verificar e continue normalmente
+- Se for site de pesquisa e o auto-solve funcionou ("CAPTCHA resolvido automaticamente"):
+  → Continue normalmente, o CAPTCHA ja foi preenchido
+- Se auto-solve falhou ou pesquisa_jurisprudencia retornou captchaDetected:
+  → Use browser_navigate para acessar o site e tente resolver via browser
+  → Se nao conseguir, use tipo "pergunta" e peca ajuda ao usuario
+- NUNCA ignore mensagens de CAPTCHA — elas indicam que a acao pode nao ter funcionado
 
 ---
 
@@ -237,10 +284,10 @@ Alguns termos sao ambiguos entre o sistema de arquivos do computador e o PJe.
 Quando nao houver contexto claro, use tipo=pergunta ANTES de agir.
 
 ### Termos ambiguos
-- "pastas" -> pode ser pastas do PC (os_listar) ou pastas/expedientes no PJe (pje_agir)
+- "pastas" -> pode ser pastas do PC (os_listar) ou pastas/expedientes no PJe (pje_navegar)
 - "arquivos" -> pode ser arquivos do Windows (os_arquivos) ou arquivos de processo no PJe
 - "documentos" -> pode ser pasta Documentos do Windows ou documentos do processo judicial
-- "abrir" -> abrir arquivo no PC (os_arquivos) ou abrir no PJe (pje_agir)
+- "abrir" -> abrir arquivo no PC (os_arquivos) ou abrir no PJe (pje_abrir)
 - "acessar" + "pastas/arquivos" sem contexto -> ambiguo, perguntar antes de agir
 
 ### Regras
@@ -396,7 +443,8 @@ function buildContextSection(state: AgentState): string {
 
     const chatHistory = (state.contexto as any).chatHistory as string | undefined;
     if (chatHistory) {
-        parts.push(`## Histórico Recente da Conversa\n${chatHistory}`);
+        // Histórico logo após o header — prioridade alta para continuidade
+        parts.splice(1, 0, `## Histórico Recente da Conversa\n${chatHistory}`);
     }
 
     let context = parts.join('\n\n');
@@ -450,35 +498,29 @@ function buildUserPrompt(state: AgentState): string {
     // Iteração
     parts.push(`## Iteração Atual: ${state.iteracao}`);
 
-    // Histórico
+    // Histórico (P0 Fix 3: comprime passos antigos para economizar tokens)
     if (state.passos.length > 0) {
-        const historico = state.passos.map(passo => {
-            switch (passo.tipo) {
-                case 'think':
-                    // Aumentado de 100 para 300 chars para preservar mais contexto do raciocínio
-                    return `[THINK] ${passo.pensamento?.substring(0, 300)}`;
-                case 'critic':
-                    return `[CRITIC] ${passo.critic?.approved ? 'Aprovado' : 'Bloqueado'} (${passo.critic?.riskLevel || 'medium'}) - ${passo.critic?.reason || 'Sem justificativa'}`;
-                case 'act':
-                    return `[ACT] ${passo.skill}(${JSON.stringify(passo.parametros || {})})`;
-                case 'observe':
-                    const res = passo.resultado;
-                    if (res?.sucesso) {
-                        const info = res.mensagem
-                            ? res.mensagem.substring(0, 2000)
-                            : (typeof res.dados === 'object'
-                                ? JSON.stringify(res.dados).substring(0, 500)
-                                : String(res.dados || ''));
-                        return `[OBSERVE] Sucesso: ${info}`;
-                    } else {
-                        return `[OBSERVE] Erro: ${res?.erro}`;
-                    }
-                default:
-                    return '';
-            }
-        }).filter(Boolean).join('\n');
+        const RECENT_STEPS = 3;
 
-        parts.push(`## Histórico de Passos\n${historico}`);
+        if (state.passos.length <= RECENT_STEPS) {
+            parts.push(`## Histórico de Passos\n${formatSteps(state.passos)}`);
+        } else {
+            const older = state.passos.slice(0, -RECENT_STEPS);
+            const recent = state.passos.slice(-RECENT_STEPS);
+
+            // Compacta passos antigos: skill() → ✓/✗
+            const compact = older
+                .filter(p => p.tipo === 'act' || p.tipo === 'observe')
+                .map(p => {
+                    if (p.tipo === 'act') return `${p.skill}()`;
+                    if (p.tipo === 'observe') return p.resultado?.sucesso ? '✓' : `✗ ${(p.resultado?.erro || '').substring(0, 50)}`;
+                    return '';
+                })
+                .filter(Boolean)
+                .join(' → ');
+
+            parts.push(`## Histórico de Passos\n[Anteriores]: ${compact}\n\n[Últimos ${RECENT_STEPS} passos]:\n${formatSteps(recent)}`);
+        }
     } else {
         parts.push('## Histórico\nPrimeira iteração - nenhum passo executado ainda.');
     }
@@ -497,6 +539,36 @@ Analise o objetivo e o contexto. Decida o próximo passo e responda em JSON.`);
     }
 
     return prompt;
+}
+
+/**
+ * Formata passos do agente para o prompt (P0 Fix 3)
+ */
+function formatSteps(steps: AgentStep[]): string {
+    return steps.map(passo => {
+        switch (passo.tipo) {
+            case 'think':
+                return `[THINK] ${passo.pensamento?.substring(0, 300)}`;
+            case 'critic':
+                return `[CRITIC] ${passo.critic?.approved ? 'Aprovado' : 'Bloqueado'} (${passo.critic?.riskLevel || 'medium'}) - ${passo.critic?.reason || 'Sem justificativa'}`;
+            case 'act':
+                return `[ACT] ${passo.skill}(${JSON.stringify(passo.parametros || {})})`;
+            case 'observe':
+                const res = passo.resultado;
+                if (res?.sucesso) {
+                    const info = res.mensagem
+                        ? res.mensagem.substring(0, 2000)
+                        : (typeof res.dados === 'object'
+                            ? JSON.stringify(res.dados).substring(0, 500)
+                            : String(res.dados || ''));
+                    return `[OBSERVE] Sucesso: ${info}`;
+                } else {
+                    return `[OBSERVE] Erro: ${res?.erro}`;
+                }
+            default:
+                return '';
+        }
+    }).filter(Boolean).join('\n');
 }
 
 /**

@@ -17,6 +17,9 @@ let currentAgentMessageId = null;
 let agentThinkingElement = null;
 let isAgentWaitingUser = false; // Tracks if agent session is active and waiting for reply
 let currentStreamingMsg = null; // Elemento da bubble sendo populada via streaming
+let streamingRawText = '';      // Acumula texto cru durante streaming
+let streamingRafId = null;      // requestAnimationFrame para render incremental
+let streamingDirty = false;     // Flag: há tokens novos para renderizar
 let routingLoadingId = null;    // Loading bubble shown while routing/starting agent
 
 function showStopBtn() {
@@ -85,31 +88,43 @@ function setupAgentEvents() {
             case 'streaming_start':
                 // Limpa bubble anterior se ficou vazia (iteração sem tokens de resposta)
                 cleanupEmptyStreamingBubble();
+                streamingRawText = '';
+                streamingDirty = false;
                 // Cria bubble vazia antecipadamente para o streaming
                 currentStreamingMsg = createStreamingBubble();
+                // Inicia loop de render incremental via rAF
+                startStreamingRenderLoop();
                 break;
 
             case 'token':
-                // Appenda token na bubble de streaming
+                // Acumula texto cru e marca como dirty para o render loop
                 if (currentStreamingMsg) {
-                    const span = currentStreamingMsg.querySelector('.stream-text');
-                    if (span) {
-                        span.textContent += event.token;
-                        const ml = document.getElementById('chat-messages');
-                        if (ml) ml.scrollTop = ml.scrollHeight;
-                    }
+                    streamingRawText += event.token;
+                    streamingDirty = true;
                 }
                 break;
 
             case 'completed':
+                // Para o render loop
+                stopStreamingRenderLoop();
                 if (currentStreamingMsg && event.resposta) {
-                    // Re-renderiza a bubble com markdown completo
+                    // Render final com texto completo do servidor
                     finalizeStreamingBubble(currentStreamingMsg, event.resposta);
                     currentStreamingMsg = null;
+                    // Salva a resposta na conversa (antes faltava aqui)
+                    trackMessage('assistant', event.resposta);
+                    saveCurrentConversation();
+                } else if (currentStreamingMsg && streamingRawText) {
+                    // Fallback: usa texto acumulado localmente
+                    finalizeStreamingBubble(currentStreamingMsg, streamingRawText);
+                    currentStreamingMsg = null;
+                    trackMessage('assistant', streamingRawText);
+                    saveCurrentConversation();
                 } else {
                     cleanupEmptyStreamingBubble();
                     finalizeAgentResponse(event.resposta);
                 }
+                streamingRawText = '';
                 isAgentWaitingUser = false;
                 completeAgentSession();
                 break;
@@ -157,13 +172,15 @@ function setupAgentEvents() {
 
 // Remove bubble de streaming anterior se ficou vazia (sem tokens)
 function cleanupEmptyStreamingBubble() {
+    stopStreamingRenderLoop();
     if (!currentStreamingMsg) return;
-    const span = currentStreamingMsg.querySelector('.stream-text');
     // Se não recebeu nenhum token, remove do DOM
-    if (!span || !span.textContent) {
+    if (!streamingRawText) {
         currentStreamingMsg.remove();
     }
     currentStreamingMsg = null;
+    streamingRawText = '';
+    streamingDirty = false;
 }
 
 // Cria bubble vazia de streaming (antes dos tokens chegarem)
@@ -177,10 +194,48 @@ function createStreamingBubble() {
 
     const msgDiv = document.createElement('div');
     msgDiv.className = 'message ai streaming';
-    msgDiv.innerHTML = '<div class="message-body"><div class="msg-content markdown-body"><span class="stream-text"></span><span class="stream-cursor">▋</span></div></div>';
+    msgDiv.innerHTML = '<div class="message-body"><div class="msg-content markdown-body"><span class="stream-cursor">▋</span></div></div>';
     messageList.appendChild(msgDiv);
-    messageList.scrollTop = messageList.scrollHeight;
+    smartScrollToBottom(true);
     return msgDiv;
+}
+
+// Render loop incremental: aplica markdown a cada frame enquanto há tokens novos
+function startStreamingRenderLoop() {
+    stopStreamingRenderLoop();
+    let lastRenderLen = 0;
+
+    function tick() {
+        streamingRafId = requestAnimationFrame(tick);
+        if (!streamingDirty || !currentStreamingMsg) return;
+        // Verifica se o node ainda está conectado ao DOM
+        if (!currentStreamingMsg.isConnected) return;
+        // Só re-renderiza se acumulou pelo menos 20 chars novos (evita thrashing)
+        if (streamingRawText.length - lastRenderLen < 20) return;
+        streamingDirty = false;
+        lastRenderLen = streamingRawText.length;
+
+        const content = currentStreamingMsg.querySelector('.msg-content');
+        if (!content) return;
+
+        const html = renderMarkdownSafe(streamingRawText);
+        content.innerHTML = html + '<span class="stream-cursor">▋</span>';
+
+        // Auto-scroll só se usuário está perto do fim (não briga com scroll manual)
+        const ml = document.getElementById('chat-messages');
+        if (ml) {
+            const isNearBottom = (ml.scrollHeight - ml.scrollTop - ml.clientHeight) < 120;
+            if (isNearBottom) ml.scrollTop = ml.scrollHeight;
+        }
+    }
+    streamingRafId = requestAnimationFrame(tick);
+}
+
+function stopStreamingRenderLoop() {
+    if (streamingRafId) {
+        cancelAnimationFrame(streamingRafId);
+        streamingRafId = null;
+    }
 }
 
 // Finaliza bubble de streaming: aplica markdown completo e remove cursor
@@ -194,8 +249,15 @@ function finalizeStreamingBubble(msgDiv, fullText) {
     const htmlContent = renderMarkdownSafe(rawText);
     body.innerHTML = `<div class="msg-content markdown-body">${htmlContent}</div>`;
 
-    const messageList = document.getElementById('chat-messages');
-    if (messageList) messageList.scrollTop = messageList.scrollHeight;
+    smartScrollToBottom();
+}
+
+// Scroll inteligente: só rola para baixo se o usuário já está perto do final
+function smartScrollToBottom(force) {
+    const ml = document.getElementById('chat-messages');
+    if (!ml) return;
+    const isNearBottom = force || (ml.scrollHeight - ml.scrollTop - ml.clientHeight) < 120;
+    if (isNearBottom) ml.scrollTop = ml.scrollHeight;
 }
 
 // Create or update the agent's thinking bubble
@@ -407,6 +469,7 @@ function showAgentError(erro) {
 
 // Complete agent session
 function completeAgentSession() {
+    hideStopBtn();
     agentThinkingElement = null;
     currentAgentMessageId = null;
     if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
@@ -423,7 +486,9 @@ function sanitizeHtml(html) {
     if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
         return window.DOMPurify.sanitize(html);
     }
-    return escapeHtml(html);
+    // Fallback: retorna o HTML do marked como está (melhor que destruir com escapeHtml)
+    // marked já escapa inputs perigosos por padrão
+    return html;
 }
 
 function renderMarkdownSafe(markdownText) {
@@ -473,11 +538,47 @@ const AUTO_AGENT_ROUTING = true;
 // Send Message Logic
 if (sendBtn) {
     sendBtn.addEventListener('click', async () => {
-        const text = chatInput.value;
-        if (!text.trim()) return;
+        // Captura arquivos anexados (se houver) antes de limpar
+        const filesContext = attachedFiles.length > 0 ? [...attachedFiles] : null;
+        if (filesContext) {
+            attachedFiles = [];
+            updateAttachmentChips();
+        }
 
-        addMessageToUI(text, 'user');
-        trackMessage('user', text);
+        const text = chatInput.value;
+        if (!text.trim() && !filesContext) return;
+
+        // Se tem arquivos, mostra cards bonitos + texto do user separado
+        if (filesContext) {
+            const userText = text.trim();
+            const fileIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+            const cardsHtml = filesContext.map(f =>
+                `<div class="file-attachment-card">${fileIcon}<span class="file-attachment-name">${escapeHtml(f.name)}</span></div>`
+            ).join('');
+            const userMsgHtml = userText ? `<p style="margin-top:10px;margin-bottom:0">${escapeHtml(userText)}</p>` : '';
+            addMessageToUI(cardsHtml + userMsgHtml, 'user', true);
+            // Envia para IA com contexto dos arquivos (invisível na UI)
+            const formatFileContent = (f) => {
+                const content = f.content ? f.content.trim() : '';
+                if (!content) return `[Documento: ${f.name}]\n(Este documento e uma imagem digitalizada sem texto extraivel. O conteudo nao pode ser lido automaticamente.)`;
+                return `[Documento: ${f.name}]\n${content.slice(0, 6000)}`;
+            };
+            const fileContextStr = filesContext.map(formatFileContent).join('\n\n---\n\n');
+            const aiText = `${fileContextStr}\n\n${userText || 'Analise estes documentos.'}`;
+            trackMessage('user', aiText);
+        } else {
+            addMessageToUI(text, 'user');
+            trackMessage('user', text);
+        }
+
+        const formatFileForAI = (f) => {
+            const content = f.content ? f.content.trim() : '';
+            if (!content) return `[Documento: ${f.name}]\n(Este documento e uma imagem digitalizada sem texto extraivel. O conteudo nao pode ser lido automaticamente.)`;
+            return `[Documento: ${f.name}]\n${content.slice(0, 6000)}`;
+        };
+        const textForAI = filesContext
+            ? filesContext.map(formatFileForAI).join('\n\n---\n\n') + `\n\n${text.trim() || 'Analise estes documentos.'}`
+            : text;
 
         chatInput.value = '';
         sendBtn.setAttribute('disabled', 'true');
@@ -506,7 +607,7 @@ if (sendBtn) {
                     console.log('[Router] Bypassing AI router. Agent is waiting for user reply.');
                 } else if (AUTO_AGENT_ROUTING && window.lexApi.shouldUseAgent) {
                     try {
-                        routeDecision = await window.lexApi.shouldUseAgent(text);
+                        routeDecision = await window.lexApi.shouldUseAgent(textForAI);
                         console.log('[Router] Mode:', routeDecision);
                     } catch (routeErr) {
                         console.warn('[Router] shouldUseAgent failed, fallback to feature flag.', routeErr);
@@ -516,14 +617,18 @@ if (sendBtn) {
                 if (routeDecision.useAgent && window.lexApi.runAgent) {
                     // === AGENT LOOP MODE ===
                     // Events will stream via onAgentEvent
-                    console.log('[App] Running Agent Loop for:', text, 'in session:', currentSessionId);
+                    console.log('[App] Running Agent Loop for:', textForAI.slice(0, 100), 'in session:', currentSessionId);
 
-                    const result = await window.lexApi.runAgent(text, null, currentSessionId);
+                    const result = await window.lexApi.runAgent(textForAI, null, currentSessionId);
 
                     if (!result.success) {
                         if (result.error === 'trial_expired') {
+                            if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
+                            hideStopBtn();
                             showPaywall(); return;
                         } else if (result.error === 'not_authenticated') {
+                            if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
+                            hideStopBtn();
                             showAuthOverlay(); return;
                         }
                         // Error case (if no streaming error was shown)
@@ -540,7 +645,7 @@ if (sendBtn) {
                     if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
                     const loadingId = addLoadingToUI();
 
-                    const response = await window.lexApi.sendChat(text, {});
+                    const response = await window.lexApi.sendChat(textForAI, {});
                     removeMessageFromUI(loadingId);
 
                     if (response.error) {
@@ -646,26 +751,27 @@ function addQuickReplies(options) {
     const container = document.createElement('div');
     container.className = 'quick-reply-container';
 
-    options.forEach(opt => {
+    options.forEach((opt) => {
         const btn = document.createElement('button');
         btn.className = 'quick-reply-btn';
         btn.textContent = opt.label || opt;
-        btn.addEventListener('click', () => {
-            // Remove os botões logo após o clique
-            removeQuickReplies();
-
-            // Envia a opção escolhida como se o usuário tivesse digitado
-            const textToSent = opt.value || opt.label || opt;
-            chatInput.value = textToSent;
-            // Dispara o evento 'input' para habilitar o sendBtn (que pode estar disabled)
-            chatInput.dispatchEvent(new Event('input'));
-            sendBtn.click();
-        });
+        btn.dataset.value = opt.value || opt.label || opt;
         container.appendChild(btn);
     });
 
+    // Event delegation: um listener no container em vez de um por botão
+    container.addEventListener('click', (e) => {
+        const btn = e.target.closest('.quick-reply-btn');
+        if (!btn) return;
+        const textToSend = btn.dataset.value;
+        removeQuickReplies();
+        chatInput.value = textToSend;
+        chatInput.dispatchEvent(new Event('input'));
+        sendBtn.click();
+    });
+
     messageList.appendChild(container);
-    messageList.scrollTop = messageList.scrollHeight;
+    smartScrollToBottom(true);
 }
 
 function legacyAddAutomationCardToUIBase() {
@@ -744,8 +850,24 @@ function removeTrialBadge() {
 }
 
 async function initAuth() {
-    // AUTH DESATIVADO TEMPORARIAMENTE
-    hideAuthOverlay(); hidePaywall(); removeTrialBadge();
+    try {
+        const license = await window.authApi.checkLicense();
+        if (!license) { showAuthOverlay(); return; }
+
+        if (license.status === 'not_authenticated') {
+            showAuthOverlay(); return;
+        }
+        if (license.status === 'trial_expired') {
+            showPaywall(); return;
+        }
+        // trial_active ou pro
+        hideAuthOverlay(); hidePaywall();
+        if (license.status === 'trial_active') showTrialBadge(license.daysLeft);
+        else removeTrialBadge();
+        loadProfileCard();
+    } catch {
+        showAuthOverlay();
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -761,45 +883,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    let isSignUp = false;
-    const authTitle  = document.getElementById('auth-title');
-    const authSubmit = document.getElementById('auth-submit-btn');
-    const authToggle = document.getElementById('auth-toggle-btn');
-    const authError  = document.getElementById('auth-error');
-
-    if (authToggle) {
-        authToggle.addEventListener('click', () => {
-            isSignUp = !isSignUp;
-            if (authTitle)  authTitle.textContent  = isSignUp ? 'Criar conta' : 'Entrar';
-            if (authSubmit) authSubmit.textContent  = isSignUp ? 'Criar conta' : 'Entrar';
-            authToggle.textContent = isSignUp ? 'Ja tem conta? Entrar' : 'Nao tem conta? Criar conta';
-            if (authError) authError.style.display = 'none';
-        });
-    }
-
-    if (authSubmit) {
-        authSubmit.addEventListener('click', async () => {
-            const email    = document.getElementById('auth-email')?.value?.trim();
-            const password = document.getElementById('auth-password')?.value;
-            if (!email || !password) return;
-
-            authSubmit.disabled    = true;
-            authSubmit.textContent = 'Aguarde...';
+    const authError = document.getElementById('auth-error');
+    const authGoogleBtn = document.getElementById('auth-google-btn');
+    if (authGoogleBtn) {
+        authGoogleBtn.addEventListener('click', async () => {
+            authGoogleBtn.disabled = true;
+            authGoogleBtn.textContent = 'Aguardando login...';
             if (authError) authError.style.display = 'none';
 
-            const fn     = isSignUp ? window.authApi.signUp : window.authApi.signIn;
-            const result = await fn(email, password).catch(e => ({ ok: false, error: e.message }));
+            const result = await window.authApi.signInWithGoogle().catch(e => ({ ok: false, error: e.message }));
 
-            authSubmit.disabled    = false;
-            authSubmit.textContent = isSignUp ? 'Criar conta' : 'Entrar';
+            authGoogleBtn.disabled = false;
+            authGoogleBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" style="margin-right:8px;flex-shrink:0"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Entrar com Google';
 
             if (!result.ok) {
-                if (authError) { authError.textContent = result.error || 'Erro ao autenticar'; authError.style.display = 'block'; }
-                return;
-            }
-
-            if (isSignUp) {
-                if (authError) { authError.style.color = 'var(--success-color)'; authError.textContent = 'Conta criada! Verifique seu email e entre.'; authError.style.display = 'block'; }
+                if (authError) { authError.textContent = result.error || 'Erro ao autenticar com Google'; authError.style.display = 'block'; }
                 return;
             }
 
@@ -807,11 +905,6 @@ document.addEventListener('DOMContentLoaded', () => {
             await initAuth();
         });
     }
-
-    ['auth-email', 'auth-password'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit?.click(); });
-    });
 
     const buyBtn = document.getElementById('paywall-buy-btn');
     if (buyBtn) { buyBtn.href = ASAAS_PAYMENT_LINK; buyBtn.target = '_blank'; buyBtn.rel = 'noopener'; }
@@ -870,6 +963,12 @@ navItems.forEach(item => {
         // Show target view
         if (views[viewId]) {
             views[viewId].classList.remove('hidden');
+        }
+
+        // Refresh plugins e perfil ao abrir settings
+        if (viewId === 'nav-settings') {
+            initPluginsUI();
+            loadProfileCard();
         }
     });
 });
@@ -983,7 +1082,7 @@ function updateAgentObservation(data) {
     content.appendChild(logLine);
 }
 
-function addMessageToUI(text, type) {
+function addMessageToUI(text, type, isRawHtml) {
     const messageList = document.getElementById('chat-messages');
     const greeting = document.querySelector('.greeting-section');
     if (!messageList) return null;
@@ -992,25 +1091,31 @@ function addMessageToUI(text, type) {
     if (mainChatContainer) mainChatContainer.classList.add('has-messages');
 
     const rawText = typeof text === 'string' ? text : String(text || '');
-    const normalizedText = type === 'system' ? normalizeSystemText(rawText) : rawText;
-    const cleanedText = stripEmojiCharacters(normalizedText);
-
-    let displayText = cleanedText;
-    let thinkingContent = '';
-    const thinkingMatch = cleanedText.match(/<thinking>([\s\S]*?)<\/thinking>/);
-    if (thinkingMatch) {
-        thinkingContent = stripEmojiCharacters(thinkingMatch[1]).trim();
-        displayText = cleanedText.replace(/<thinking>[\s\S]*?<\/thinking>/, '').trim();
-    }
-
-    const htmlContent = renderMarkdownSafe(displayText);
-    const safeThinkingContent = escapeHtml(thinkingContent);
 
     let messageHtml = '';
-    if (thinkingContent) {
-        messageHtml += `<div class="thinking-container"><details class="thinking-accordion"><summary class="thinking-summary">Processo de pensamento</summary><div class="thinking-content">${safeThinkingContent}</div></details></div>`;
+    if (isRawHtml) {
+        // Conteúdo HTML direto (ex: card de arquivo)
+        messageHtml = `<div class="msg-content markdown-body">${rawText}</div>`;
+    } else {
+        const normalizedText = type === 'system' ? normalizeSystemText(rawText) : rawText;
+        const cleanedText = stripEmojiCharacters(normalizedText);
+
+        let displayText = cleanedText;
+        let thinkingContent = '';
+        const thinkingMatch = cleanedText.match(/<thinking>([\s\S]*?)<\/thinking>/);
+        if (thinkingMatch) {
+            thinkingContent = stripEmojiCharacters(thinkingMatch[1]).trim();
+            displayText = cleanedText.replace(/<thinking>[\s\S]*?<\/thinking>/, '').trim();
+        }
+
+        const htmlContent = renderMarkdownSafe(displayText);
+        const safeThinkingContent = escapeHtml(thinkingContent);
+
+        if (thinkingContent) {
+            messageHtml += `<div class="thinking-container"><details class="thinking-accordion"><summary class="thinking-summary">Processo de pensamento</summary><div class="thinking-content">${safeThinkingContent}</div></details></div>`;
+        }
+        messageHtml += `<div class="msg-content markdown-body">${htmlContent}</div>`;
     }
-    messageHtml += `<div class="msg-content markdown-body">${htmlContent}</div>`;
 
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${type}`;
@@ -1018,7 +1123,8 @@ function addMessageToUI(text, type) {
     msgDiv.innerHTML = `<div class="message-body">${messageHtml}</div>`;
 
     messageList.appendChild(msgDiv);
-    messageList.scrollTop = messageList.scrollHeight;
+    // Mensagem do usuário: força scroll; IA/sistema: smart scroll
+    smartScrollToBottom(type === 'user' || type === 'loading');
     return msgDiv.id;
 }
 
@@ -1056,20 +1162,41 @@ async function updatePjeStatus() {
 // SUGGESTION CARDS + INPUT TOOLBAR + ATTACHMENT
 // ============================================================================
 
-let attachedFile = null;
+let attachedFiles = [];
 
 /**
  * Global function for file-manager.js to attach a file to the chat input.
- * Sets the attachment chip visible and populates attachedFile.
+ * Supports multiple files — each call adds to the list.
  */
 window.attachFileToChat = function(file) {
-    if (!file || !file.name || !file.content) return;
-    attachedFile = { path: file.path, name: file.name, content: file.content };
-    const nameEl = document.getElementById('attachment-name');
-    const chip = document.getElementById('attachment-chip');
-    if (nameEl) nameEl.textContent = file.name;
-    if (chip) chip.classList.remove('hidden');
+    if (!file || !file.name) return;
+    // Evita duplicata pelo path
+    if (attachedFiles.some(f => f.path === file.path)) return;
+    attachedFiles.push({ path: file.path, name: file.name, content: file.content || '' });
+    updateAttachmentChips();
 };
+
+function updateAttachmentChips() {
+    const container = document.getElementById('attachment-chips');
+    if (!container) return;
+    container.innerHTML = '';
+    if (attachedFiles.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+    container.classList.remove('hidden');
+    attachedFiles.forEach((file, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'attachment-chip-item';
+        chip.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>${escapeHtml(file.name)}</span><button class="chip-remove" data-idx="${idx}">&times;</button>`;
+        chip.querySelector('.chip-remove').addEventListener('click', (e) => {
+            e.stopPropagation();
+            attachedFiles.splice(idx, 1);
+            updateAttachmentChips();
+        });
+        container.appendChild(chip);
+    });
+}
 
 function sendPrompt(text) {
     if (!text || !chatInput || !sendBtn) return;
@@ -1995,6 +2122,18 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPreferences();
     loadProviderSettings();
 
+    // Settings tab navigation
+    document.querySelectorAll('.settings-nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const tab = item.dataset.tab;
+            document.querySelectorAll('.settings-nav-item').forEach(i => i.classList.remove('active'));
+            document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.remove('active'));
+            item.classList.add('active');
+            const panel = document.getElementById('tab-' + tab);
+            if (panel) panel.classList.add('active');
+        });
+    });
+
     // Settings save button
     const btnSaveSettings = document.getElementById('btn-save-settings');
     if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
@@ -2070,6 +2209,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Legislacao Brasileira — download e indexacao
     initLegislacaoSettings();
 
+    // Plugins / Integracoes
+    initPluginsUI();
+    // Recarrega quando main avisa que plugins estão prontos (boot assíncrono)
+    if (window.pluginsApi?.onReady) {
+        window.pluginsApi.onReady(() => initPluginsUI());
+    }
+
+    // Settings tab navigation
+    initSettingsTabs();
+
     // PJe status polling
     updatePjeStatus();
     window._pjeStatusInterval = setInterval(updatePjeStatus, 5000);
@@ -2092,17 +2241,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Attachment chip remove
-    const btnRemove = document.getElementById('btn-remove-attachment');
-    const attachChip = document.getElementById('attachment-chip');
-    if (btnRemove) {
-        btnRemove.addEventListener('click', () => {
-            attachedFile = null;
-            if (attachChip) attachChip.classList.add('hidden');
-        });
-    }
-
-    // Attach button
+    // Attach button (via toolbar — abre file picker e adiciona à lista)
     const btnAttach = document.getElementById('btn-attach');
     if (btnAttach) {
         btnAttach.addEventListener('click', async () => {
@@ -2110,27 +2249,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const filePath = await window.filesApi.selectFile();
             if (!filePath) return;
             const result = await window.filesApi.readFile(filePath);
-            if (!result?.success) return;
             const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
-            attachedFile = { path: filePath, name: fileName, content: result.text || '' };
-            const nameEl = document.getElementById('attachment-name');
-            if (nameEl) nameEl.textContent = fileName;
-            if (attachChip) attachChip.classList.remove('hidden');
-        });
-    }
-
-    // Inject attachment content into textarea before send
-    if (sendBtn) {
-        sendBtn.addEventListener('mousedown', () => {
-            if (!attachedFile) return;
-            const existing = chatInput.value.trim();
-            const snippet = attachedFile.content.slice(0, 3000);
-            const prefix = `[Arquivo: ${attachedFile.name}]\n${snippet}`;
-            chatInput.value = existing ? `${prefix}\n\n${existing}` : prefix;
-            chatInput.dispatchEvent(new Event('input'));
-            attachedFile = null;
-            const chip = document.getElementById('attachment-chip');
-            if (chip) chip.classList.add('hidden');
+            window.attachFileToChat({ path: filePath, name: fileName, content: result?.text || '' });
         });
     }
 
@@ -2211,10 +2331,18 @@ async function switchConversation(id) {
     const conv = await window.lexApi.loadConversation(id);
     if (!conv) return;
 
+    // Limpa estado de streaming/agente antes de trocar
+    stopStreamingRenderLoop();
+    currentStreamingMsg = null;
+    streamingRawText = '';
+    streamingDirty = false;
+    isAgentWaitingUser = false;
+    hideStopBtn();
+
     // Clear UI
     const msgList = document.getElementById('chat-messages');
     if (msgList) msgList.innerHTML = '';
-    if (agentThinkingElement) agentThinkingElement = null;
+    agentThinkingElement = null;
     if (mainChatContainer) mainChatContainer.classList.remove('has-messages');
     const greeting = document.querySelector('.greeting-section');
     if (greeting) greeting.style.display = '';
@@ -2292,5 +2420,251 @@ function addAutomationCardToUI() {
     messageList.appendChild(msgDiv);
     messageList.scrollTop = messageList.scrollHeight;
     return id;
+}
+
+// ============================================================================
+// PLUGINS / INTEGRACOES UI
+// ============================================================================
+
+const PLUGIN_ICONS = {
+    gmail: '📧', gcalendar: '📅', gdrive: '📁', gdocs: '📝',
+    outlook: '📨', whatsapp: '💬', notion: '📓', trello: '📋',
+    todoist: '✅', zapier: '⚡', apify: '🕷️',
+    'pdf-tools': '📄', screenshot: '📸', excel: '📊', desktop: '🖥️', clipboard: '📋',
+    gcontacts: '👥', teams: '💼', docusign: '✍️', dropbox: '📦', onedrive: '☁️', slack: '💬',
+};
+
+const PLUGIN_STATUS_LABELS = {
+    not_installed: 'Nao instalado',
+    installed: 'Nao conectado',
+    connected: 'Conectado',
+    error: 'Erro',
+};
+
+async function loadProfileCard() {
+    if (!window.authApi?.getProfile) return;
+    try {
+        var profile = await window.authApi.getProfile();
+        if (!profile) return;
+
+        // Settings profile card
+        var nameEl = document.getElementById('profile-name');
+        var emailEl = document.getElementById('profile-email');
+        var planEl = document.getElementById('profile-plan');
+        var avatarEl = document.getElementById('profile-avatar');
+        var placeholderEl = document.getElementById('profile-avatar-placeholder');
+        var logoutBtn = document.getElementById('profile-logout-btn');
+
+        if (nameEl) nameEl.textContent = profile.name || '';
+        if (emailEl) emailEl.textContent = profile.email || '';
+        if (planEl) {
+            var labels = { pro: 'Pro', trial: 'Trial' };
+            planEl.textContent = labels[profile.plan] || profile.plan;
+        }
+
+        // Sidebar avatar
+        var sidebarAvatar = document.getElementById('sidebar-avatar');
+        var sidebarPlaceholder = document.getElementById('sidebar-avatar-placeholder');
+        var settingsIcon = document.getElementById('sidebar-settings-icon');
+
+        if (profile.avatar) {
+            // Tem foto — mostra nos dois lugares
+            if (avatarEl) { avatarEl.src = profile.avatar; avatarEl.style.display = 'block'; }
+            if (placeholderEl) placeholderEl.style.display = 'none';
+            if (sidebarAvatar) { sidebarAvatar.src = profile.avatar; sidebarAvatar.style.display = 'block'; }
+            if (sidebarPlaceholder) sidebarPlaceholder.style.display = 'none';
+            if (settingsIcon) settingsIcon.style.display = 'none';
+        } else {
+            // Sem foto — mostra inicial
+            var initial = (profile.name || 'U').charAt(0).toUpperCase();
+            if (placeholderEl) { placeholderEl.textContent = initial; placeholderEl.style.display = 'flex'; }
+            if (avatarEl) avatarEl.style.display = 'none';
+            if (sidebarPlaceholder) { sidebarPlaceholder.textContent = initial; sidebarPlaceholder.style.display = 'flex'; }
+            if (sidebarAvatar) sidebarAvatar.style.display = 'none';
+            if (settingsIcon) settingsIcon.style.display = 'none';
+        }
+
+        if (logoutBtn) {
+            logoutBtn.onclick = async function() {
+                if (!confirm('Sair da conta?')) return;
+                await window.authApi.signOut();
+                location.reload();
+            };
+        }
+    } catch (err) {
+        console.error('[Profile] Erro:', err);
+    }
+}
+
+function initSettingsTabs() {
+    const navItems = document.querySelectorAll('.settings-nav-item');
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const tab = item.getAttribute('data-tab');
+            // Update nav active state
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
+            // Show correct panel
+            document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.remove('active'));
+            const panel = document.getElementById('tab-' + tab);
+            if (panel) panel.classList.add('active');
+            // Refresh data when switching to specific tabs
+            if (tab === 'integracoes') initPluginsUI();
+            if (tab === 'uso') loadAnalyticsDashboard();
+            if (tab === 'perfil') loadProfileCard();
+        });
+    });
+}
+
+async function initPluginsUI() {
+    console.log('[Plugins UI] Iniciando...');
+    if (!window.pluginsApi) {
+        console.warn('[Plugins UI] pluginsApi nao disponivel');
+        return;
+    }
+
+    const grid = document.getElementById('plugins-grid');
+    if (!grid) {
+        console.warn('[Plugins UI] plugins-grid nao encontrado no DOM');
+        return;
+    }
+
+    try {
+        const plugins = await window.pluginsApi.list();
+        grid.innerHTML = '';
+
+        for (const plugin of plugins) {
+            const card = document.createElement('div');
+            card.className = `plugin-card${plugin.status === 'connected' ? ' connected' : ''}`;
+            card.id = `plugin-card-${plugin.id}`;
+
+            const icon = PLUGIN_ICONS[plugin.id] || '🔌';
+            const statusClass = plugin.status === 'connected' ? 'connected' : (plugin.status === 'error' ? 'error' : '');
+            const statusText = PLUGIN_STATUS_LABELS[plugin.status] || plugin.status;
+
+            const isConnected = plugin.status === 'connected';
+            const btnText = isConnected ? 'Desconectar' : 'Conectar';
+            const btnClass = isConnected ? 'plugin-btn disconnect' : 'plugin-btn';
+
+            card.innerHTML = `
+                <div class="plugin-icon">${icon}</div>
+                <div class="plugin-info">
+                    <div class="plugin-name">${plugin.name}</div>
+                    <div class="plugin-status ${statusClass}">${statusText}</div>
+                </div>
+                <button class="${btnClass}" data-plugin-id="${plugin.id}" data-connected="${isConnected}">${btnText}</button>
+            `;
+
+            const btn = card.querySelector('.plugin-btn');
+            btn.addEventListener('click', () => {
+                if (btn.dataset.connected === 'true') {
+                    disconnectPlugin(plugin.id);
+                } else {
+                    openPluginModal(plugin.id, plugin.name);
+                }
+            });
+
+            grid.appendChild(card);
+        }
+    } catch (err) {
+        grid.innerHTML = '<div style="font-size:12px;color:var(--danger-color)">Erro ao carregar plugins: ' + err.message + '</div>';
+    }
+}
+
+async function openPluginModal(pluginId, pluginName) {
+    const modal = document.getElementById('plugin-modal');
+    const title = document.getElementById('plugin-modal-title');
+    const body = document.getElementById('plugin-modal-body');
+    const closeBtn = document.getElementById('plugin-modal-close');
+
+    if (!modal || !body) return;
+
+    title.textContent = 'Conectar ' + pluginName;
+
+    try {
+        const config = await window.pluginsApi.getAuthConfig(pluginId);
+        const auth = config.auth;
+
+        if (!auth) {
+            // Plugin local sem auth — ativar direto
+            body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
+                'Este plugin nao requer autenticacao.</p>' +
+                '<button class="plugin-connect-btn" id="plugin-connect-go">Ativar ' + pluginName + '</button>';
+
+            document.getElementById('plugin-connect-go').addEventListener('click', async () => {
+                await window.pluginsApi.startOAuth(pluginId);
+                modal.classList.add('hidden');
+                initPluginsUI();
+            });
+
+        } else if (auth.type === 'oauth2') {
+            if (config.embedded) {
+                // Credenciais embarcadas — usuario so loga
+                body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
+                    'Clique abaixo para fazer login e autorizar o LEX.</p>' +
+                    '<button class="plugin-connect-btn" id="plugin-connect-go" style="width:100%">Conectar com ' + pluginName + '</button>' +
+                    '<div id="plugin-connect-error" style="display:none;margin-top:8px;font-size:12px;color:var(--danger-color)"></div>';
+            } else {
+                // Sem credenciais embarcadas — integracao ainda nao disponivel
+                body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
+                    'Esta integracao ainda nao esta disponivel. Em breve!</p>';
+            }
+
+            var connectBtn = document.getElementById('plugin-connect-go');
+            if (connectBtn) {
+                connectBtn.addEventListener('click', async () => {
+                    var errorEl = document.getElementById('plugin-connect-error');
+                    errorEl.style.display = 'none';
+                    connectBtn.textContent = 'Aguardando login...';
+                    connectBtn.disabled = true;
+
+                    var result = await window.pluginsApi.startOAuth(pluginId);
+                    if (result.success) { modal.classList.add('hidden'); initPluginsUI(); }
+                    else {
+                        errorEl.textContent = result.error || 'Falha na autorizacao.';
+                        errorEl.style.display = 'block';
+                        connectBtn.textContent = 'Conectar com ' + pluginName;
+                        connectBtn.disabled = false;
+                    }
+                });
+            }
+
+        } else if (auth.type === 'api_key') {
+            var instructions = (auth.apiKey && auth.apiKey.instructions) || 'Insira sua chave de API.';
+            var url = (auth.apiKey && auth.apiKey.url) || '';
+
+            body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' + instructions + '</p>' +
+                (url ? '<p style="font-size:12px;margin-bottom:12px"><a href="' + url + '" target="_blank" style="color:var(--accent-color)">' + url + '</a></p>' : '') +
+                '<div class="settings-field"><label class="settings-label">Chave / Token</label>' +
+                '<input class="settings-input" type="password" id="plugin-api-key" placeholder="Cole a chave aqui"></div>' +
+                '<button class="plugin-connect-btn" id="plugin-connect-go">Conectar ' + pluginName + '</button>' +
+                '<div id="plugin-connect-error" style="display:none;margin-top:8px;font-size:12px;color:var(--danger-color)"></div>';
+
+            document.getElementById('plugin-connect-go').addEventListener('click', async () => {
+                var apiKey = document.getElementById('plugin-api-key').value.trim();
+                var errorEl = document.getElementById('plugin-connect-error');
+
+                if (!apiKey) { errorEl.textContent = 'Chave obrigatoria.'; errorEl.style.display = 'block'; return; }
+
+                var result = await window.pluginsApi.startOAuth(pluginId, apiKey);
+                if (result.success) { modal.classList.add('hidden'); initPluginsUI(); }
+                else { errorEl.textContent = result.error || 'Falha ao conectar.'; errorEl.style.display = 'block'; }
+            });
+        }
+
+        modal.classList.remove('hidden');
+        closeBtn.onclick = () => modal.classList.add('hidden');
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+
+    } catch (err) {
+        body.innerHTML = '<p style="color:var(--danger-color);font-size:13px">Erro: ' + err.message + '</p>';
+        modal.classList.remove('hidden');
+    }
+}
+
+async function disconnectPlugin(pluginId) {
+    if (!confirm('Desconectar este plugin? As credenciais serao removidas.')) return;
+    try { await window.pluginsApi.disconnect(pluginId); initPluginsUI(); }
+    catch (err) { console.error('[Plugins] Erro ao desconectar:', err); }
 }
 

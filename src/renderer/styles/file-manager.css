@@ -108,32 +108,36 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding: 24px 32px;
+    padding: 16px 20px;
     background: var(--bg-primary);
 }
 
 .fm-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
-    margin-bottom: 24px;
+    align-items: center;
+    margin-bottom: 14px;
 }
 
 .fm-title-group h2 {
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 500;
-    margin: 0 0 8px 0;
+    margin: 0 0 4px 0;
     color: var(--text-primary);
 }
 
 .path-display {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.35);
     font-family: monospace;
     background: rgba(255, 255, 255, 0.03);
-    padding: 4px 8px;
+    padding: 3px 6px;
     border-radius: 4px;
     display: inline-block;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .btn-secondary {
@@ -155,8 +159,8 @@
 /* Files Grid */
 .files-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
     overflow-y: auto;
     padding-bottom: 20px;
 }
@@ -164,15 +168,15 @@
 .file-card {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 10px;
+    padding: 12px 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
     cursor: pointer;
     transition: all 0.2s;
-    height: 140px;
+    height: 110px;
 }
 
 .file-card:hover {
@@ -189,11 +193,16 @@
 }
 
 .file-icon-wrapper {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.file-icon-wrapper svg {
+    width: 30px;
+    height: 30px;
 }
 
 .file-info {
@@ -201,17 +210,17 @@
 }
 
 .file-name {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 500;
     color: rgba(255, 255, 255, 0.9);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .file-meta {
-    font-size: 11px;
+    font-size: 10px;
     color: rgba(255, 255, 255, 0.4);
 }
 
@@ -225,12 +234,20 @@
 
 /* Preview Panel */
 .fm-preview {
-    width: 340px;
+    width: 45%;
+    min-width: 320px;
+    max-width: 600px;
     border-left: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     flex-direction: column;
     background: rgba(0, 0, 0, 0.15);
     overflow: hidden;
+    resize: horizontal;
+    direction: rtl; /* resize handle on the left */
+}
+
+.fm-preview > * {
+    direction: ltr;
 }
 
 .fm-preview-header {
@@ -257,6 +274,40 @@
     text-overflow: ellipsis;
 }
 
+.fm-preview-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fm-preview-zoom-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    line-height: 1.2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fm-preview-zoom-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+}
+
+.fm-preview-zoom-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    min-width: 36px;
+    text-align: center;
+    user-select: none;
+}
+
 .fm-preview-close {
     background: transparent;
     border: none;
@@ -266,6 +317,7 @@
     padding: 2px 6px;
     border-radius: 4px;
     line-height: 1;
+    margin-left: 4px;
 }
 
 .fm-preview-close:hover {
@@ -283,6 +335,23 @@
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.6;
+    min-height: 0;
+}
+
+/* PDF/image embed dentro do preview ocupa tudo */
+.fm-preview-content embed,
+.fm-preview-content iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 6px;
+}
+
+.fm-preview-content img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 6px;
 }
 
 .fm-preview-placeholder {

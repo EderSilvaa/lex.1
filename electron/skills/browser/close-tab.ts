@@ -5,7 +5,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getBrowserContext, ensureBrowser } from '../../browser-manager';
+import { getBrowserContext, ensureBrowser, getActivePageIndex, setActivePage } from '../../browser-manager';
 
 export const browserCloseTab: Skill = {
     nome: 'browser_close_tab',
@@ -51,7 +51,16 @@ export const browserCloseTab: Skill = {
             const closingTitle = await pages[indice]!.title().catch(() => '');
             await pages[indice]!.close();
 
+            // Ajusta activePageIndex após fechar aba
+            const currentActive = getActivePageIndex();
             const remaining = ctx.pages().length;
+            if (indice === currentActive) {
+                // Fechou a aba ativa — volta pra anterior ou 0
+                setActivePage(Math.max(0, currentActive - 1));
+            } else if (indice < currentActive) {
+                // Fechou aba antes da ativa — decrementa
+                setActivePage(currentActive - 1);
+            }
 
             return {
                 sucesso: true,

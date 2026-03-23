@@ -13,6 +13,7 @@
 import path from 'path'
 import fs from 'fs'
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage'
+import { normalizeForKey, normalizeId } from '../text-normalize'
 
 interface RouteEntry {
   url: string
@@ -44,20 +45,9 @@ export function initRouteMemory(userDataDir?: string): void {
   }
 }
 
-/** Normaliza destino para chave consistente */
-function normalizeDestino(destino: string): string {
-  return String(destino)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')  // remove acentos
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 function makeKey(tribunal: string, destino: string): string {
-  const t = String(tribunal || 'default').toLowerCase().replace(/[^a-z0-9]/g, '')
-  return `${t}:${normalizeDestino(destino)}`
+  const t = normalizeId(tribunal || 'default')
+  return `${t}:${normalizeForKey(destino)}`
 }
 
 /** Consulta URL aprendida para um destino. Retorna null se não encontrado. */
@@ -70,8 +60,8 @@ export function lookupRoute(tribunal: string, destino: string): string | null {
   }
 
   // Busca parcial — se a chave contém o destino normalizado
-  const norm = normalizeDestino(destino)
-  const t = String(tribunal || 'default').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const norm = normalizeForKey(destino)
+  const t = normalizeId(tribunal || 'default')
   const prefix = `${t}:`
   for (const [k, v] of Object.entries(store.routes)) {
     if (k.startsWith(prefix) && (k.includes(norm) || norm.includes(k.replace(prefix, '')))) {

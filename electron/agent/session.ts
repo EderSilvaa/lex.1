@@ -30,6 +30,8 @@ export interface ChatSession {
     createdAt: number;
     updatedAt: number;
     metadata?: Record<string, any>;
+    historySummary?: string;
+    summarizedUpTo?: number;
 }
 
 // ============================================================================
@@ -113,17 +115,87 @@ export class SessionManager {
         const history = this.getHistory(sessionId, limit);
         if (history.length === 0) return '';
 
-        let formatted = '\n--- HISTÓRICO DA CONVERSA ---\n';
+        let formatted = '\n--- HISTÓRICO DA CONVERSA (CONTINUAÇÃO) ---\n';
+        formatted += 'IMPORTANTE: Esta é uma conversa em andamento. O usuário pode referenciar informações de turnos anteriores. Mantenha todo o contexto.\n\n';
         for (const msg of history) {
             const roleLabel = msg.role === 'user' ? 'Usuário' : 'Assistente';
-            const truncated = msg.content.length > 1000
-                ? msg.content.substring(0, 1000) + '...'
+            // Mensagens do usuário podem conter casos longos — preservar mais contexto
+            const maxLen = msg.role === 'user' ? 4000 : 2000;
+            const truncated = msg.content.length > maxLen
+                ? msg.content.substring(0, maxLen) + '...'
                 : msg.content;
-            formatted += `[${roleLabel}]: ${truncated}\n`;
+            formatted += `[${roleLabel}]: ${truncated}\n\n`;
         }
         formatted += '--- FIM DO HISTÓRICO ---\n';
-        formatted += 'Use o histórico acima como contexto. A mensagem atual do usuário é o objetivo principal.\n';
+        formatted += 'REGRA: Quando o usuário pedir algo que depende de contexto anterior (ex: "faça um parecer", "analise isso", "continue"), use as informações do histórico acima. NÃO peça os dados novamente se já foram fornecidos.\n';
         return formatted;
+    }
+
+    // ========================================================================
+    // P0 Fix 3: Summarization
+    // ========================================================================
+
+    private static readonly SUMMARY_THRESHOLD = 4000;
+    private static readonly RECENT_KEPT = 5;
+
+    async formatHistoryWithSummary(sessionId: string): Promise<string> {
+        const session = this.sessions.get(sessionId);
+        if (!session || session.messages.length === 0) return '';
+
+        const totalChars = session.messages.reduce((s, m) => s + m.content.length, 0);
+
+        // Se curto, usa formato simples existente
+        if (totalChars <= SessionManager.SUMMARY_THRESHOLD
+            || session.messages.length <= SessionManager.RECENT_KEPT) {
+            return this.formatHistoryForPrompt(sessionId, 8);
+        }
+
+        const recentCount = SessionManager.RECENT_KEPT;
+        const older = session.messages.slice(0, -recentCount);
+        const recent = session.messages.slice(-recentCount);
+
+        // Cache válido?
+        let summary = session.historySummary;
+        if (!summary || (session.summarizedUpTo ?? 0) < older.length) {
+            summary = await this.summarizeMessages(older);
+            session.historySummary = summary;
+            session.summarizedUpTo = older.length;
+            this.scheduleSave();
+        }
+
+        let out = '\n--- HISTÓRICO DA CONVERSA (CONTINUAÇÃO) ---\n';
+        out += 'IMPORTANTE: Esta é uma conversa em andamento. O usuário pode referenciar informações de turnos anteriores. Mantenha todo o contexto.\n\n';
+        out += `[Resumo de ${older.length} mensagens anteriores]: ${summary}\n\n`;
+        for (const msg of recent) {
+            const role = msg.role === 'user' ? 'Usuário' : 'Assistente';
+            const maxLen = msg.role === 'user' ? 4000 : 2000;
+            const text = msg.content.length > maxLen ? msg.content.substring(0, maxLen) + '...' : msg.content;
+            out += `[${role}]: ${text}\n\n`;
+        }
+        out += '--- FIM DO HISTÓRICO ---\n';
+        out += 'REGRA: Quando o usuário pedir algo que depende de contexto anterior (ex: "faça um parecer", "analise isso", "continue"), use as informações do histórico acima. NÃO peça os dados novamente se já foram fornecidos.\n';
+        return out;
+    }
+
+    private async summarizeMessages(messages: ChatMessage[]): Promise<string> {
+        try {
+            const { callAI } = await import('../ai-handler');
+            const text = messages.map(m => {
+                const r = m.role === 'user' ? 'U' : 'A';
+                return `[${r}]: ${m.content.substring(0, 500)}`;
+            }).join('\n');
+
+            return (await callAI({
+                system: 'Resuma a conversa abaixo em 2-3 frases concisas em português. Capture: o que o usuário pediu, ações tomadas, resultado. Seja direto.',
+                user: text,
+                temperature: 0.1,
+                maxTokens: 200,
+            })).trim();
+        } catch (e: any) {
+            console.warn('[Session] Falha ao sumarizar:', e.message);
+            // Fallback manual
+            return messages.map(m => `${m.role === 'user' ? 'U' : 'A'}: ${m.content.substring(0, 80)}`).join(' | ');
+        }
     }
 
     has(sessionId: string): boolean {
