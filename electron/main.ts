@@ -47,6 +47,11 @@ let agentModule: {
 } | null = null;
 const AGENT_SESSION_ID = randomUUID();
 
+// Estado do Orchestrator ativo (para IPC de estado em tempo real)
+import type { OrchestratorState } from './agent/types';
+let _activeOrchestratorState: OrchestratorState | null = null;
+let _activeOrchestratorRef: { cancel: () => Promise<void> } | null = null;
+
 // Enable Hot Reload in Development
 // electron-reload removido: bypassava o launch-electron.js (sem deletar ELECTRON_RUN_AS_NODE)
 // causando Electron a subir em modo Node.js e congelar o renderer ao detectar mudanças em dist-electron/
@@ -2230,21 +2235,63 @@ ipcMain.handle('ai-plan-execute', async (_event, { goal, sessionId }: { goal: st
         await ensureAgentInitialized();
         const { Orchestrator } = await import('./agent/orchestrator');
         const orchestrator = new Orchestrator();
+        _activeOrchestratorRef = orchestrator;
+        _activeOrchestratorState = null;
 
-        // Forward orchestrator events to renderer
+        // Rastreia estado + forward de eventos para o renderer
         orchestrator.on('event', (evt: any) => {
-            mainWindow?.webContents.send('agent-event', {
-                type: 'orchestrator',
-                data: evt,
-            });
+            // Atualiza snapshot local
+            if (evt.type === 'plan_created') {
+                _activeOrchestratorState = {
+                    planId: evt.plan.id,
+                    goal: evt.plan.goal,
+                    planStatus: 'executing',
+                    subtasks: evt.plan.subtasks.map((t: any) => ({
+                        id: t.id, description: t.description,
+                        agentType: t.agentType, status: t.status,
+                    })),
+                };
+            } else if (evt.type === 'plan_state_snapshot') {
+                _activeOrchestratorState = evt.state;
+            } else if (evt.type === 'subtask_started' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t: any) => t.id === evt.subtaskId);
+                if (st) { st.status = 'running'; st.startedAt = Date.now(); }
+            } else if (evt.type === 'subtask_completed' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t: any) => t.id === evt.subtaskId);
+                if (st) st.status = 'completed';
+            } else if (evt.type === 'subtask_failed' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t: any) => t.id === evt.subtaskId);
+                if (st) { st.status = 'failed'; st.error = evt.error; }
+            } else if (evt.type === 'plan_completed' || evt.type === 'plan_failed') {
+                if (_activeOrchestratorState) {
+                    _activeOrchestratorState.planStatus = evt.type === 'plan_completed' ? 'completed' : 'failed';
+                }
+                _activeOrchestratorRef = null;
+            }
+
+            mainWindow?.webContents.send('agent-event', { type: 'orchestrator', data: evt });
         });
 
         const result = await orchestrator.execute(goal, sessionId || AGENT_SESSION_ID);
         return { success: true, result };
     } catch (error: any) {
+        _activeOrchestratorRef = null;
         console.error('[Orchestrator] Erro:', error.message);
         return { success: false, error: error.message };
     }
+});
+
+// ============================================================================
+// IPC: Orchestrator — estado em tempo real + cancel
+// ============================================================================
+
+ipcMain.handle('orchestrator-get-state', () => _activeOrchestratorState);
+
+ipcMain.handle('orchestrator-cancel', async () => {
+    if (!_activeOrchestratorRef) return { success: false, error: 'Nenhuma execução ativa' };
+    await _activeOrchestratorRef.cancel();
+    _activeOrchestratorRef = null;
+    return { success: true };
 });
 
 // ============================================================================

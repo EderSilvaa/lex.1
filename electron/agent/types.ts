@@ -261,6 +261,10 @@ export interface SubTask {
     status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
     result?: string;
     error?: string;
+    /** Timeout em ms para esta subtask. Sobrescreve configOverrides do AgentSpec. */
+    timeoutMs?: number;
+    /** Timestamp de início (preenchido ao marcar running) */
+    startedAt?: number;
 }
 
 export interface Plan {
@@ -280,7 +284,23 @@ export type OrchestratorEvent =
     | { type: 'plan_completed'; finalAnswer: string }
     | { type: 'plan_failed'; error: string }
     | { type: 'checkpoint_resumed'; planId: string; fromBatch: number }
-    | { type: 'dual_validation'; skill: string; approved: boolean; confidence: number };
+    | { type: 'dual_validation'; skill: string; approved: boolean; confidence: number }
+    | { type: 'plan_state_snapshot'; state: OrchestratorState };
+
+/** Estado serializável do plano ativo — retornado por orchestrator-get-state */
+export interface OrchestratorState {
+    planId: string;
+    goal: string;
+    planStatus: Plan['status'];
+    subtasks: Array<{
+        id: string;
+        description: string;
+        agentType: AgentTypeId;
+        status: SubTask['status'];
+        error?: string;
+        startedAt?: number;
+    }>;
+}
 
 // ============================================================================
 // AGENT LOOP OPTIONS

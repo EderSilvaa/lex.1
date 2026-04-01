@@ -10,14 +10,13 @@
  */
 
 import { EventEmitter } from 'events';
-import { Plan, SubTask, OrchestratorEvent } from './types';
+import { Plan, SubTask, OrchestratorEvent, OrchestratorState } from './types';
 import { createPlan, shouldUsePlanner } from './planner';
 import { AgentPool } from './agent-pool';
 import { Blackboard } from './blackboard';
 import { buildPromptLayerSystem, getDefaultTenantConfig } from './prompt-layer';
 import {
     saveCheckpoint,
-    loadCheckpoint,
     findCheckpointByGoal,
     removeCheckpoint,
     restorePlanFromCheckpoint,
@@ -92,8 +91,10 @@ export class Orchestrator extends EventEmitter {
                 // Marca batch como running
                 for (const task of pendingTasks) {
                     task.status = 'running';
+                    task.startedAt = Date.now();
                     this.emitEvent({ type: 'subtask_started', subtaskId: task.id, agentType: task.agentType });
                 }
+                this.emitStateSnapshot(plan);
 
                 // Executa batch (paralelo para tasks independentes)
                 const results = await this.pool.runParallel(pendingTasks, blackboard, sessionId);
@@ -160,6 +161,15 @@ export class Orchestrator extends EventEmitter {
 
     private emitEvent(event: OrchestratorEvent): void {
         this.emit('event', event);
+    }
+
+    private emitStateSnapshot(plan: Plan): void {
+        this.emitEvent({ type: 'plan_state_snapshot', state: buildState(plan) });
+    }
+
+    /** Retorna snapshot do estado atual do plano (para polling via IPC) */
+    getState(plan: Plan): OrchestratorState {
+        return buildState(plan);
     }
 
     /** Marca subtasks dependentes de uma falha como skipped */
@@ -251,6 +261,22 @@ function topologicalBatches(subtasks: SubTask[]): SubTask[][] {
     }
 
     return batches;
+}
+
+function buildState(plan: Plan): OrchestratorState {
+    return {
+        planId: plan.id,
+        goal: plan.goal,
+        planStatus: plan.status,
+        subtasks: plan.subtasks.map(t => ({
+            id: t.id,
+            description: t.description,
+            agentType: t.agentType,
+            status: t.status,
+            ...(t.error !== undefined && { error: t.error }),
+            ...(t.startedAt !== undefined && { startedAt: t.startedAt }),
+        })),
+    };
 }
 
 /** Exporta shouldUsePlanner para uso no main.ts */

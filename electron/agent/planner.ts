@@ -138,6 +138,12 @@ async function parsePlanResponse(response: string, goal: string): Promise<Plan> 
             task.dependsOn = task.dependsOn.filter(dep => ids.has(dep));
         }
 
+        // Detecta e corrige ciclos antes de retornar o plano
+        const cycles = detectAndFixCycles(subtasks);
+        if (cycles.length > 0) {
+            console.warn(`[Planner] Ciclos detectados e removidos: ${cycles.join(' | ')}`);
+        }
+
         return {
             id: planId,
             goal,
@@ -165,4 +171,41 @@ async function parsePlanResponse(response: string, goal: string): Promise<Plan> 
             status: 'planning',
         };
     }
+}
+
+/**
+ * Detecta ciclos no DAG de dependências via DFS colorido.
+ * Remove as arestas que formam ciclos (muta subtasks.dependsOn).
+ * Retorna lista legível dos ciclos encontrados.
+ */
+function detectAndFixCycles(subtasks: SubTask[]): string[] {
+    const color = new Map<string, 'white' | 'gray' | 'black'>();
+    for (const t of subtasks) color.set(t.id, 'white');
+
+    const taskById = new Map(subtasks.map(t => [t.id, t]));
+    const cycles: string[] = [];
+
+    function dfs(id: string, path: string[]): void {
+        color.set(id, 'gray');
+        const task = taskById.get(id);
+        if (!task) return;
+
+        for (const dep of [...task.dependsOn]) { // cópia para iterar com segurança
+            if (color.get(dep) === 'gray') {
+                // Ciclo detectado — remove a aresta que o fecha
+                task.dependsOn = task.dependsOn.filter(d => d !== dep);
+                const start = path.indexOf(dep);
+                cycles.push([...path.slice(start >= 0 ? start : 0), id, dep].join(' → '));
+            } else if (color.get(dep) === 'white') {
+                dfs(dep, [...path, id]);
+            }
+        }
+        color.set(id, 'black');
+    }
+
+    for (const t of subtasks) {
+        if (color.get(t.id) === 'white') dfs(t.id, []);
+    }
+
+    return cycles;
 }

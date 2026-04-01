@@ -127,6 +127,17 @@ contextBridge.exposeInMainWorld('authApi', {
     getProfile: () => ipcRenderer.invoke('auth-get-profile'),
 });
 
+contextBridge.exposeInMainWorld('orchestratorApi', {
+    /** Retorna snapshot do plano ativo (subtasks + status). Null se nenhum plano rodando. */
+    getState: () => ipcRenderer.invoke('orchestrator-get-state'),
+    /** Cancela o plano em execução. Progresso é salvo em checkpoint. */
+    cancel: () => ipcRenderer.invoke('orchestrator-cancel'),
+    /** Escuta eventos de orquestração (plan_created, subtask_started, etc.) */
+    onEvent: (cb: (event: any) => void) =>
+        ipcRenderer.on('agent-event', (_, e) => { if (e.type === 'orchestrator') cb(e.data); }),
+    offEvent: () => ipcRenderer.removeAllListeners('agent-event'),
+});
+
 contextBridge.exposeInMainWorld('checkpointApi', {
     listPending: () => ipcRenderer.invoke('checkpoint-list-pending'),
     resume: (planId: string) => ipcRenderer.invoke('checkpoint-resume', { planId }),

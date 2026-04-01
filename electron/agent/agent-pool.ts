@@ -77,9 +77,14 @@ export class AgentPool {
             ? `${subtask.description}\n\n## Contexto de subtasks anteriores:\n${bbContext}`
             : subtask.description;
 
+        // Resolve timeout: subtask > AgentSpec > fallback de 2 min
+        const timeoutMs = subtask.timeoutMs
+            ?? spec.configOverrides?.timeoutMs
+            ?? 2 * 60 * 1000;
+
         const promise = runAgentLoop({
             objetivo,
-            config: { maxIterations: 10, timeoutMs: 120000 },
+            config: { maxIterations: 10, timeoutMs },
             sessionId,
             agentSpec: spec,
             parentAbort: agentAbort.signal,

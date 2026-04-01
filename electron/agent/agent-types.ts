@@ -23,7 +23,7 @@ Use browser_get_state antes de interagir — veja os seletores disponíveis.
 Prefira browser_click, browser_fill, browser_type (atômicos e rápidos) a pje_agir (lento, usa visão).
 Use pje_agir APENAS quando os seletores não são claros ou a tela é desconhecida.
 Use pje_abrir para garantir que o Chrome está no PJe.`,
-        configOverrides: { enableCritic: true },
+        configOverrides: { enableCritic: true, timeoutMs: 5 * 60 * 1000 }, // 5 min — browser lento
         maxConcurrent: 1,
         requiresBrowser: true,
     },
@@ -35,6 +35,7 @@ Use pje_abrir para garantir que o Chrome está no PJe.`,
 Seu foco é ler, analisar, gerar e salvar documentos.
 Use os_arquivos para ler arquivos do disco e doc_gerar para criar documentos.`,
         maxConcurrent: 6,
+        configOverrides: { timeoutMs: 3 * 60 * 1000 }, // 3 min
     },
     research: {
         typeId: 'research',
@@ -44,6 +45,7 @@ Use os_arquivos para ler arquivos do disco e doc_gerar para criar documentos.`,
 Seu foco é buscar jurisprudência, consultar legislação e pesquisar na web.
 Use pesquisa_jurisprudencia para buscar decisões e os_fetch para consultar fontes externas.`,
         maxConcurrent: 4,
+        configOverrides: { timeoutMs: 2 * 60 * 1000 }, // 2 min
     },
     browser: {
         typeId: 'browser',
@@ -57,6 +59,7 @@ Use browser_wait para aguardar elementos.
 Use browser_auto_task APENAS quando a página é complexa demais para skills atômicas.`,
         maxConcurrent: 1,
         requiresBrowser: true,
+        configOverrides: { timeoutMs: 5 * 60 * 1000 }, // 5 min
     },
     os: {
         typeId: 'os',
@@ -65,6 +68,7 @@ Use browser_auto_task APENAS quando a página é complexa demais para skills at�
         systemPromptExtra: `Você é um agente especializado em operações do sistema operacional.
 Use skills os_* para manipular arquivos, clipboard, processos e comandos do sistema.
 Use terminal_executar para executar comandos shell com saída em tempo real (pip, python, git, npm, scripts, etc).`,
+        configOverrides: { timeoutMs: 60 * 1000 }, // 1 min — ops de sistema são rápidas
     },
 };
 
