@@ -265,6 +265,10 @@ export interface SubTask {
     timeoutMs?: number;
     /** Timestamp de início (preenchido ao marcar running) */
     startedAt?: number;
+    /** Máximo de tentativas (default: 1 = sem retry) */
+    maxRetries?: number;
+    /** Tentativas já realizadas (gerenciado pelo orchestrator) */
+    retryCount?: number;
 }
 
 export interface Plan {
@@ -281,11 +285,14 @@ export type OrchestratorEvent =
     | { type: 'subtask_started'; subtaskId: string; agentType: AgentTypeId }
     | { type: 'subtask_completed'; subtaskId: string; result: string }
     | { type: 'subtask_failed'; subtaskId: string; error: string }
+    | { type: 'subtask_retrying'; subtaskId: string; attempt: number; maxRetries: number }
     | { type: 'plan_completed'; finalAnswer: string }
     | { type: 'plan_failed'; error: string }
     | { type: 'checkpoint_resumed'; planId: string; fromBatch: number }
     | { type: 'dual_validation'; skill: string; approved: boolean; confidence: number }
-    | { type: 'plan_state_snapshot'; state: OrchestratorState };
+    | { type: 'plan_state_snapshot'; state: OrchestratorState }
+    | { type: 'plan_paused' }
+    | { type: 'plan_resumed' };
 
 /** Estado serializável do plano ativo — retornado por orchestrator-get-state */
 export interface OrchestratorState {

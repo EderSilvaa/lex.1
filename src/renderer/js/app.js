@@ -2675,3 +2675,191 @@ async function disconnectPlugin(pluginId) {
     catch (err) { console.error('[Plugins] Erro ao desconectar:', err); }
 }
 
+
+// ============================================================================
+// ORCHESTRATOR DAG UI
+// ============================================================================
+
+let _planCardElement = null;
+let _planPaused = false;
+let _planCardPlanId = null;
+
+function setupOrchestratorEvents() {
+    if (!window.orchestratorApi || !window.orchestratorApi.onEvent) {
+        console.warn('[App] orchestratorApi not available');
+        return;
+    }
+
+    window.orchestratorApi.onEvent(function(event) {
+        switch (event.type) {
+            case 'plan_created':
+                _planCardElement = createPlanCard(event.plan);
+                _planPaused = false;
+                _planCardPlanId = event.plan.id;
+                break;
+            case 'subtask_started':
+                updateSubtaskNode(event.subtaskId, 'running');
+                break;
+            case 'subtask_completed':
+                updateSubtaskNode(event.subtaskId, 'completed');
+                break;
+            case 'subtask_failed':
+                updateSubtaskNode(event.subtaskId, 'failed', event.error);
+                break;
+            case 'subtask_retrying':
+                updateSubtaskNode(event.subtaskId, 'retrying', 'Tentativa ' + event.attempt + '/' + event.maxRetries);
+                break;
+            case 'plan_paused':
+                _planPaused = true;
+                updatePlanCardPauseState(true);
+                break;
+            case 'plan_resumed':
+                _planPaused = false;
+                updatePlanCardPauseState(false);
+                break;
+            case 'plan_completed':
+                finalizePlanCard('completed');
+                break;
+            case 'plan_failed':
+                finalizePlanCard('failed');
+                break;
+        }
+    });
+}
+
+function createPlanCard(plan) {
+    var messageList = document.getElementById('chat-messages');
+    var greeting = document.querySelector('.greeting-section');
+    if (!messageList) return null;
+
+    if (greeting && greeting.style.display !== 'none') greeting.style.display = 'none';
+    if (mainChatContainer) mainChatContainer.classList.add('has-messages');
+
+    var subtasksHtml = plan.subtasks.map(function(t) {
+        var desc = t.description.length > 80
+            ? t.description.substring(0, 80) + '...'
+            : t.description;
+        return '<div class="plan-subtask" id="subtask-node-' + t.id + '" data-status="pending">' +
+            '<span class="plan-subtask-icon">o</span>' +
+            '<span class="plan-subtask-desc">' + escapeHtml(desc) + '</span>' +
+            '<span class="plan-subtask-type">' + escapeHtml(t.agentType) + '</span>' +
+            '</div>';
+    }).join('');
+
+    var goalText = plan.goal.length > 100 ? plan.goal.substring(0, 100) + '...' : plan.goal;
+
+    var card = document.createElement('div');
+    card.className = 'message ai plan-card';
+    card.id = 'plan-card-' + plan.id;
+    card.innerHTML =
+        '<div class="message-body">' +
+        '<div class="plan-card-header">' +
+        '<span class="plan-card-title">' + escapeHtml(goalText) + '</span>' +
+        '<span class="plan-card-badge" id="plan-badge-' + plan.id + '">executando</span>' +
+        '</div>' +
+        '<div class="plan-subtask-list">' + subtasksHtml + '</div>' +
+        '<div class="plan-card-controls" id="plan-controls-' + plan.id + '">' +
+        '<button class="plan-btn plan-btn-pause" id="plan-pause-btn-' + plan.id + '" onclick="_planTogglePause()">II Pausar</button>' +
+        '<button class="plan-btn plan-btn-cancel" onclick="_planCancel()">x Cancelar</button>' +
+        '</div>' +
+        '</div>';
+
+    messageList.appendChild(card);
+    smartScrollToBottom(true);
+    return card;
+}
+
+function updateSubtaskNode(subtaskId, status, detail) {
+    if (!_planCardElement) return;
+    var node = _planCardElement.querySelector('#subtask-node-' + subtaskId);
+    if (!node) return;
+
+    var icons = { running: '~', completed: 'v', failed: 'x', retrying: 'R', skipped: '-', pending: 'o' };
+    var icon = node.querySelector('.plan-subtask-icon');
+    if (icon) icon.textContent = icons[status] || 'o';
+    node.dataset.status = status;
+
+    if (detail) {
+        var detailEl = node.querySelector('.plan-subtask-detail');
+        if (!detailEl) {
+            detailEl = document.createElement('span');
+            detailEl.className = 'plan-subtask-detail';
+            node.appendChild(detailEl);
+        }
+        detailEl.textContent = detail.substring(0, 60);
+    }
+}
+
+function updatePlanCardPauseState(paused) {
+    if (!_planCardElement) return;
+    var btn = _planCardElement.querySelector('[id^="plan-pause-btn-"]');
+    if (btn) btn.textContent = paused ? '> Retomar' : 'II Pausar';
+    _planCardElement.classList.toggle('plan-paused', paused);
+}
+
+function finalizePlanCard(status) {
+    if (!_planCardElement) return;
+    var badge = _planCardElement.querySelector('[id^="plan-badge-"]');
+    if (badge) {
+        badge.textContent = status === 'completed' ? 'concluido' : 'falhou';
+        badge.dataset.status = status;
+    }
+    var controls = _planCardElement.querySelector('[id^="plan-controls-"]');
+    if (controls) controls.remove();
+    _planCardElement = null;
+    _planCardPlanId = null;
+}
+
+async function _planTogglePause() {
+    if (!window.orchestratorApi) return;
+    if (_planPaused) {
+        await window.orchestratorApi.resume();
+    } else {
+        await window.orchestratorApi.pause();
+    }
+}
+
+async function _planCancel() {
+    if (!window.orchestratorApi) return;
+    await window.orchestratorApi.cancel();
+}
+
+function injectPlanCardStyles() {
+    if (document.getElementById('plan-card-styles')) return;
+    var style = document.createElement('style');
+    style.id = 'plan-card-styles';
+    style.textContent = [
+        '.plan-card .message-body{padding:12px 14px;border-radius:10px;background:var(--surface-color,#1a1a1a)}',
+        '.plan-card-header{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px}',
+        '.plan-card-title{flex:1;font-size:13px;font-weight:600;color:var(--text-primary,#eee);line-height:1.4}',
+        '.plan-card-badge{font-size:10px;padding:2px 8px;border-radius:10px;background:var(--accent-color,#7c6af7);color:#fff;white-space:nowrap;flex-shrink:0;margin-top:2px}',
+        '.plan-card-badge[data-status="completed"]{background:#2d6b2d}',
+        '.plan-card-badge[data-status="failed"]{background:#6b2d2d}',
+        '.plan-subtask-list{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}',
+        '.plan-subtask{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border-radius:5px;color:var(--text-secondary,#aaa);transition:background .15s,color .15s}',
+        '.plan-subtask[data-status="running"]{color:var(--text-primary,#eee);background:rgba(124,106,247,.08)}',
+        '.plan-subtask[data-status="completed"]{color:#5fa05f}',
+        '.plan-subtask[data-status="failed"]{color:#a05f5f}',
+        '.plan-subtask[data-status="retrying"]{color:#c8a040}',
+        '.plan-subtask[data-status="skipped"]{opacity:.45}',
+        '.plan-subtask-icon{width:14px;text-align:center;font-size:11px;flex-shrink:0;font-family:monospace}',
+        '.plan-subtask[data-status="running"] .plan-subtask-icon{animation:plan-spin .8s linear infinite;display:inline-block}',
+        '@keyframes plan-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+        '.plan-subtask-desc{flex:1}',
+        '.plan-subtask-type{font-size:10px;padding:1px 5px;border-radius:8px;background:var(--surface-hover,#2a2a2a);color:var(--text-tertiary,#666);flex-shrink:0}',
+        '.plan-subtask-detail{font-size:10px;color:var(--text-tertiary,#666);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}',
+        '.plan-card-controls{display:flex;gap:6px}',
+        '.plan-btn{font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border-color,#333);background:transparent;color:var(--text-secondary,#aaa);cursor:pointer}',
+        '.plan-btn:hover{background:var(--surface-hover,#2a2a2a);color:var(--text-primary,#eee)}',
+        '.plan-btn-cancel:hover{border-color:#6b2d2d;color:#c06060}',
+        '.plan-paused .plan-card-badge{opacity:.6}',
+    ].join('');
+    document.head.appendChild(style);
+}
+
+setupOrchestratorEvents();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectPlanCardStyles);
+} else {
+    injectPlanCardStyles();
+}

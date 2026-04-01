@@ -50,7 +50,7 @@ const AGENT_SESSION_ID = randomUUID();
 // Estado do Orchestrator ativo (para IPC de estado em tempo real)
 import type { OrchestratorState } from './agent/types';
 let _activeOrchestratorState: OrchestratorState | null = null;
-let _activeOrchestratorRef: { cancel: () => Promise<void> } | null = null;
+let _activeOrchestratorRef: { cancel: () => Promise<void>; pause: () => void; resume: () => void; isPaused: boolean } | null = null;
 
 // Enable Hot Reload in Development
 // electron-reload removido: bypassava o launch-electron.js (sem deletar ELECTRON_RUN_AS_NODE)
@@ -2292,6 +2292,22 @@ ipcMain.handle('orchestrator-cancel', async () => {
     await _activeOrchestratorRef.cancel();
     _activeOrchestratorRef = null;
     return { success: true };
+});
+
+ipcMain.handle('orchestrator-pause', () => {
+    if (!_activeOrchestratorRef) return { success: false, error: 'Nenhuma execução ativa' };
+    _activeOrchestratorRef.pause();
+    return { success: true };
+});
+
+ipcMain.handle('orchestrator-resume', () => {
+    if (!_activeOrchestratorRef) return { success: false, error: 'Nenhuma execução ativa' };
+    _activeOrchestratorRef.resume();
+    return { success: true };
+});
+
+ipcMain.handle('orchestrator-is-paused', () => {
+    return { paused: _activeOrchestratorRef?.isPaused ?? false };
 });
 
 // ============================================================================

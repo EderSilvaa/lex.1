@@ -132,6 +132,12 @@ contextBridge.exposeInMainWorld('orchestratorApi', {
     getState: () => ipcRenderer.invoke('orchestrator-get-state'),
     /** Cancela o plano em execução. Progresso é salvo em checkpoint. */
     cancel: () => ipcRenderer.invoke('orchestrator-cancel'),
+    /** Pausa a execução (agentes em andamento terminam; novos não iniciam). */
+    pause: () => ipcRenderer.invoke('orchestrator-pause'),
+    /** Retoma execução pausada. */
+    resume: () => ipcRenderer.invoke('orchestrator-resume'),
+    /** Retorna se o plano está pausado. */
+    isPaused: () => ipcRenderer.invoke('orchestrator-is-paused'),
     /** Escuta eventos de orquestração (plan_created, subtask_started, etc.) */
     onEvent: (cb: (event: any) => void) =>
         ipcRenderer.on('agent-event', (_, e) => { if (e.type === 'orchestrator') cb(e.data); }),

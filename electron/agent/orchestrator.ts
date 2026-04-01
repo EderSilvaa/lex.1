@@ -108,11 +108,28 @@ export class Orchestrator extends EventEmitter {
                         blackboard.set(`result:${task.id}`, result);
                         this.emitEvent({ type: 'subtask_completed', subtaskId: task.id, result });
                     } else {
-                        task.status = 'failed';
-                        task.error = result || 'Sem resultado';
-                        this.emitEvent({ type: 'subtask_failed', subtaskId: task.id, error: task.error });
-                        this.skipDependents(plan.subtasks, task.id);
+                        const maxRetries = task.maxRetries ?? 0;
+                        const retryCount = task.retryCount ?? 0;
+                        if (retryCount < maxRetries) {
+                            // Retry: reseta para pending para reprocessamento no próximo batch
+                            task.retryCount = retryCount + 1;
+                            task.status = 'pending';
+                            task.error = undefined;
+                            console.log(`[Orchestrator] Retry ${task.retryCount}/${maxRetries} para subtask ${task.id}`);
+                            this.emitEvent({ type: 'subtask_retrying', subtaskId: task.id, attempt: task.retryCount, maxRetries });
+                        } else {
+                            task.status = 'failed';
+                            task.error = result || 'Sem resultado';
+                            this.emitEvent({ type: 'subtask_failed', subtaskId: task.id, error: task.error });
+                            this.skipDependents(plan.subtasks, task.id);
+                        }
                     }
+                }
+
+                // Reagenda retries como novo batch ao final da fila
+                const retriedTasks = pendingTasks.filter(t => t.status === 'pending');
+                if (retriedTasks.length > 0) {
+                    batches.push(retriedTasks);
                 }
 
                 // Checkpoint após cada batch
@@ -152,6 +169,20 @@ export class Orchestrator extends EventEmitter {
      */
     getPendingCheckpoints(): Checkpoint[] {
         return listPendingCheckpoints();
+    }
+
+    pause(): void {
+        this.pool.pause();
+        this.emitEvent({ type: 'plan_paused' });
+    }
+
+    resume(): void {
+        this.pool.resume();
+        this.emitEvent({ type: 'plan_resumed' });
+    }
+
+    get isPaused(): boolean {
+        return this.pool.isPaused;
     }
 
     async cancel(): Promise<void> {

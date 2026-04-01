@@ -21,6 +21,8 @@ export class AgentPool {
     private running = new Map<string, RunningAgent>();
     private maxConcurrent: number;
     private poolAbort = new AbortController();
+    private _paused = false;
+    private _pauseResolvers: Array<() => void> = [];
 
     /** Contador de agentes ativos por tipo (para enforçar maxConcurrent por tipo) */
     private typeActiveCount = new Map<AgentTypeId, number>();
@@ -70,6 +72,9 @@ export class AgentPool {
         // Encadeia pool abort → agent abort
         const onPoolAbort = () => agentAbort.abort();
         this.poolAbort.signal.addEventListener('abort', onPoolAbort, { once: true });
+
+        // Aguarda se o pool estiver pausado
+        await this.waitIfPaused();
 
         // Monta objetivo com contexto do blackboard
         const bbContext = blackboard.formatAsContext();
@@ -172,10 +177,11 @@ export class AgentPool {
                 executing.size >= globalLimit ||
                 !this.hasTypeCapacity(task.agentType)
             ) {
-                if (executing.size === 0) break; // defensivo: evita deadlock
-                await Promise.race(executing);
+                if (executing.size === 0) break; // nada a aguardar — type count stale, prossegue
+                await Promise.race([...executing]); // snapshot do Set para evitar race na mutação
             }
 
+            await this.waitIfPaused();
             this.incrementType(task.agentType);
             const p = (async () => {
                 try {
@@ -195,6 +201,29 @@ export class AgentPool {
 
         await Promise.all(executing);
         return results;
+    }
+
+    pause(): void {
+        this._paused = true;
+    }
+
+    resume(): void {
+        this._paused = false;
+        // Resolve todas as promises de quem estava aguardando
+        for (const resolve of this._pauseResolvers) resolve();
+        this._pauseResolvers = [];
+    }
+
+    get isPaused(): boolean {
+        return this._paused;
+    }
+
+    /** Bloqueia até o pool ser resumido (se estiver pausado) */
+    private waitIfPaused(): Promise<void> {
+        if (!this._paused) return Promise.resolve();
+        return new Promise<void>(resolve => {
+            this._pauseResolvers.push(resolve);
+        });
     }
 
     async cancelAll(): Promise<void> {
