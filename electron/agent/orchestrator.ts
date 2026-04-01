@@ -70,10 +70,12 @@ export class Orchestrator extends EventEmitter {
         }
 
         // 2. Executa subtasks respeitando DAG de dependências
+        let currentBatchIdx = startBatchIndex; // rastreado no catch para checkpoint correto
         try {
             const batches = topologicalBatches(plan.subtasks);
 
             for (let batchIdx = startBatchIndex; batchIdx < batches.length; batchIdx++) {
+                currentBatchIdx = batchIdx;
                 const batch = batches[batchIdx]!;
 
                 if (this.cancelled) {
@@ -136,8 +138,8 @@ export class Orchestrator extends EventEmitter {
             return finalAnswer;
 
         } catch (error: any) {
-            // Salva checkpoint no erro para retomada futura
-            saveCheckpoint(plan, 0, blackboard.getSubtaskResults());
+            // Salva checkpoint no batch corrente (não em 0) para evitar reprocessar batches completos
+            saveCheckpoint(plan, currentBatchIdx, blackboard.getSubtaskResults());
             plan.status = 'failed';
             this.emitEvent({ type: 'plan_failed', error: error.message });
             return `Erro na orquestração: ${error.message}. Progresso salvo.`;
@@ -214,7 +216,15 @@ Termine com um próximo passo concreto ("Quer que eu...").`;
  */
 function topologicalBatches(subtasks: SubTask[]): SubTask[][] {
     const batches: SubTask[][] = [];
-    const completed = new Set<string>();
+
+    // Pré-popula com tasks já finalizadas (completed/skipped/failed) para que
+    // dependências delas sejam consideradas satisfeitas ao retomar de checkpoint.
+    const completed = new Set<string>(
+        subtasks
+            .filter(t => t.status === 'completed' || t.status === 'skipped' || t.status === 'failed')
+            .map(t => t.id)
+    );
+
     const remaining = [...subtasks.filter(t => t.status === 'pending')];
 
     let maxIterations = remaining.length + 1; // safety
@@ -225,8 +235,9 @@ function topologicalBatches(subtasks: SubTask[]): SubTask[][] {
         );
 
         if (ready.length === 0) {
-            // Dependência circular ou irresolvível — executa tudo que resta
-            console.warn('[Orchestrator] Dependências irresolvíveis, forçando execução');
+            // Dependência circular ou irresolvível — reporta IDs e força execução
+            const ids = remaining.map(t => t.id).join(', ');
+            console.warn(`[Orchestrator] Dependências irresolvíveis em [${ids}], forçando execução`);
             batches.push([...remaining]);
             break;
         }

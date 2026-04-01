@@ -22,6 +22,9 @@ export class AgentPool {
     private maxConcurrent: number;
     private poolAbort = new AbortController();
 
+    /** Contador de agentes ativos por tipo (para enforçar maxConcurrent por tipo) */
+    private typeActiveCount = new Map<AgentTypeId, number>();
+
     constructor(maxConcurrent = 3) {
         this.maxConcurrent = maxConcurrent;
     }
@@ -30,6 +33,24 @@ export class AgentPool {
     private isSerialType(agentType: AgentTypeId): boolean {
         const spec = getAgentSpec(agentType);
         return spec.requiresBrowser === true || spec.maxConcurrent === 1;
+    }
+
+    /** Retorna true se o tipo ainda tem capacidade para mais um agente */
+    private hasTypeCapacity(agentType: AgentTypeId): boolean {
+        const spec = getAgentSpec(agentType);
+        if (!spec.maxConcurrent) return true; // sem limite por tipo
+        const active = this.typeActiveCount.get(agentType) ?? 0;
+        return active < spec.maxConcurrent;
+    }
+
+    private incrementType(agentType: AgentTypeId): void {
+        this.typeActiveCount.set(agentType, (this.typeActiveCount.get(agentType) ?? 0) + 1);
+    }
+
+    private decrementType(agentType: AgentTypeId): void {
+        const curr = this.typeActiveCount.get(agentType) ?? 0;
+        if (curr <= 1) this.typeActiveCount.delete(agentType);
+        else this.typeActiveCount.set(agentType, curr - 1);
     }
 
     /** Spawna um agente para executar uma subtask */
@@ -135,12 +156,22 @@ export class AgentPool {
         tasks: SubTask[],
         blackboard: Blackboard,
         sessionId: string | undefined,
-        limit: number
+        globalLimit: number
     ): Promise<Map<string, string>> {
         const results = new Map<string, string>();
         const executing = new Set<Promise<void>>();
 
         for (const task of tasks) {
+            // Aguarda até ter capacidade global E capacidade do tipo
+            while (
+                executing.size >= globalLimit ||
+                !this.hasTypeCapacity(task.agentType)
+            ) {
+                if (executing.size === 0) break; // defensivo: evita deadlock
+                await Promise.race(executing);
+            }
+
+            this.incrementType(task.agentType);
             const p = (async () => {
                 try {
                     const result = await this.spawn(task, blackboard, sessionId);
@@ -148,15 +179,13 @@ export class AgentPool {
                     blackboard.set(`result:${task.id}`, result);
                 } catch (error: any) {
                     results.set(task.id, `ERRO: ${error.message}`);
+                } finally {
+                    this.decrementType(task.agentType);
                 }
             })();
 
             executing.add(p);
             p.finally(() => executing.delete(p));
-
-            if (executing.size >= limit) {
-                await Promise.race(executing);
-            }
         }
 
         await Promise.all(executing);
@@ -178,6 +207,7 @@ export class AgentPool {
 
         // Limpa e reseta
         this.running.clear();
+        this.typeActiveCount.clear();
         this.poolAbort = new AbortController();
     }
 
