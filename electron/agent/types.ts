@@ -243,6 +243,10 @@ export interface AgentSpec {
     systemPromptExtra?: string;
     /** Override de config para este tipo de agente */
     configOverrides?: Partial<AgentConfig>;
+    /** Máximo de agentes deste tipo rodando em paralelo (default: ilimitado) */
+    maxConcurrent?: number;
+    /** Se true, requer browser (limita a 1 por vez no AgentPool) */
+    requiresBrowser?: boolean;
 }
 
 export interface SubTask {
@@ -274,7 +278,9 @@ export type OrchestratorEvent =
     | { type: 'subtask_completed'; subtaskId: string; result: string }
     | { type: 'subtask_failed'; subtaskId: string; error: string }
     | { type: 'plan_completed'; finalAnswer: string }
-    | { type: 'plan_failed'; error: string };
+    | { type: 'plan_failed'; error: string }
+    | { type: 'checkpoint_resumed'; planId: string; fromBatch: number }
+    | { type: 'dual_validation'; skill: string; approved: boolean; confidence: number };
 
 // ============================================================================
 // AGENT LOOP OPTIONS

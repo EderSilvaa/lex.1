@@ -20,6 +20,7 @@ import {
 } from './types';
 import { think, clearPromptCache } from './think';
 import { critic } from './critic';
+import { requiresDualValidation, validateWithDualAgent, validationToCriticDecision } from './validator-agent';
 import { executeSkill } from './executor';
 import { getMemory } from './memory';
 import { getResponseCache } from './cache';
@@ -845,6 +846,34 @@ async function applyCritic(
             finalParams = criticDecision.correctedDecision.parametros;
         }
         log(cfg.verbose, `Critic: acao ajustada para ${finalSkill}`);
+    }
+
+    // Dual-agent validation para ações de alto risco (P3c AIOS)
+    const thinkDecision = { tipo: 'skill' as const, pensamento: '', skill: finalSkill, parametros: finalParams };
+    if (requiresDualValidation(thinkDecision)) {
+        log(cfg.verbose, `Dual-Agent: validando ação de alto risco "${finalSkill}"...`);
+        emit({ type: 'thinking', pensamento: `[Dual-Agent] Validando ação de alto risco: ${finalSkill}`, iteracao: state.iteracao });
+
+        try {
+            const validation = await validateWithDualAgent({
+                decision: thinkDecision,
+                context: state.contexto,
+                goal: state.objetivo,
+            });
+
+            if (!validation.approved) {
+                const dualCritic = validationToCriticDecision(validation, thinkDecision);
+                const question = dualCritic.suggestedQuestion
+                    || `Validação dual-agent rejeitou "${finalSkill}": ${validation.reason}`;
+                return { skillName: finalSkill, params: finalParams, blocked: question };
+            }
+
+            log(cfg.verbose, `Dual-Agent: aprovado (confiança ${(validation.confidence * 100).toFixed(0)}%)`);
+        } catch (err: any) {
+            // Se dual-agent falhar, bloqueia por precaução
+            log(cfg.verbose, `Dual-Agent: erro na validação, bloqueando por precaução: ${err.message}`);
+            return { skillName: finalSkill, params: finalParams, blocked: `Validação de segurança falhou para "${finalSkill}". Deseja prosseguir?` };
+        }
     }
 
     return { skillName: finalSkill, params: finalParams };

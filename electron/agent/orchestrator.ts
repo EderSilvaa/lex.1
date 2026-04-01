@@ -15,6 +15,15 @@ import { createPlan, shouldUsePlanner } from './planner';
 import { AgentPool } from './agent-pool';
 import { Blackboard } from './blackboard';
 import { buildPromptLayerSystem, getDefaultTenantConfig } from './prompt-layer';
+import {
+    saveCheckpoint,
+    loadCheckpoint,
+    findCheckpointByGoal,
+    removeCheckpoint,
+    restorePlanFromCheckpoint,
+    listPendingCheckpoints,
+    type Checkpoint
+} from './checkpoint-store';
 
 export class Orchestrator extends EventEmitter {
     private pool: AgentPool;
@@ -25,45 +34,70 @@ export class Orchestrator extends EventEmitter {
         this.pool = new AgentPool(maxConcurrent);
     }
 
-    /** Executa um objetivo complexo end-to-end */
+    /** Executa um objetivo complexo end-to-end, com checkpointing automático */
     async execute(goal: string, sessionId?: string): Promise<string> {
         this.cancelled = false;
 
-        // 1. Cria plano via LLM
-        console.log('[Orchestrator] Criando plano para:', goal.substring(0, 80));
-        const plan = await createPlan(goal);
-        plan.status = 'executing';
-        this.emitEvent({ type: 'plan_created', plan });
+        // 0. Verifica se há checkpoint para este goal (retomada)
+        let plan: Plan;
+        let blackboard = new Blackboard();
+        let startBatchIndex = 0;
 
-        console.log(`[Orchestrator] Plano criado: ${plan.subtasks.length} subtasks`);
-        for (const st of plan.subtasks) {
-            console.log(`  [${st.id}] ${st.agentType}: ${st.description.substring(0, 60)} (deps: ${st.dependsOn.join(',')||'nenhuma'})`);
+        const existing = findCheckpointByGoal(goal);
+        if (existing) {
+            console.log(`[Orchestrator] Checkpoint encontrado: plan=${existing.planId}, retomando do batch ${existing.nextBatchIndex}`);
+            plan = restorePlanFromCheckpoint(existing);
+            startBatchIndex = existing.nextBatchIndex;
+
+            // Restaura blackboard com resultados anteriores
+            for (const [key, value] of Object.entries(existing.results)) {
+                blackboard.set(key, value);
+            }
+
+            this.emitEvent({ type: 'plan_created', plan });
+            this.emitEvent({ type: 'checkpoint_resumed' as any, planId: plan.id, fromBatch: startBatchIndex });
+        } else {
+            // 1. Cria plano via LLM
+            console.log('[Orchestrator] Criando plano para:', goal.substring(0, 80));
+            plan = await createPlan(goal);
+            plan.status = 'executing';
+            this.emitEvent({ type: 'plan_created', plan });
         }
 
-        // 2. Cria blackboard para esta execução
-        const blackboard = new Blackboard();
+        console.log(`[Orchestrator] Plano: ${plan.subtasks.length} subtasks (início batch ${startBatchIndex})`);
+        for (const st of plan.subtasks) {
+            console.log(`  [${st.id}] ${st.agentType}: ${st.description.substring(0, 60)} (deps: ${st.dependsOn.join(',')||'nenhuma'}) [${st.status}]`);
+        }
 
-        // 3. Executa subtasks respeitando DAG de dependências
+        // 2. Executa subtasks respeitando DAG de dependências
         try {
             const batches = topologicalBatches(plan.subtasks);
 
-            for (const batch of batches) {
+            for (let batchIdx = startBatchIndex; batchIdx < batches.length; batchIdx++) {
+                const batch = batches[batchIdx]!;
+
                 if (this.cancelled) {
+                    // Salva checkpoint antes de sair
+                    saveCheckpoint(plan, batchIdx, blackboard.getSubtaskResults());
                     plan.status = 'cancelled';
-                    return 'Execução cancelada.';
+                    return 'Execução cancelada. Progresso salvo — pode ser retomada.';
                 }
 
+                // Pula tasks já completadas (retomada de checkpoint)
+                const pendingTasks = batch.filter(t => t.status === 'pending');
+                if (pendingTasks.length === 0) continue;
+
                 // Marca batch como running
-                for (const task of batch) {
+                for (const task of pendingTasks) {
                     task.status = 'running';
                     this.emitEvent({ type: 'subtask_started', subtaskId: task.id, agentType: task.agentType });
                 }
 
                 // Executa batch (paralelo para tasks independentes)
-                const results = await this.pool.runParallel(batch, blackboard, sessionId);
+                const results = await this.pool.runParallel(pendingTasks, blackboard, sessionId);
 
                 // Processa resultados
-                for (const task of batch) {
+                for (const task of pendingTasks) {
                     const result = results.get(task.id);
                     if (result && !result.startsWith('ERRO:')) {
                         task.status = 'completed';
@@ -74,14 +108,15 @@ export class Orchestrator extends EventEmitter {
                         task.status = 'failed';
                         task.error = result || 'Sem resultado';
                         this.emitEvent({ type: 'subtask_failed', subtaskId: task.id, error: task.error });
-
-                        // Marca dependentes como skipped
                         this.skipDependents(plan.subtasks, task.id);
                     }
                 }
+
+                // Checkpoint após cada batch
+                saveCheckpoint(plan, batchIdx + 1, blackboard.getSubtaskResults());
             }
 
-            // 4. Sintetiza resposta final
+            // 3. Sintetiza resposta final
             const completedTasks = plan.subtasks.filter(t => t.status === 'completed');
             if (completedTasks.length === 0) {
                 plan.status = 'failed';
@@ -93,15 +128,27 @@ export class Orchestrator extends EventEmitter {
             const finalAnswer = await this.synthesizeFinalAnswer(goal, blackboard, plan);
             plan.finalAnswer = finalAnswer;
             plan.status = 'completed';
+
+            // Plano completado — remove checkpoint
+            removeCheckpoint(plan.id);
             this.emitEvent({ type: 'plan_completed', finalAnswer });
 
             return finalAnswer;
 
         } catch (error: any) {
+            // Salva checkpoint no erro para retomada futura
+            saveCheckpoint(plan, 0, blackboard.getSubtaskResults());
             plan.status = 'failed';
             this.emitEvent({ type: 'plan_failed', error: error.message });
-            return `Erro na orquestração: ${error.message}`;
+            return `Erro na orquestração: ${error.message}. Progresso salvo.`;
         }
+    }
+
+    /**
+     * Lista checkpoints pendentes que podem ser retomados.
+     */
+    getPendingCheckpoints(): Checkpoint[] {
+        return listPendingCheckpoints();
     }
 
     async cancel(): Promise<void> {

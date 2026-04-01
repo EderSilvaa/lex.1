@@ -127,6 +127,12 @@ contextBridge.exposeInMainWorld('authApi', {
     getProfile: () => ipcRenderer.invoke('auth-get-profile'),
 });
 
+contextBridge.exposeInMainWorld('checkpointApi', {
+    listPending: () => ipcRenderer.invoke('checkpoint-list-pending'),
+    resume: (planId: string) => ipcRenderer.invoke('checkpoint-resume', { planId }),
+    remove: (planId: string) => ipcRenderer.invoke('checkpoint-remove', { planId }),
+});
+
 contextBridge.exposeInMainWorld('schedulerApi', {
     listGoals: () => ipcRenderer.invoke('scheduler-list-goals'),
     addGoal: (goal: any) => ipcRenderer.invoke('scheduler-add-goal', goal),

@@ -2248,6 +2248,46 @@ ipcMain.handle('ai-plan-execute', async (_event, { goal, sessionId }: { goal: st
 });
 
 // ============================================================================
+// IPC: Checkpoints (P3a AIOS — retomada de planos interrompidos)
+// ============================================================================
+
+ipcMain.handle('checkpoint-list-pending', async () => {
+    const { listPendingCheckpoints } = await import('./agent/checkpoint-store');
+    return listPendingCheckpoints();
+});
+
+ipcMain.handle('checkpoint-resume', async (_event, { planId }: { planId: string }) => {
+    try {
+        const { loadCheckpoint, restorePlanFromCheckpoint } = await import('./agent/checkpoint-store');
+        const checkpoint = loadCheckpoint(planId);
+        if (!checkpoint) return { success: false, error: 'Checkpoint não encontrado' };
+
+        await ensureAgentInitialized();
+        const { Orchestrator } = await import('./agent/orchestrator');
+        const orchestrator = new Orchestrator();
+
+        orchestrator.on('event', (evt: any) => {
+            mainWindow?.webContents.send('agent-event', {
+                type: 'orchestrator',
+                data: evt,
+            });
+        });
+
+        const result = await orchestrator.execute(checkpoint.goal, AGENT_SESSION_ID);
+        return { success: true, result };
+    } catch (error: any) {
+        console.error('[Checkpoint] Erro ao retomar:', error.message);
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('checkpoint-remove', async (_event, { planId }: { planId: string }) => {
+    const { removeCheckpoint } = await import('./agent/checkpoint-store');
+    removeCheckpoint(planId);
+    return { success: true };
+});
+
+// ============================================================================
 // IPC: Scheduler (Phase 2 AIOS — Autonomia)
 // ============================================================================
 

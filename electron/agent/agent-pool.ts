@@ -22,11 +22,14 @@ export class AgentPool {
     private maxConcurrent: number;
     private poolAbort = new AbortController();
 
-    /** Tipos que exigem execução serial (compartilham recurso único como o browser) */
-    private serialTypes = new Set<AgentTypeId>(['pje', 'browser']);
-
     constructor(maxConcurrent = 3) {
         this.maxConcurrent = maxConcurrent;
+    }
+
+    /** Verifica se um tipo de agente exige execução serial (via requiresBrowser ou maxConcurrent=1) */
+    private isSerialType(agentType: AgentTypeId): boolean {
+        const spec = getAgentSpec(agentType);
+        return spec.requiresBrowser === true || spec.maxConcurrent === 1;
     }
 
     /** Spawna um agente para executar uma subtask */
@@ -92,9 +95,9 @@ export class AgentPool {
             return results;
         }
 
-        // Separa tasks seriais das paralelas
-        const serialTasks = subtasks.filter(t => this.serialTypes.has(t.agentType));
-        const parallelTasks = subtasks.filter(t => !this.serialTypes.has(t.agentType));
+        // Separa tasks seriais das paralelas (baseado no AgentSpec)
+        const serialTasks = subtasks.filter(t => this.isSerialType(t.agentType));
+        const parallelTasks = subtasks.filter(t => !this.isSerialType(t.agentType));
 
         // Executa paralelas com concurrency limit
         const parallelPromises = this.runWithConcurrencyLimit(

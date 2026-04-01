@@ -24,6 +24,8 @@ Prefira browser_click, browser_fill, browser_type (atômicos e rápidos) a pje_a
 Use pje_agir APENAS quando os seletores não são claros ou a tela é desconhecida.
 Use pje_abrir para garantir que o Chrome está no PJe.`,
         configOverrides: { enableCritic: true },
+        maxConcurrent: 1,
+        requiresBrowser: true,
     },
     document: {
         typeId: 'document',
@@ -32,6 +34,7 @@ Use pje_abrir para garantir que o Chrome está no PJe.`,
         systemPromptExtra: `Você é um agente especializado em análise e geração de documentos jurídicos.
 Seu foco é ler, analisar, gerar e salvar documentos.
 Use os_arquivos para ler arquivos do disco e doc_gerar para criar documentos.`,
+        maxConcurrent: 6,
     },
     research: {
         typeId: 'research',
@@ -40,6 +43,7 @@ Use os_arquivos para ler arquivos do disco e doc_gerar para criar documentos.`,
         systemPromptExtra: `Você é um agente especializado em pesquisa jurídica e jurisprudência.
 Seu foco é buscar jurisprudência, consultar legislação e pesquisar na web.
 Use pesquisa_jurisprudencia para buscar decisões e os_fetch para consultar fontes externas.`,
+        maxConcurrent: 4,
     },
     browser: {
         typeId: 'browser',
@@ -51,6 +55,8 @@ Use browser_click, browser_fill, browser_type, browser_press para interações d
 Use browser_navigate para navegar a URLs.
 Use browser_wait para aguardar elementos.
 Use browser_auto_task APENAS quando a página é complexa demais para skills atômicas.`,
+        maxConcurrent: 1,
+        requiresBrowser: true,
     },
     os: {
         typeId: 'os',

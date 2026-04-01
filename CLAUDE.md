@@ -49,13 +49,16 @@ Camada acima do Agent Loop que decompõe objetivos complexos em subtasks paralel
 | Arquivo | Papel |
 |---|---|
 | `planner.ts` | LLM decompõe objetivo em subtasks com dependências. `shouldUsePlanner()` detecta objetivos compostos |
-| `orchestrator.ts` | Coordena execução: cria plano, executa batches topológicos, sintetiza resposta final |
-| `agent-pool.ts` | Spawn/parallel de agentes com concurrency limit. PJe/browser rodam serial (mutex) |
-| `agent-types.ts` | Registry de 6 tipos: `general`, `pje`, `document`, `research`, `browser`, `os` |
+| `orchestrator.ts` | Coordena execução: cria plano, executa batches topológicos, sintetiza resposta final. **Checkpointing automático** a cada batch |
+| `agent-pool.ts` | Spawn/parallel de agentes com concurrency limit. Respeita `maxConcurrent` e `requiresBrowser` do AgentSpec |
+| `agent-types.ts` | Registry de 6 tipos: `general`, `pje`, `document`, `research`, `browser`, `os`. Cada tipo define `maxConcurrent` e `requiresBrowser` |
 | `blackboard.ts` | Shared context — agentes postam resultados via `set()`, outros lêem via `get()` |
+| `checkpoint-store.ts` | Persiste estado de Plans em disco (`~/.lex/checkpoints/`). Permite retomar planos interrompidos. `saveCheckpoint()` a cada batch, `findCheckpointByGoal()` para retomada, `removeCheckpoint()` ao completar |
+| `validator-agent.ts` | Dual-agent validation (padrão MassGen) para ações de alto risco. 2 chamadas LLM independentes confirmam antes de executar. Integrado no `applyCritic()` do loop.ts |
 | `types.ts` | `AgentSpec`, `SubTask`, `Plan`, `OrchestratorEvent`, `AgentTypeId` |
 
 **IPC:** `ai-plan-execute` no preload → handler no main.ts → `Orchestrator.execute()`.
+**Checkpoints IPC:** `checkpointApi` no preload — `listPending`, `resume`, `remove`.
 **Backward compat:** `runAgentLoop` sem `agentSpec` funciona exatamente como antes.
 
 ### Browser Automation (`electron/browser-manager.ts`)
