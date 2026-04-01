@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld('lexApi', {
     privacyRevokeAll: () => ipcRenderer.invoke('privacy-revoke-all'),
     privacyGetEffectiveLevel: (providerId?: string) => ipcRenderer.invoke('privacy-get-effective-level', providerId),
     privacyGetAuditSummary: (days?: number) => ipcRenderer.invoke('privacy-get-audit-summary', days),
+
+    // Training (PJe-Model dataset)
+    trainingStats: () => ipcRenderer.invoke('training-stats'),
+    trainingExport: (options?: { minConfidence?: 'medium' | 'high'; sistema?: string; tribunal?: string; maxExamples?: number }) =>
+        ipcRenderer.invoke('training-export', options),
 });
 
 contextBridge.exposeInMainWorld('authApi', {
@@ -140,6 +145,30 @@ contextBridge.exposeInMainWorld('schedulerApi', {
     offNotificationBadge: () => ipcRenderer.removeAllListeners('notification-badge'),
 });
 
+contextBridge.exposeInMainWorld('datajudApi', {
+    // Profile
+    getProfile: () => ipcRenderer.invoke('datajud-get-profile'),
+    saveProfile: (profile: any) => ipcRenderer.invoke('datajud-save-profile', profile),
+    // API Key
+    setApiKey: (key: string) => ipcRenderer.invoke('datajud-set-api-key', key),
+    hasApiKey: () => ipcRenderer.invoke('datajud-has-api-key'),
+    // Processos monitorados
+    addProcesso: (processo: any) => ipcRenderer.invoke('datajud-add-processo', processo),
+    removeProcesso: (numero: string) => ipcRenderer.invoke('datajud-remove-processo', numero),
+    listProcessos: () => ipcRenderer.invoke('datajud-list-processos'),
+    // Search (COLD)
+    searchProcesso: (numero: string, tribunal?: string) =>
+        ipcRenderer.invoke('datajud-search', { numero, tribunal }),
+    // Sync
+    triggerHotSync: () => ipcRenderer.invoke('datajud-trigger-hot'),
+    triggerWarmSync: () => ipcRenderer.invoke('datajud-trigger-warm'),
+    getSyncState: () => ipcRenderer.invoke('datajud-get-sync-state'),
+    getStats: () => ipcRenderer.invoke('datajud-get-stats'),
+    // Events
+    onSyncEvent: (cb: (event: any) => void) => ipcRenderer.on('datajud-sync-event', (_, e) => cb(e)),
+    offSyncEvent: () => ipcRenderer.removeAllListeners('datajud-sync-event'),
+});
+
 contextBridge.exposeInMainWorld('pluginsApi', {
     list: () => ipcRenderer.invoke('plugins-list'),
     getStatus: (pluginId: string) => ipcRenderer.invoke('plugins-get-status', pluginId),
@@ -148,6 +177,91 @@ contextBridge.exposeInMainWorld('pluginsApi', {
         ipcRenderer.invoke('plugins-start-oauth', { pluginId, apiKey }),
     disconnect: (pluginId: string) => ipcRenderer.invoke('plugins-disconnect', pluginId),
     onReady: (cb: () => void) => ipcRenderer.on('plugins-ready', () => cb()),
+});
+
+contextBridge.exposeInMainWorld('batchApi', {
+    // Lote CRUD
+    listLotes: () => ipcRenderer.invoke('batch-list-lotes'),
+    getLote: (id: string) => ipcRenderer.invoke('batch-get-lote', id),
+    removeLote: (id: string) => ipcRenderer.invoke('batch-remove-lote', id),
+
+    // Pipeline initiation
+    createLote: (input: {
+        rawInput: string; nome: string;
+        tipoPeticao?: string; tese?: string; tribunal?: string;
+        tom?: string; userInstructions?: string;
+    }) => ipcRenderer.invoke('batch-create-lote', input),
+
+    // HITL approvals
+    approveStrategy: (loteId: string) => ipcRenderer.invoke('batch-approve-strategy', loteId),
+    approveWave: (loteId: string, waveIndex: number, redraftIds?: string[]) =>
+        ipcRenderer.invoke('batch-approve-wave', { loteId, waveIndex, redraftIds }),
+    approveProtocol: (loteId: string) => ipcRenderer.invoke('batch-approve-protocol', loteId),
+
+    // Controls
+    pauseLote: (loteId: string) => ipcRenderer.invoke('batch-pause', loteId),
+    resumeLote: (loteId: string) => ipcRenderer.invoke('batch-resume', loteId),
+    cancelLote: (loteId: string) => ipcRenderer.invoke('batch-cancel', loteId),
+
+    // Petição editor
+    readPeticao: (filePath: string) => ipcRenderer.invoke('batch-read-peticao', filePath),
+    savePeticao: (filePath: string, content: string) =>
+        ipcRenderer.invoke('batch-save-peticao', { filePath, content }),
+    openFolder: (folderPath: string) => ipcRenderer.invoke('batch-open-folder', folderPath),
+
+    // Export
+    exportDocx: (filePath: string) => ipcRenderer.invoke('batch-export-docx', filePath),
+    exportPdf: (filePath: string) => ipcRenderer.invoke('batch-export-pdf', filePath),
+
+    // Events
+    onBatchEvent: (cb: (event: any) => void) => ipcRenderer.on('batch-event', (_, e) => cb(e)),
+    offBatchEvent: () => ipcRenderer.removeAllListeners('batch-event'),
+});
+
+contextBridge.exposeInMainWorld('docKnowledgeApi', {
+    // Schemas
+    listSchemas: () => ipcRenderer.invoke('doc-kb-list-schemas'),
+    getSchema: (id: string) => ipcRenderer.invoke('doc-kb-get-schema', id),
+    searchSchemas: (query: string) => ipcRenderer.invoke('doc-kb-search-schemas', query),
+    getCategories: () => ipcRenderer.invoke('doc-kb-get-categories'),
+    getSchemasByCategory: (cat: string) => ipcRenderer.invoke('doc-kb-schemas-by-category', cat),
+
+    // Examples
+    getExamples: (schemaId: string, limit?: number) =>
+        ipcRenderer.invoke('doc-kb-get-examples', { schemaId, limit }),
+    searchExamples: (query: string, limit?: number) =>
+        ipcRenderer.invoke('doc-kb-search-examples', { query, limit }),
+    getStats: () => ipcRenderer.invoke('doc-kb-get-stats'),
+
+    // Import
+    importFolder: (folderPath: string) => ipcRenderer.invoke('doc-kb-import-folder', folderPath),
+    importFile: (filePath: string) => ipcRenderer.invoke('doc-kb-import-file', filePath),
+    selectAndImport: () => ipcRenderer.invoke('doc-kb-select-and-import'),
+
+    // Events
+    onImportProgress: (cb: (data: any) => void) => ipcRenderer.on('doc-kb-import-progress', (_, d) => cb(d)),
+    offImportProgress: () => ipcRenderer.removeAllListeners('doc-kb-import-progress'),
+});
+
+contextBridge.exposeInMainWorld('terminalApi', {
+    create: (sessionId: string, opts?: { shell?: string; cwd?: string; cols?: number; rows?: number }) =>
+        ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
+    write: (sessionId: string, data: string) =>
+        ipcRenderer.invoke('terminal-write', { sessionId, data }),
+    resize: (sessionId: string, cols: number, rows: number) =>
+        ipcRenderer.invoke('terminal-resize', { sessionId, cols, rows }),
+    kill: (sessionId: string) =>
+        ipcRenderer.invoke('terminal-kill', sessionId),
+    listSessions: () =>
+        ipcRenderer.invoke('terminal-list-sessions'),
+    onData: (cb: (payload: { sessionId: string; data: string }) => void) =>
+        ipcRenderer.on('terminal-data', (_, d) => cb(d)),
+    onExit: (cb: (payload: { sessionId: string; exitCode: number }) => void) =>
+        ipcRenderer.on('terminal-exit', (_, d) => cb(d)),
+    offEvents: () => {
+        ipcRenderer.removeAllListeners('terminal-data');
+        ipcRenderer.removeAllListeners('terminal-exit');
+    },
 });
 
 contextBridge.exposeInMainWorld('updaterApi', {

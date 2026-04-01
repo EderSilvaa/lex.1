@@ -122,12 +122,12 @@ async function handleRPC(method: string, params: any): Promise<any> {
             const agent = await ensureAgent();
             await setupEventForwarding();
             const { objetivo, config, tenantConfig, sessionId } = params;
-            return agent.runAgentLoop(
+            return agent.runAgentLoop({
                 objetivo,
-                config ?? {},
-                tenantConfig ?? agent.getDefaultTenantConfig(),
-                sessionId
-            );
+                config: config ?? {},
+                tenantConfig: tenantConfig ?? agent.getDefaultTenantConfig(),
+                sessionId,
+            });
         }
 
         case 'agent-cancel': {

@@ -1,0 +1,91 @@
+﻿EXMO(A). SR(A). JUIZ(A) DA _____ VARA DO TRABALHO DE (CIDADE/UF)
+ 
+
+
+Processo nº: XXXXXXXXXXXXX 
+ 
+
+
+(NOME), devidamente qualificada na reclamatória trabalhista movida por (NOME), inconformada com a r. decisão retro, vem, respeitosamente, com amparo na alínea “a” do art. 897 da CLT interpor AGRAVO DE PETIÇÃO para o Egrégio Tribunal Regional do Trabalho da 3ª Região, a fim de que seja reformado o entendimento de primeira instância.
+As Agravantes esperam que V.Exa. receba o presente recurso, que segue acompanhado de suas razões, e lhe determine a remessa à Eg. Tribunal Regional do Trabalho da 3ª Região, observadas as formalidades de estilo.
+
+
+Pede deferimento.
+
+
+(Cidade/Estado), (XX) de (mês) de 20(XX).
+
+
+
+
+
+
+________________________________________________________
+(NOME) 
+OAB/XX (XXXX)
+________________
+
+
+
+
+EGRÉGIO TRIBUNAL REGIONAL DO TRABALHO DA XXX REGIÃO
+ 
+ 
+Agravante: NOME 
+Agravado: NOME
+Processo: XXXXXXXXXXXXXXXX
+ 
+Colenda Turma,
+ Eméritos Julgadores,
+ 
+II- DO MÉRITO
+A agravante não se conforma com a decisão que mantém a execução em face desta justiça especializada, por nítido conflito de competência.
+ Vejamos. 
+Manter a execução nesta Justiça Especializada, conforme entendimento do magistrado a quo, viola o princípio do devido processo legal (artigo 5, LIV da CF/88), o que não pode ser admitido.
+Ademais, nos termos do artigo 1º do Provimento da Corregedoria geral da Justiça do Trabalho (CGJT nº 01/2012), cabe a esta Especializada apenas orientar os credores a providenciarem a habilitação de seus créditos perante o Administrador Judicial. A competência para prosseguimento da execução, considerando que esta executada esta em Recuperação Judicial, após a apuração do crédito na ação trabalhista, é do Juízo da Recuperação. Neste sentido seguem decisões:
+ 
+0010111-79.2014.5.03.0087 (AP) (PJe - assinado em 03/02/2017)Disponibilização:  10/02/2017. 
+Órgão Julgador: Segunda Turma
+Relator: Jales Valadao Cardoso
+RECUPERAÇÃO JUDICIAL - CRÉDITOS TRIBUTÁRIOS - HABILITAÇÃO NO PROCESSO. Nos termos do artigo 1º do Provimento da Corregedoria-Geral da Justiça do Trabalho (CGJT nº 01/2012, DeJT de 04.05.2012), "No caso de execução de crédito trabalhista em que se tenha dado a decretação da falência do executado ou este se encontre em recuperação judicial, caberá aos MM Juízos das Varas do Trabalho orientar os respectivos credores para que providenciem a habilitação dos seus créditos perante o Administrador Judicial da Empresa Falida ou em Recuperação Judicial, expedindo para tanto Certidão de Habilitação de Crédito". Neste processo está sendo promovida a execução dos créditos trabalhista e da contribuição previdenciária. Assim, como o crédito principal deve ser habilitado no processo de recuperação judicial, o crédito previdenciário e tributário derivado deverá seguir o mesmo procedimento, sob pena de causar prejuízos ao erário.
+(TRT da 3.ª Região; PJe: 0010111-79.2014.5.03.0087 (AP); Disponibilização: 10/02/2017; Órgão Julgador: Segunda Turma; Relator: Jales Valadao Cardoso)
+ 
+ Até mesmo o STF já decidiu nesse mesmo sentido, ressaltando que se trata de decisão com repercussão geral. Veja-se:
+ 
+EMENTA: CONFLITO NEGATIVO DE COMPETÊNCIA. EXECUÇÃO DE CRÉDITOS TRABALHISTAS EM PROCESSOS DE RECUPERAÇÃO JUDICIAL. COMPETÊNCIA DA JUSTIÇA ESTADUAL COMUM, COM EXCLUSÃO DA JUSTIÇA DO TRABALHO. INTERPRETAÇÃO DO DISPOSTO NA LEI 11.101/05, EM FACE DO ART. 114 DA CF. RECURSO EXTRAORDINÁRIO CONHECIDO E IMPROVIDO.
+I - A questão central debatida no presente recurso consiste em saber qual o juízo competente para processar e julgar a execução dos créditos trabalhistas no caso de empresa em fase de recuperação judicial.
+II - Na vigência do Decreto-lei 7.661/1945 consolidou-se o entendimento de que a competência para executar os créditos ora discutidos é da Justiça Estadual Comum, sendo essa também a regra adotada pela Lei 11.101/05.
+III - O inc. IX do art. 114 da Constituição Federal apenas outorgou ao legislador ordinário a faculdade de submeter à competência da Justiça Laboral outras controvérsias, além daquelas taxativamente estabelecidas nos incisos anteriores, desde que decorrentes da relação de trabalho.
+IV - O texto constitucional não o obrigou a fazê-lo, deixando ao seu alvedrio a avaliação das hipóteses em que se afigure conveniente o julgamento pela Justiça do Trabalho, à luz das peculiaridades das situações que pretende regrar.
+V - A opção do legislador infraconstitucional foi manter o regime anterior de execução dos créditos trabalhistas pelo juízo universal da falência, sem prejuízo da competência da Justiça Laboral quanto ao julgamento do processo de conhecimento.
+VI - Recurso extraordinário conhecido e improvido.
+(RE 583955, Relator(a):  Min. RICARDO LEWANDOWSKI, Tribunal Pleno, julgado em 28/05/2009, REPERCUSSÃO GERAL - MÉRITO DJe-162 DIVULG 27-08-2009 PUBLIC 28-08-2009 EMENT VOL-02371-09 PP-01716 RTJ VOL-00212-01 PP-00570) 
+E também o Tribunal Superior do Trabalho já consolidou a Jurisprudência nesse sentido:
+ 
+Ementa:  AGRAVO DE INSTRUMENTO EM RECURSO DE REVISTA - RECURSO INTERPOSTO SOB A VIGÊNCIA DA LEI N° 13.015/2014, DO CPC/2015 E DA INSTRUÇÃO NORMATIVA Nº 40/2015 - EXECUÇÃO FISCAL - ATENDIMENTO DOS REQUISITOS PREVISTOS NO ART. 896, § 1°-A, DA CLT. O recurso de revista preencheu todos os requisitos previstos no art. 896, § 1º-A, da CLT para o conhecimento do apelo, de modo que, superado o óbice apontado na decisão agravada, passa-se ao exame dos demais pressupostos do apelo.
+EXECUÇÃO FISCAL - EMPRESA EM RECUPERAÇÃO JUDICIAL - COMPETÊNCIA DO JUÍZO FALIMENTAR. Conclui-se, pela interpretação sistêmica do art. 114 da Constituição da República e dos arts. 6º, 76 e 83 da Lei nº 11.101/2005, que a Justiça do Trabalho é incompetente para proceder a execução dos créditos oriundos de suas decisões proferidas contra empresa em recuperação judicial, cabendo tal prerrogativa ao juízo falimentar. A competência da Justiça do Trabalho, em casos tais, exaure-se com a quantificação do crédito, que em seguida deverá ser habilitado no quadro geral de credores do Juízo Universal Falimentar. Referido entendimento aplica-se igualmente à execução das dívidas fiscais da empresa em recuperação judicial. Precedentes. Agravo de instrumento desprovido.
+Processo: AIRR - 20111-64.2014.5.04.0523 Data de Julgamento: 03/05/2017, Relator Ministro: Luiz Philippe Vieira de Mello Filho, 7ª Turma, Data de Publicação: DEJT 05/05/2017.
+ 
+ 
+Portanto, nenhum ato executório poderá ser realizado pela Justiça do Trabalho após apuração do valor líquido devido, cabendo apenas ao Juízo Falimentar a decisão sobre tais atos.
+
+
+Insta salientar que o reclamante, diante do crédito constituído, receberá o que lhe for de direito em paridade de igualdade com todos os demais credores da reclamada, salientando que seu eventual crédito é preferencial ante sua natureza trabalhista.
+ Tem-se ainda que o reclamante não pode obter vantagem indevida em relação aos demais credores, já que todos os bens constritos devem retomar ao patrimônio da reclamada para viabilizar o cumprimento do plano de recuperação judicial. 
+II. CONCLUSÃO 
+É oportuno argumentar ainda, que toda execução deve ser econômica ou menos prejudicial possível ao devedor, principalmente quando a condenação não encontrar respaldo legal. É o que extrai do artigo 620 do CPC, o que incorreu no processo em questão, já que há uma exacerbação dos valores apurados, não se fazendo a costumeira justiça.
+ 
+Termos em que,
+Pede deferimento.
+
+
+(Cidade/Estado), (XX) de (mês) de 20(XX).
+
+
+
+
+
+
+________________________________________________________
+(NOME) 
+OAB/XX (XXXX)

@@ -946,6 +946,7 @@ const views = {
     'nav-chat': document.querySelector('.chat-wrapper'),
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null,
+    'nav-lotes': document.querySelector('.lotes-wrapper'),
     'nav-settings': document.querySelector('.settings-wrapper')
 };
 
@@ -970,6 +971,12 @@ navItems.forEach(item => {
             initPluginsUI();
             loadProfileCard();
         }
+
+        // Init lotes view
+        if (viewId === 'nav-lotes') {
+            if (typeof initLotesView === 'function') initLotesView();
+        }
+
     });
 });
 

@@ -10,6 +10,7 @@ import { osEscrever } from './escrever';
 import { osSistema } from './sistema';
 import { osClipboard } from './clipboard';
 import { osFetch } from './fetch';
+import { osTerminal } from './terminal';
 import { registerSkill } from '../../agent/executor';
 
 export { osListar } from './listar';
@@ -18,6 +19,7 @@ export { osEscrever } from './escrever';
 export { osSistema } from './sistema';
 export { osClipboard } from './clipboard';
 export { osFetch } from './fetch';
+export { osTerminal } from './terminal';
 
 /**
  * Registra todas as skills de OS no Agent Loop
@@ -31,6 +33,7 @@ export function registerOsSkills(): void {
     registerSkill(osSistema);
     registerSkill(osClipboard);
     registerSkill(osFetch);
+    registerSkill(osTerminal);
 
-    console.log('[Skills:OS] Skills registradas: os_listar, os_arquivos, os_escrever, os_sistema, os_clipboard, os_fetch');
+    console.log('[Skills:OS] Skills registradas: os_listar, os_arquivos, os_escrever, os_sistema, os_clipboard, os_fetch, terminal_executar');
 }

@@ -5,7 +5,8 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getActivePage, ensureBrowser, runBrowserTask } from '../../browser-manager';
+import { getActivePage, ensureBrowser } from '../../browser-manager';
+import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveTribunalRoutes, resolveDestinationUrl } from '../../pje/tribunal-urls';
 import { lookupRoute, saveRoute } from '../../pje/route-memory';
 
@@ -86,7 +87,8 @@ Navegue até "${destino}" o mais diretamente possível.
 Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto sem explorar desnecessariamente.`;
 
         try {
-            const resultado = await runBrowserTask(instrucao, 8);
+            const res = await runBrowserUseTask({ task: instrucao, maxSteps: 8 });
+            const resultado = res.result;
             // Salva a URL onde o agent chegou — aprende para a próxima vez
             try {
                 const finalUrl: string = getActivePage()?.url() ?? '';

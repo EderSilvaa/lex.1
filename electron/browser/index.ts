@@ -18,3 +18,10 @@ export type { ResolvedSelector } from './resolve-selector';
 
 export { detectCaptcha, solveCaptchaWithVision, screenshotCaptchaImage, htmlHasCaptcha } from './captcha';
 export type { CaptchaDetection, CaptchaSolveResult } from './captcha';
+
+export { acquireForExternal, releaseFromExternal, withExternalLock } from './browser-lock';
+
+export { ensureBrowserUseInstalled, isBrowserUseAvailable } from './browser-use-setup';
+
+export { runBrowserUseTask } from './browser-use-executor';
+export type { BrowserUseOptions, BrowserUseResult, BrowserUseStep } from './browser-use-executor';

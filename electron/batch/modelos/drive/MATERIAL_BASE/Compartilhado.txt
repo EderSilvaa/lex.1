@@ -1,0 +1,18 @@
+﻿4. DIREITO TRIBUTÁRIO.
+4.1. Conceito
+De acordo com a doutrina, Direito tributário é um ramo conjunto de normas jurídicas do ramo do direito público que tem o propósito de disciplinar a relação de cobrança de tributos do Estado às pessoas naturais e pessoas jurídicas.
+4.2. Tributo
+A palavra tributo é de origem latina “tribuere”, que significa pagar, contribuir, de acordo com o art. 3⁰ da Lei 5.172/1966 CTN, em que fornece um conceito de tributo;
+Art. 3º Tributo é toda prestação pecuniária compulsória, em moeda ou cujo valor nela se possa exprimir, que não constitua sanção de ato ilícito, instituída em lei e cobrada mediante atividade administrativa plenamente vinculada.
+Conforme podemos entender a interpretação feita ao art. 3⁰, da Lei 5.172/1966 é que o tributo possui seis elementos para sua existência, a primeira é a prestação pecuniária, o segundo é que essa prestação seja compulsória, a terceira diz respeito a sua característica, ou seja, essa prestação pecuniária e compulsória deve ser realizada em moeda ou cujo valor possa exprimir, o quarto elemento é que aquilo ao qual este tributando não deve ser ilícito, o quinto diz respeito que tudo isso só é possível por meio da Lei, e o sexto e ultimo elemento trata da condição para a existência de todo os outros elementos que isso deve ser feito por mediante a atividade parlamentar vinculada.
+Para uma cobrança ser constituída como tributo deve necessariamente possuir os seis elementos, esse entendimento da doutrina majoritária exposto no texto da Lei, sendo assim todo arrecadação Estatal que tem esses seis elementos é intitulado imposto.
+4.2.1. Classificação dos tributos.
+4.2.1.1. Competêncial
+A Constituição Federal em seu art. 145, diz que são competentes para a União, os Estados, o distrito federal e os municípios, sendo que esta competência atribuída a esses órgãos são limitada no âmbito territorial e material.
+Os art. 153 e 154 tratam a respeito da competência da União, juntamente com os art. 149 também dispõe das contribuições especiais como privativa da União. O art. 155, fala das competências dos Estados e do distrito federal. Os art. 156 tratam da competência dos municípios.
+4.2.1.2. Espécie tributária
+Os tributos se classificam em cinco espécies, no entanto é importante destacar que no art. 5⁰ da Lei 5.172/1966, assim como no art. 145 da Constituição da Republica Federativa do Brasil, prevê apenas três espécies de tributo: imposto, taxa e contribuição de melhorias.
+Entretanto a doutrina majoritária e o supremo tribunal federal interpretam que a constituição atribui às contribuições e os empréstimos compulsórios os elementos de tributos e assim devem ser classificado como tributos.
+5. SISTEMA DE ARRECADAÇÃO DO IMPOSTO DE RENDA.
+Como já tratado anteriormente a respeito do direito tributário e dos tributos, compreendemos que são competentes para legislar em relação ao imposto a União, os Estados, o Distrito Federal e os Municípios, no entanto eles são limitados no âmbitos territorial e material.
+De acordo com o art. 16, da Lei 5.172/1966, o imposto é um tributo, que é cobrada como fator gerador a riqueza, e conforme o art. 16 destaca que não é cobrado em conseqüência de em atividade ou prestação de serviço estatal especifico, pois cobrança é em observância a riqueza, com especifica a constituição é de competência da União os seguintes imposto: Os impostos federais são regidos ao Ordenamento Jurídico pelos arts. 153 e 154 da Constituição Federal. São eles: Imposto de Importação, Imposto de Exportação, Impostos sobre Grandes Fortunas, IPI, Imposto de Renda, Impostos Residuais da União, OF, IEG (Imposto Extraordinário de Guerra), ITR (Imposto sobre Propriedade Territorial Rural).

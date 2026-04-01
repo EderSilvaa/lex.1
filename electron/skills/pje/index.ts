@@ -13,6 +13,7 @@ import { pjeNavegar } from './navegar';
 import { pjePreencher } from './preencher';
 import { pjeVerificarToken } from './token-check';
 import { pedirCodigoTotp } from './pedir-codigo';
+import { pjeBulkColetar } from './bulk-coletar';
 import { registerSkill } from '../../agent/executor';
 
 export { pjeAbrir } from './abrir';
@@ -24,6 +25,7 @@ export { pjeNavegar } from './navegar';
 export { pjePreencher } from './preencher';
 export { pjeVerificarToken } from './token-check';
 export { pedirCodigoTotp } from './pedir-codigo';
+export { pjeBulkColetar } from './bulk-coletar';
 
 /**
  * Registra todas as skills do PJe no Agent Loop
@@ -40,6 +42,7 @@ export function registerPJeSkills(): void {
     registerSkill(pjePreencher);
     registerSkill(pjeVerificarToken);
     registerSkill(pedirCodigoTotp);
+    registerSkill(pjeBulkColetar);
 
-    console.log('[Skills:PJe] Skills registradas: pje_abrir, pje_agir, pje_consultar, pje_movimentacoes, pje_documentos, pje_navegar, pje_preencher, pje_verificar_token, pedir_codigo_totp');
+    console.log('[Skills:PJe] Skills registradas: pje_abrir, pje_agir, pje_consultar, pje_movimentacoes, pje_documentos, pje_navegar, pje_preencher, pje_verificar_token, pedir_codigo_totp, pje_bulk_coletar');
 }

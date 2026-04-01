@@ -53,14 +53,13 @@ export class AgentPool {
             ? `${subtask.description}\n\n## Contexto de subtasks anteriores:\n${bbContext}`
             : subtask.description;
 
-        const promise = runAgentLoop(
+        const promise = runAgentLoop({
             objetivo,
-            { maxIterations: 10, timeoutMs: 120000 },
-            undefined,
+            config: { maxIterations: 10, timeoutMs: 120000 },
             sessionId,
-            spec,
-            agentAbort.signal
-        );
+            agentSpec: spec,
+            parentAbort: agentAbort.signal,
+        });
 
         this.running.set(subtask.id, { subtaskId: subtask.id, promise, spec, abort: agentAbort });
 

@@ -7,12 +7,12 @@
 
 import { AgentState, AgentStep, ThinkDecision, AgentConfig, AgentSpec } from './types';
 import { getSkillsForPrompt } from './executor';
-import { buildPromptLayerSystem } from './prompt-layer';
-import { mask, maskPatterns } from '../privacy/pii-vault';
+import { buildPromptLayerSystem, getDefaultTenantConfig } from './prompt-layer';
+import { getContextBudget } from './context-budget';
+import { mask } from '../privacy/pii-vault';
 import { logLLMCall } from '../privacy/audit-log';
 import { getEffectiveLevel } from '../privacy/consent-manager';
 import { getVaultStats } from '../privacy/pii-vault';
-import type { PIIVault } from '../privacy/pii-vault';
 
 /**
  * Decide próximo passo baseado no estado atual.
@@ -50,69 +50,141 @@ export async function think(
     return parseThinkResponse(response);
 }
 
+// ============================================================================
+// SYSTEM PROMPT CACHE (per-run)
+// ============================================================================
+
 /**
- * Monta o system prompt completo
+ * Cache de seções estáticas do system prompt, indexado por runId.
+ * Seções que não mudam entre iterações são calculadas uma vez e reusadas,
+ * economizando ~40-60% do processamento de prompt por iteração.
+ */
+interface PromptCache {
+    /** Seções 100% estáticas: prompt-layer, agentSpec extra, response format */
+    staticPrefix: string;
+    /** Response format (estático, fica no final) */
+    responseFormat: string;
+    /** Flag: objetivo é análise (para controlar skipGreeting/forceCompact) */
+    isAnalysis: boolean;
+    /** Behavior "full" (estabiliza na iter 1+) */
+    behaviorFull?: string;
+    /** Skills "full" (estabiliza na iter 2+) */
+    skillsFull?: string;
+    /** Allowed skill categories do agentSpec */
+    allowedCategories?: Array<string> | undefined;
+}
+const promptCache = new Map<string, PromptCache>();
+
+/** Limpa cache de um run encerrado */
+export function clearPromptCache(runId: string): void {
+    promptCache.delete(runId);
+}
+
+/** Calcula e armazena o cache de seções estáticas para um run */
+function initPromptCache(runId: string, state: AgentState, agentSpec?: AgentSpec): PromptCache {
+    const staticSections: string[] = [];
+
+    // 1. Prompt-Layer (personalidade do tenant — fixo por run)
+    const tenantConfig = state.contexto.tenantConfig || getDefaultTenantConfig();
+    const isAnalysis = detectAnalysisIntent(state.objetivo);
+    staticSections.push(buildPromptLayerSystem(tenantConfig, { skipGreeting: isAnalysis }));
+
+    // 1.5. Prompt extra do AgentSpec (fixo por run)
+    if (agentSpec?.systemPromptExtra) {
+        staticSections.push(agentSpec.systemPromptExtra);
+    }
+
+    const cache: PromptCache = {
+        staticPrefix: staticSections.join('\n\n---\n\n'),
+        responseFormat: getResponseFormat(),
+        isAnalysis,
+        allowedCategories: agentSpec?.allowedSkillCategories,
+    };
+    promptCache.set(runId, cache);
+    return cache;
+}
+
+/**
+ * Monta o system prompt completo.
+ * Seções estáticas são cacheadas por run (state.id).
  */
 function buildSystemPrompt(state: AgentState, agentSpec?: AgentSpec): string {
-    const parts: string[] = [];
+    const cache = promptCache.get(state.id) ?? initPromptCache(state.id, state, agentSpec);
 
-    // 1. Prompt-Layer (personalidade do tenant)
-    if (state.contexto.tenantConfig) {
-        parts.push(buildPromptLayerSystem(state.contexto.tenantConfig));
+    const parts: string[] = [cache.staticPrefix];
+
+    // 2. Behavior: compacto na iter 0, full a partir da iter 1 (cacheado)
+    const needsFull = state.iteracao > 0 || state.passos.some(p => p.tipo === 'act');
+    if (needsFull) {
+        if (!cache.behaviorFull) {
+            cache.behaviorFull = getAgentBehavior(true);
+        }
+        parts.push(cache.behaviorFull);
     } else {
-        parts.push(getDefaultPersonality());
+        parts.push(getAgentBehavior(false));
     }
 
-    // 1.5. Prompt extra do AgentSpec (especialização AIOS)
-    if (agentSpec?.systemPromptExtra) {
-        parts.push(agentSpec.systemPromptExtra);
+    // 3. Skills: compacto na iter 0 para análise, full a partir da iter 1 (cacheado)
+    const forceCompact = cache.isAnalysis && state.iteracao === 0;
+    if (!forceCompact && state.iteracao > 1) {
+        if (!cache.skillsFull) {
+            cache.skillsFull = getSkillsForPrompt(state.iteracao, cache.allowedCategories, false);
+        }
+        parts.push(cache.skillsFull);
+    } else {
+        parts.push(getSkillsForPrompt(state.iteracao, cache.allowedCategories, forceCompact));
     }
 
-    // 2. Comportamento do agente
-    parts.push(getAgentBehavior());
-
-    // 3. Skills disponíveis (filtradas por categoria se agentSpec definido)
-    const allowedCategories = agentSpec?.allowedSkillCategories;
-    parts.push(getSkillsForPrompt(state.iteracao, allowedCategories));
-
-    // 4. Contexto atual
+    // 4. Contexto atual (SEMPRE dinâmico — muda a cada iteração)
     parts.push(buildContextSection(state));
 
-    // 5. Formato de resposta
-    parts.push(getResponseFormat());
+    // 5. Response format (estático, cacheado)
+    parts.push(cache.responseFormat);
 
     return parts.join('\n\n---\n\n');
 }
 
 /**
- * Personalidade padrão (quando não tem tenant config)
+ * Comportamento do agente no loop.
+ * Compacto na 1ª iteração (prioriza análise), completo após skills.
  */
-function getDefaultPersonality(): string {
-    return `# Lex - Assistente Jurídica
-
-Você é **Lex**, uma assistente jurídica inteligente especializada no sistema judicial brasileiro, especialmente no PJe (Processo Judicial Eletrônico).
-
-## Sua Identidade
-- Profissional, precisa e proativa
-- Especialista em direito brasileiro
-- Foco em produtividade do advogado
-
-## Princípios
-- NUNCA invente informações - se não sabe, diga
-- Seja concisa - advogados são ocupados
-- Antecipe problemas e prazos
-- O advogado tem a decisão final
-
-## Regras Anti-Alucinação
-- Quando usar informações dos "Documentos do Escritório (RAG)", cite a fonte: [doc: nome_do_arquivo]
-- NUNCA invente conteúdo de documentos. Se não encontrou nos documentos, diga explicitamente
-- Jurisprudência e artigos de lei só devem ser citados se você tiver certeza. Em caso de dúvida, use os_fetch para buscar na fonte oficial`;
+function getAgentBehavior(fullBehavior: boolean): string {
+    return fullBehavior ? getAgentBehaviorFull() : getAgentBehaviorCompact();
 }
 
 /**
- * Comportamento do agente no loop
+ * Versão compacta: regras essenciais + quando usar skill/resposta/pergunta.
+ * Usada na 1ª iteração — prioriza qualidade de análise sobre detalhes de skills.
  */
-function getAgentBehavior(): string {
+function getAgentBehaviorCompact(): string {
+    return `# Comportamento do Agente
+
+Você opera em um loop de **Think → Act → Observe** até completar o objetivo.
+
+## Decisão a cada iteração:
+- **resposta**: você já sabe responder → resposta final completa e profunda
+- **skill**: precisa executar uma ferramenta (PJe, browser, documento, pesquisa, OS)
+- **pergunta**: objetivo ambíguo, precisa de clarificação
+
+## Regras de decisão
+- Se o objetivo é uma **pergunta jurídica, análise de caso ou consulta conceitual** → tipo=resposta com análise profunda
+- Se o objetivo pede **ação** no PJe, browser ou sistema → tipo=skill
+- Para executar comandos do terminal (python, pip, git, npm) → skill terminal_executar
+- Se ambíguo ("pastas", "arquivos", "documentos" sem contexto PJe/PC) → tipo=pergunta
+- NUNCA responda com instruções textuais quando há skill que executa a ação
+- Para comandos PJe (abrir, consultar, navegar), use skills pje_* ou browser_*
+
+## Alerta de Prazo
+Quando observar resultado de pje_consultar com 'ultima_movimentacao':
+- >30 dias sem movimentação: alerte ⚠️
+- Processo recente (<15 dias) sem movimentação: alerte sobre prazo de resposta`;
+}
+
+/**
+ * Versão completa: inclui estratégias detalhadas de browser/PJe/OS.
+ * Usada a partir da 2ª iteração ou quando skills já foram executadas.
+ */
+function getAgentBehaviorFull(): string {
     return `# Comportamento do Agente
 
 Você opera em um loop de **Think → Critic → Act → Observe** até completar o objetivo.
@@ -134,9 +206,8 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 - Combine múltiplas skills quando necessário
 - Se o usuario der comando operacional no PJe (ex: "vai", "abra", "entre", "clique", "navegue"), prefira tipo=skill.
 - Para navegar, clicar ou preencher campos no browser, prefira skills atomicas (browser_click, browser_fill, browser_type, browser_press). Use browser_get_state primeiro para ver seletores.
-- Se o usuario pedir "ir para", "abrir aba", "menu", "peticionamento", "novo processo", "preencher campo" ou comandos equivalentes, use as skills atomicas de browser ou pje_navegar.
 - NUNCA responda apenas com instrucoes textuais quando ha uma skill que executa a acao.
-- EXCECAO CRITICA - TERMOS AMBIGUOS: As palavras "pastas", "arquivos", "documentos" podem referir-se ao PC Windows OU ao PJe. Se o usuario nao mencionar explicitamente PJe, tribunal, processo ou numero de processo, use tipo=pergunta ANTES de qualquer skill. Exemplo: "pode acessar minhas pastas?" -> tipo=pergunta perguntando se e PC ou PJe.
+- EXCECAO CRITICA - TERMOS AMBIGUOS: As palavras "pastas", "arquivos", "documentos" podem referir-se ao PC Windows OU ao PJe. Se o usuario nao mencionar explicitamente PJe, tribunal, processo ou numero de processo, use tipo=pergunta ANTES de qualquer skill.
 
 ### Quando Responder
 - Quando tiver informação suficiente para atender o objetivo
@@ -146,161 +217,73 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 ### Quando Perguntar
 - Quando o objetivo for ambíguo
 - Quando precisar de confirmação antes de ação importante
-- Quando houver múltiplas opções válidas
 
-## Estratégias Comuns
+## Estratégias de Skills
 
-### Apenas abrir/login no PJe
-1. Use \`pje_abrir\`
-2. Oriente o usuário a autenticar com certificado digital
-3. Aguarde o próximo comando do usuário
+### PJe
+- \`pje_abrir\`: abre PJe + orienta login com certificado
+- \`pje_consultar\`: consulta processo por número → analise dados → use pje_movimentacoes/pje_documentos se preciso
+- \`pje_navegar\`: navegar menus do PJe
+- \`pje_preencher\`: preencher campos no PJe
 
-### Consultar Processo
-1. Use \`pje_consultar\` com o numero do processo
-2. Analise os dados retornados
-3. Para movimentacoes ou documentos, use \`pje_movimentacoes\` ou \`pje_documentos\`
-4. OU manualmente: browser_get_state → browser_fill { ref: 0, valor: "numero" } → browser_click { ref: 1 }
+### Browser (preferir skills atômicas)
+1. \`browser_get_state\` → ver refs numerados na página
+2. \`browser_click { ref: N }\` / \`browser_fill { ref: N, valor: "texto" }\`
+3. \`browser_type\`: digitação tecla a tecla (autocomplete)
+4. \`browser_navigate\`: ir a URL
+5. \`browser_wait\`: aguardar elemento
+6. \`browser_auto_task\` / \`pje_agir\`: APENAS se atômicas falharem (LENTO, usa Vision)
+- **Referência**: ref (número) > elemento (texto visível) > seletor (CSS)
+- Se PJe abriu aba nova: \`browser_list_tabs\` + \`browser_switch_tab\`
 
-### Navegar/Clicar/Preencher no browser
-1. PRIMEIRO use \`browser_get_state\` para ver os elementos numerados na pagina
-2. Use o numero \`ref\` para apontar o elemento. Ex: browser_click { ref: 1 }
-3. Ou use \`elemento\` com texto visivel. Ex: browser_click { elemento: "Pesquisar" }
-4. Ou use \`seletor\` CSS direto se precisar de precisao maxima
-5. Para preencher campo: browser_fill { ref: 0, valor: "texto" }
-6. Para digitar tecla a tecla (autocomplete): browser_type { ref: 0, texto: "texto" }
-7. Use \`browser_navigate\` para ir a uma URL especifica
-8. Use \`browser_wait\` { tipo: "seletor" } para aguardar elemento aparecer
-9. Use \`browser_auto_task\` ou \`pje_agir\` APENAS se nenhuma skill atomica funcionar
-10. Inclua sempre o parametro tribunal em skills pje_* se o usuario mencionou
+### Terminal e Comandos do Sistema
+- \`terminal_executar\`: executar comandos shell com saída em tempo real (python, pip, git, npm, etc). Preferir sobre os_sistema para execução de comandos.
+- \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas, listar/encerrar processos
 
-### Ver movimentacoes ou documentos
-1. Use \`pje_movimentacoes\` ou \`pje_documentos\` apos o processo estar aberto na tela
-
-### Criar Documento
-1. Certifique-se de ter os dados do processo
-2. Identifique o tipo de documento
-3. Use \`doc_gerar\` com contexto completo
-
-### Pesquisar Jurisprudência
-1. Identifique os termos relevantes
-2. Use \`pesquisa_jurisprudencia\`
-3. Sintetize os resultados
-
-### Ler arquivo do computador (txt, PDF, DOCX, XLSX)
-1. Use \`os_arquivos\` com operacao="ler" e o caminho do arquivo
-2. PDFs, Word e planilhas Excel sao convertidos para texto automaticamente
-
-### Buscar texto dentro de arquivos (grep)
-1. Use \`os_arquivos\` com operacao="grep", caminho da pasta, padrao=texto a buscar
-2. Filtre por extensoes se necessario: ".pdf,.docx"
-
-### Copiar texto para o usuario colar
-1. Gere o texto necessario
-2. Use \`os_clipboard\` com operacao="escrever" para colocar no clipboard
-3. Informe o usuario que pode colar com Ctrl+V
-
-### Buscar pagina web / portal publico
-1. Use \`os_fetch\` com a URL completa
-2. Para portais que exigem login, use skills de browser (browser_navigate + browser_fill + browser_click)
-
-### Ver processos ou fechar programa
-1. \`os_sistema\` operacao="processos" para listar o que esta aberto
-2. \`os_sistema\` operacao="encerrar" com nome/PID (pede confirmacao automaticamente)
-
-### Browser Tools — Controle do navegador
-
-**Observar (read-only):**
-- \`browser_get_state\`: ver URL, titulo e elementos DOM interativos — USAR ANTES de clicar/preencher
-- \`browser_get_html\`: extrair texto/HTML da pagina (rapido, sem Vision)
-- \`browser_screenshot\`: capturar screenshot para analise visual
-- \`browser_extract\`: extrair tabela, lista ou texto estruturado
-- \`browser_scroll\`: descer/subir a pagina — essencial para tabelas longas
-- \`browser_list_tabs\`: listar abas abertas
-- \`browser_go_back\`: voltar para pagina anterior
-
-**Agir (interacao direta — RAPIDO, sem custo LLM extra):**
-- \`browser_click\`: clicar em elemento por ref, texto visivel, seletor CSS ou coordenadas
-- \`browser_fill\`: preencher input por ref, texto/label do campo ou seletor CSS
-- \`browser_type\`: digitar tecla por tecla por ref, texto/label ou seletor (autocomplete)
-- \`browser_press\`: pressionar tecla (Enter, Tab, Escape, setas, etc.)
-- \`browser_navigate\`: navegar para URL especifica
-- \`browser_wait\`: esperar elemento aparecer, sumir, ou tempo fixo
-
-**Como referenciar elementos (3 formas, da mais simples a mais precisa):**
-- \`ref: N\` — numero do elemento listado por browser_get_state (RECOMENDADO, mais simples)
-- \`elemento: "texto"\` — localiza pelo texto visivel do elemento (funciona sem get_state)
-- \`seletor: "#id"\` — CSS selector direto (para precisao maxima)
-
-**Abas:**
-- \`browser_switch_tab\`: trocar para outra aba por indice
-- \`browser_close_tab\`: fechar aba para liberar memoria
-
-**Fallback (LENTO, usa Vision — apenas para telas complexas/desconhecidas):**
-- \`browser_auto_task\`: executa tarefa via agente visual com screenshot+DOM a cada passo
-- \`pje_agir\`: mesmo que browser_auto_task mas com contexto PJe
-
-**Quando usar o que:**
-- \`browser_get_state\` → ver refs → \`browser_click { ref: N }\`: caminho PADRAO. Rapido, barato, confiavel.
-- \`browser_click { elemento: "Pesquisar" }\`: se nao fez get_state, pode localizar por texto direto.
-- \`browser_auto_task\` / \`pje_agir\`: APENAS quando skills atomicas nao funcionam.
-- **DICA:** Sempre tente ref ou elemento primeiro. Se falhar, ai sim use auto_task/pje_agir.
-- **DICA:** Se o PJe abriu aba nova (documento, PDF), use \`browser_list_tabs\` + \`browser_switch_tab\`.
-- **DICA:** Use \`browser_wait\` { tipo: "seletor" } apos clicks que disparam carregamento (ex: submit).
+### Documentos e Pesquisa
+- \`doc_gerar\`: gerar documento com contexto completo
+- \`pesquisa_jurisprudencia\`: busca termos relevantes
+- \`os_arquivos\`: ler arquivo (PDF, DOCX, XLSX → texto automático)
+- \`os_clipboard\`: copiar texto para Ctrl+V
 
 ### CAPTCHA
-- Se o resultado de uma acao contiver "CAPTCHA detectado" em pagina PJe:
-  → Use tipo "pergunta" e peca ao usuario para resolver o CAPTCHA no browser
-  → Apos resposta do usuario, use browser_get_state para verificar e continue normalmente
-- Se for site de pesquisa e o auto-solve funcionou ("CAPTCHA resolvido automaticamente"):
-  → Continue normalmente, o CAPTCHA ja foi preenchido
-- Se auto-solve falhou ou pesquisa_jurisprudencia retornou captchaDetected:
-  → Use browser_navigate para acessar o site e tente resolver via browser
-  → Se nao conseguir, use tipo "pergunta" e peca ajuda ao usuario
-- NUNCA ignore mensagens de CAPTCHA — elas indicam que a acao pode nao ter funcionado
+- PJe: tipo=pergunta, peça ao usuário resolver
+- Site de pesquisa (auto-solve OK): continue
+- Auto-solve falhou: tente via browser, senão peça ajuda
 
----
-
-## Proatividade
-
-Quando decidir tipo=resposta, SEMPRE finalize com 1-2 sugestões de próximos passos relevantes ao contexto. Exemplos:
-- Após consultar processo: "Quer que eu verifique as movimentações recentes ou os documentos?"
-- Após abrir PJe: "Deseja consultar um processo ou navegar para o peticionamento?"
-- Após ler arquivo: "Quer buscar outros arquivos relacionados ou copiar algum trecho?"
-- Após criar documento: "Posso protocolar este documento no PJe se quiser."
-Use frases curtas no final da resposta, separadas por linha em branco.
+## Desambiguação: PC vs PJe
+- Contexto PJe claro (processo, tribunal, petição) → skill pje_*
+- Contexto PC claro (C:, Downloads, .pdf) → skill os_*
+- Sem contexto → OBRIGATÓRIO tipo=pergunta
 
 ## Alerta de Prazo
+Quando observar resultado de pje_consultar com 'ultima_movimentacao':
+- >30 dias sem movimentação → ⚠️ alerte
+- Processo recente (<15 dias) sem movimentação → ⚠️ prazo de resposta`;
+}
 
-Quando observar resultado de pje_consultar com campo 'ultima_movimentacao':
-- Calcule quantos dias se passaram com base na Data/Hora atual do contexto
-- Se mais de 30 dias sem movimentação, inclua na resposta: "⚠️ Última movimentação há X dias — verifique se há prazos em aberto."
-- Se 'data_distribuicao' for recente (menos de 15 dias) e não houver movimentações, alerte: "⚠️ Processo distribuído recentemente — fique atento ao prazo de resposta."
+/**
+ * Detecta se o objetivo do usuário é uma análise de caso jurídico
+ * (vs comando operacional ou pergunta simples).
+ * Usado para reforçar instruções de profundidade em modelos menores.
+ */
+function detectAnalysisIntent(objetivo: string): boolean {
+    const lower = objetivo.toLowerCase();
+    const len = objetivo.length;
 
----
+    // Texto longo (>200 chars) com termos jurídicos = provável caso para análise
+    if (len > 200) {
+        const legalTerms = /contrato|rescis|indeniza|dano|processo|ação|petição|sentença|recurso|prazo|cláusula|artigo|lei |código|responsabilidade|inadimpl|litígio|acordo|conflito|disputa|alegaç|defesa|autor|réu|obrigaç/i;
+        if (legalTerms.test(objetivo)) return true;
+    }
 
-## Desambiguacao: PC vs PJe
+    // Pedidos explícitos de análise
+    if (/analis|me ajud[ea] (com|nesse|neste) caso|parecer|avaliar|examinar|estud[ae]r? (o |esse |este )?caso/i.test(lower)) return true;
 
-Alguns termos sao ambiguos entre o sistema de arquivos do computador e o PJe.
-Quando nao houver contexto claro, use tipo=pergunta ANTES de agir.
+    // Perguntas sobre estratégia/recomendação com contexto jurídico
+    if (/o que (eu )?fa[çz]o|como proceder|qual .*estratégia|chances de|viabilidade|fundament/i.test(lower) && len > 100) return true;
 
-### Termos ambiguos
-- "pastas" -> pode ser pastas do PC (os_listar) ou pastas/expedientes no PJe (pje_navegar)
-- "arquivos" -> pode ser arquivos do Windows (os_arquivos) ou arquivos de processo no PJe
-- "documentos" -> pode ser pasta Documentos do Windows ou documentos do processo judicial
-- "abrir" -> abrir arquivo no PC (os_arquivos) ou abrir no PJe (pje_abrir)
-- "acessar" + "pastas/arquivos" sem contexto -> ambiguo, perguntar antes de agir
-
-### Regras
-
-**Contexto PJe claro** (usuario menciona numero de processo, tribunal, peticao, despacho, publicacao, audiencia, expediente):
--> use skill pje_* diretamente
-
-**Contexto PC claro** (usuario menciona caminho tipo C:, Downloads, Desktop, extensao .pdf .docx .xlsx, "meu computador"):
--> use skill os_* diretamente
-
-**Sem contexto claro** -> OBRIGATORIO usar tipo=pergunta antes de executar qualquer skill.
-Exemplo de resposta correta:
-{ "tipo": "pergunta", "pergunta": "Voce quer acessar pastas do seu computador (Downloads, Desktop...) ou pastas de expedientes no PJe?", "opcoes": ["Pastas do meu computador", "Expedientes no PJe"] }`;
+    return false;
 }
 
 /**
@@ -331,6 +314,7 @@ function getActiveBrowserInfo(): { url: string; title: string; tabCount: number 
  * Monta seção de contexto
  */
 function buildContextSection(state: AgentState): string {
+    const budget = getContextBudget();
     const parts: string[] = ['# Contexto Atual'];
 
     // Data e hora atual
@@ -394,15 +378,16 @@ function buildContextSection(state: AgentState): string {
         parts.push(`## Documentos Carregados\n${docs}`);
     }
 
-    // Resultados anteriores (aumentado de 500 para 1000 chars)
-    if (state.contexto.resultados.size > 0) {
+    // Resultados anteriores (budget-aware)
+    const resultadoKeys = Object.keys(state.contexto.resultados);
+    if (resultadoKeys.length > 0) {
         const resultados: string[] = [];
-        state.contexto.resultados.forEach((valor, skill) => {
+        for (const [skill, valor] of Object.entries(state.contexto.resultados)) {
             const resumo = typeof valor === 'object'
-                ? JSON.stringify(valor).substring(0, 1000)
-                : String(valor);
+                ? JSON.stringify(valor).substring(0, budget.maxSkillResultsChars)
+                : String(valor).substring(0, budget.maxSkillResultsChars);
             resultados.push(`- ${skill}: ${resumo}`);
-        });
+        }
         parts.push(`## Resultados de Skills Anteriores\n${resultados.join('\n')}`);
     }
 
@@ -415,7 +400,7 @@ function buildContextSection(state: AgentState): string {
         parts.push(`## Tarefas Similares Anteriores\n${linhas.join('\n')}`);
     }
 
-    // Memória persistente
+    // Memória persistente (budget-aware)
     if (state.contexto.memoria) {
         const mem = state.contexto.memoria;
         const memParts: string[] = ['## Memória Persistente'];
@@ -428,24 +413,56 @@ function buildContextSection(state: AgentState): string {
             memParts.push(`Aprendizados: ${mem.aprendizados.slice(-3).join('; ')}`);
         }
 
+        // Cross-session facts
+        if (mem.fatos && mem.fatos.length > 0) {
+            const factsLines = mem.fatos.slice(0, 5).map(f => {
+                let line = `- ${f.processoNumero}`;
+                if (f.classe) line += ` (${f.classe})`;
+                if (f.tesesDiscutidas.length) line += `: ${f.tesesDiscutidas.slice(0, 2).join(', ')}`;
+                return line;
+            });
+            memParts.push(`Processos com contexto de sessões anteriores:\n${factsLines.join('\n')}`);
+        }
+
         if (memParts.length > 1) {
-            parts.push(memParts.join('\n'));
+            let memSection = memParts.join('\n');
+            if (memSection.length > budget.maxMemoryChars) {
+                memSection = memSection.substring(0, budget.maxMemoryChars) + '...';
+            }
+            parts.push(memSection);
         }
     }
 
-    // RAG: chunks relevantes dos documentos do escritório
+    // RAG: chunks relevantes dos documentos do escritório (budget-aware)
     if (state.contexto.ragContexto && state.contexto.ragContexto.length > 0) {
-        const chunks = state.contexto.ragContexto.map(c =>
-            `### [doc: ${c.arquivo}]\n${c.trecho}`
-        ).join('\n\n');
-        parts.push(`## Documentos do Escritório (RAG)\nTrechos relevantes encontrados nos documentos indexados. Cite a fonte ao usar.\n\n${chunks}`);
+        let totalRagChars = 0;
+        const limitedChunks: string[] = [];
+        for (const c of state.contexto.ragContexto) {
+            const chunk = `### [doc: ${c.arquivo}]\n${c.trecho}`;
+            if (totalRagChars + chunk.length > budget.maxRAGChars) break;
+            limitedChunks.push(chunk);
+            totalRagChars += chunk.length;
+        }
+        if (limitedChunks.length > 0) {
+            parts.push(`## Documentos do Escritório (RAG)\nTrechos relevantes encontrados nos documentos indexados. Cite a fonte ao usar.\n\n${limitedChunks.join('\n\n')}`);
+        }
     }
 
-    const chatHistory = (state.contexto as any).chatHistory as string | undefined;
+    const chatHistory = state.contexto.chatHistory;
     if (chatHistory) {
         // Histórico logo após o header — prioridade alta para continuidade
         parts.splice(1, 0, `## Histórico Recente da Conversa\n${chatHistory}`);
     }
+
+    // Legal Language Engine — vocabulário contextual
+    try {
+        const { buildLegalContextBlock, detectLegalArea } = require('../legal');
+        const areas = detectLegalArea(state.objetivo);
+        if (areas.length > 0) {
+            const legalBlock = buildLegalContextBlock(state.objetivo, areas, undefined, 'large');
+            if (legalBlock) parts.push(legalBlock);
+        }
+    } catch { /* legal module optional */ }
 
     let context = parts.join('\n\n');
 
@@ -464,25 +481,42 @@ function buildContextSection(state: AgentState): string {
 function getResponseFormat(): string {
     return `# Formato de Resposta
 
-Responda APENAS com JSON válido no seguinte formato:
+Responda usando tags XML. NÃO use JSON. Sempre inclua <pensamento> e <tipo>.
 
-\`\`\`json
-{
-    "pensamento": "Seu raciocínio passo a passo aqui",
-    "tipo": "skill" | "resposta" | "pergunta",
-    "skill": "nome_da_skill (apenas se tipo=skill)",
-    "parametros": { ... (apenas se tipo=skill) },
-    "resposta": "Resposta final ao usuário (apenas se tipo=resposta)",
-    "pergunta": "Pergunta ao usuário (apenas se tipo=pergunta)",
-    "opcoes": ["opção 1", "opção 2"] (opcional, se tipo=pergunta)
-}
-\`\`\`
+## Se tipo = resposta:
 
-IMPORTANTE:
-- Responda SOMENTE o JSON, sem texto adicional
+<pensamento>
+Raciocine aqui ANTES de responder (o usuário NÃO vê esta tag).
+Para análise de caso, estruture seu raciocínio:
+- Quais são os eixos do conflito?
+- Para cada eixo: fundamento legal + risco probatório + argumento do lado oposto
+- Qual lado tem posição mais forte e por quê?
+Pense profundamente — a qualidade da resposta depende da qualidade do raciocínio aqui.
+</pensamento>
+<tipo>resposta</tipo>
+<resposta>Markdown livre — siga as regras de profundidade e estilo do system prompt</resposta>
+
+## Se tipo = skill:
+
+<pensamento>Preciso consultar o processo...</pensamento>
+<tipo>skill</tipo>
+<skill>nome_da_skill</skill>
+<parametros>{"chave": "valor"}</parametros>
+
+## Se tipo = pergunta:
+
+<pensamento>Preciso saber se é PJe ou PC...</pensamento>
+<tipo>pergunta</tipo>
+<pergunta>Sua pergunta aqui</pergunta>
+<opcoes>["opção 1", "opção 2"]</opcoes>
+
+REGRAS:
+- Responda SOMENTE com as tags acima, sem texto fora delas
+- <parametros> e <opcoes> usam JSON dentro da tag
 - Use apenas skills que existem na lista
 - Se não tem certeza, pergunte ao usuário
-- Se já tem informação suficiente, responda`;
+- Se já tem informação suficiente, responda
+- Dentro de <resposta>, escreva markdown livre — NÃO escape caracteres`;
 }
 
 /**
@@ -525,10 +559,15 @@ function buildUserPrompt(state: AgentState): string {
         parts.push('## Histórico\nPrimeira iteração - nenhum passo executado ainda.');
     }
 
-    // Instrução final
+    // Instrução final (reforço dinâmico para análise de caso)
+    const isAnalysis = detectAnalysisIntent(state.objetivo);
+    const analysisBoost = isAnalysis
+        ? `\n\nIMPORTANTE: Este é um caso para análise profunda. Aplique as regras de "Análise de caso/processo" da Profundidade Adaptativa. Use <pensamento> para raciocinar por eixos antes de responder.`
+        : '';
+
     parts.push(`## Sua Tarefa
 
-Analise o objetivo e o contexto. Decida o próximo passo e responda em JSON.`);
+Analise o objetivo e o contexto. Decida o próximo passo usando o formato de tags XML definido no system prompt.${analysisBoost}`);
 
     let prompt = parts.join('\n\n');
 
@@ -588,7 +627,7 @@ async function callLLM(
             user: userPrompt,
             temperature: config.temperature ?? 0.3,
             ...(config.model ? { model: config.model } : {}),
-            // Filtra tokens: só emite o conteúdo do campo "resposta" do JSON
+            // Filtra tokens: só emite o conteúdo dentro de <resposta>...</resposta>
             ...(onToken ? { onToken: createRespostaExtractor(onToken) } : {})
         });
 
@@ -600,132 +639,163 @@ async function callLLM(
 }
 
 /**
- * State machine que filtra o stream JSON e emite apenas os tokens
- * dentro do campo "resposta": "...".
+ * State machine que filtra o stream de tags XML e emite apenas o conteúdo
+ * dentro de <resposta>...</resposta>.
  *
  * Estados:
- *   SCANNING     → procura pela chave "resposta" no buffer acumulado
- *   IN_VALUE     → emite cada char (desescapando JSON) até fechar as aspas
+ *   SCANNING     → procura pela tag <resposta> no buffer acumulado
+ *   IN_VALUE     → emite texto raw (markdown) até encontrar </resposta>
  *   DONE         → ignora o resto
+ *
+ * Sem necessidade de unescape — o conteúdo é markdown puro, não JSON.
  */
 function createRespostaExtractor(onToken: (token: string) => void): (token: string) => void {
     type State = 'SCANNING' | 'IN_VALUE' | 'DONE';
     let state: State = 'SCANNING';
-    let buffer = '';      // buffer para detecção da chave
-    let prevChar = '';    // para detectar escape (\")
+    let buffer = '';
+
+    const OPEN_TAG = '<resposta>';
+    const CLOSE_TAG = '</resposta>';
 
     return function extractor(token: string): void {
         if (state === 'DONE') return;
 
         if (state === 'SCANNING') {
             buffer += token;
-            // Procura por: "resposta"\s*:\s*" (com aspas de abertura do valor)
-            const match = buffer.match(/"resposta"\s*:\s*"([\s\S]*)$/);
-            if (match) {
+            const idx = buffer.indexOf(OPEN_TAG);
+            if (idx !== -1) {
                 state = 'IN_VALUE';
-                // Emite o que já veio após a aspas de abertura
-                const partial = match[1] ?? '';
+                // Emite o que já veio após a tag de abertura
+                const after = buffer.slice(idx + OPEN_TAG.length);
                 buffer = '';
-                emitChars(partial);
+                if (after.length > 0) processInValue(after);
             } else {
-                // Mantém apenas os últimos 40 chars para detecção cross-token
-                if (buffer.length > 40) buffer = buffer.slice(-40);
+                // Mantém apenas os últimos chars suficientes para detectar tag cross-token
+                if (buffer.length > OPEN_TAG.length + 10) {
+                    buffer = buffer.slice(-(OPEN_TAG.length + 10));
+                }
             }
             return;
         }
 
         if (state === 'IN_VALUE') {
-            emitChars(token);
+            processInValue(token);
         }
     };
 
-    function emitChars(text: string): void {
-        let i = 0;
-        while (i < text.length) {
-            const ch = text[i]!;
+    function processInValue(text: string): void {
+        buffer += text;
 
-            if (prevChar === '\\') {
-                // Caractere escapado
-                switch (ch) {
-                    case 'n':  onToken('\n'); break;
-                    case 't':  onToken('\t'); break;
-                    case '"':  onToken('"'); break;
-                    case '\\': onToken('\\'); break;
-                    case 'r':  break; // ignora \r
-                    default:   onToken(ch);
-                }
-                prevChar = ch === '\\' ? '' : ch;
-                i++;
-                continue;
-            }
+        // Verifica se a closing tag aparece no buffer
+        const closeIdx = buffer.indexOf(CLOSE_TAG);
+        if (closeIdx !== -1) {
+            // Emite tudo antes da closing tag
+            const content = buffer.slice(0, closeIdx);
+            if (content.length > 0) onToken(content);
+            state = 'DONE';
+            buffer = '';
+            return;
+        }
 
-            if (ch === '\\') {
-                prevChar = '\\';
-                i++;
-                continue;
-            }
-
-            // Aspas não-escapadas fecham o valor
-            if (ch === '"') {
-                state = 'DONE';
-                return;
-            }
-
-            onToken(ch);
-            prevChar = ch;
-            i++;
+        // A closing tag pode estar parcialmente no final do buffer
+        // Mantém os últimos chars que podem ser prefixo de </resposta>
+        const safeLen = buffer.length - (CLOSE_TAG.length - 1);
+        if (safeLen > 0) {
+            onToken(buffer.slice(0, safeLen));
+            buffer = buffer.slice(safeLen);
         }
     }
 }
 
 /**
- * Parse da resposta do LLM
+ * Extrai conteúdo de uma tag XML. Retorna undefined se não encontrada.
+ * Suporta whitespace ao redor e conteúdo multiline.
+ */
+function extractTag(text: string, tagName: string): string | undefined {
+    const regex = new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i');
+    const match = text.match(regex);
+    return match ? match[1]!.trim() : undefined;
+}
+
+/**
+ * Parse da resposta do LLM (formato tags XML)
+ *
+ * Aceita tanto formato de tags (novo) quanto JSON (fallback para compatibilidade).
  */
 function parseThinkResponse(response: string): ThinkDecision {
     try {
-        // Tenta extrair JSON da resposta
+        // ── Tenta parse por tags (formato primário) ──
+        const tipo = extractTag(response, 'tipo') as ThinkDecision['tipo'] | undefined;
+
+        if (tipo) {
+            const pensamento = extractTag(response, 'pensamento') || 'Processando...';
+
+            switch (tipo) {
+                case 'resposta': {
+                    const resposta = extractTag(response, 'resposta');
+                    if (!resposta) throw new Error('Tag <resposta> ausente para tipo=resposta');
+                    return { tipo, pensamento, resposta };
+                }
+                case 'skill': {
+                    const skill = extractTag(response, 'skill');
+                    if (!skill) throw new Error('Tag <skill> ausente para tipo=skill');
+                    const paramsRaw = extractTag(response, 'parametros');
+                    let parametros: Record<string, any> = {};
+                    if (paramsRaw) {
+                        try {
+                            parametros = JSON.parse(paramsRaw);
+                        } catch {
+                            // Tenta extrair JSON de dentro de backticks
+                            const jsonInner = paramsRaw.match(/\{[\s\S]*\}/);
+                            if (jsonInner) parametros = JSON.parse(jsonInner[0]);
+                        }
+                    }
+                    return { tipo, pensamento, skill: skill.trim(), parametros };
+                }
+                case 'pergunta': {
+                    const pergunta = extractTag(response, 'pergunta');
+                    if (!pergunta) throw new Error('Tag <pergunta> ausente para tipo=pergunta');
+                    const opcoesRaw = extractTag(response, 'opcoes');
+                    let opcoes: string[] | undefined;
+                    if (opcoesRaw) {
+                        try { opcoes = JSON.parse(opcoesRaw); } catch { /* ignora */ }
+                    }
+                    return { tipo, pensamento, pergunta, ...(opcoes ? { opcoes } : {}) };
+                }
+                default:
+                    throw new Error(`Tipo inválido: ${tipo}`);
+            }
+        }
+
+        // ── Fallback: tenta JSON (compatibilidade com modelos que ignoram instruções) ──
         const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/)
             || response.match(/```\s*([\s\S]*?)\s*```/)
             || response.match(/\{[\s\S]*\}/);
 
-        if (!jsonMatch) {
-            throw new Error('Resposta não contém JSON válido');
+        if (jsonMatch) {
+            const jsonStr = jsonMatch[1] || jsonMatch[0];
+            const decisao: ThinkDecision = JSON.parse(jsonStr);
+
+            if (!decisao.tipo) throw new Error('Campo "tipo" ausente no JSON');
+            if (!decisao.pensamento) decisao.pensamento = 'Processando...';
+
+            switch (decisao.tipo) {
+                case 'skill':
+                    if (!decisao.skill) throw new Error('Campo "skill" ausente');
+                    break;
+                case 'resposta':
+                    if (!decisao.resposta) throw new Error('Campo "resposta" ausente');
+                    break;
+                case 'pergunta':
+                    if (!decisao.pergunta) throw new Error('Campo "pergunta" ausente');
+                    break;
+                default:
+                    throw new Error(`Tipo inválido: ${(decisao as any).tipo}`);
+            }
+            return decisao;
         }
 
-        const jsonStr = jsonMatch[1] || jsonMatch[0];
-        const decisao: ThinkDecision = JSON.parse(jsonStr);
-
-        // Validação básica
-        if (!decisao.tipo) {
-            throw new Error('Campo "tipo" ausente');
-        }
-
-        if (!decisao.pensamento) {
-            decisao.pensamento = 'Processando...';
-        }
-
-        // Validação por tipo
-        switch (decisao.tipo) {
-            case 'skill':
-                if (!decisao.skill) {
-                    throw new Error('Campo "skill" ausente para tipo=skill');
-                }
-                break;
-            case 'resposta':
-                if (!decisao.resposta) {
-                    throw new Error('Campo "resposta" ausente para tipo=resposta');
-                }
-                break;
-            case 'pergunta':
-                if (!decisao.pergunta) {
-                    throw new Error('Campo "pergunta" ausente para tipo=pergunta');
-                }
-                break;
-            default:
-                throw new Error(`Tipo inválido: ${(decisao as any).tipo}`);
-        }
-
-        return decisao;
+        throw new Error('Resposta não contém tags XML nem JSON válido');
 
     } catch (error: any) {
         console.error('[Think] Erro ao parsear resposta:', error);

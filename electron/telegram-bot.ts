@@ -19,12 +19,14 @@ type AgentRunner = (text: string, sessionId: string) => Promise<string>;
 let bot: Telegraf | null = null;
 let isRunning = false;
 let isBusy = false;
+let _authorizedUserId: number | null = null;
 
 export async function startBot(config: TelegramConfig, runAgent: AgentRunner): Promise<void> {
     if (isRunning) return;
 
     bot = new Telegraf(config.token);
     const authorizedId = config.authorizedUserId;
+    _authorizedUserId = authorizedId;
 
     bot.start(async (ctx) => {
         if (ctx.from.id !== authorizedId) {
@@ -120,6 +122,28 @@ export async function startBot(config: TelegramConfig, runAgent: AgentRunner): P
         }
     });
 
+    // Callback query handler para HITL (Batch Petitioning inline keyboards)
+    bot.on('callback_query', async (ctx) => {
+        if (!ctx.from || ctx.from.id !== authorizedId) return;
+        const data = (ctx.callbackQuery as any).data as string | undefined;
+        if (!data?.startsWith('hitl:')) return;
+
+        const parts = data.split(':');
+        if (parts.length < 3) return;
+
+        const requestId = parts[1]!;
+        const action = parts[2]!;
+
+        try {
+            const { handleTelegramHITL } = await import('./batch/telegram-hitl');
+            await handleTelegramHITL(requestId, action);
+            await ctx.answerCbQuery('Recebido!');
+        } catch (error: any) {
+            console.error('[Telegram] Erro no callback HITL:', error.message);
+            await ctx.answerCbQuery('Erro ao processar');
+        }
+    });
+
     // Captura erros de polling sem derrubar o processo
     bot.catch((err: any) => {
         console.error('[Telegram] Erro no bot:', err?.message || err);
@@ -153,4 +177,14 @@ export async function sendMessage(userId: number, text: string): Promise<void> {
             await bot.telegram.sendMessage(userId, text, { parse_mode: 'Markdown' });
         } catch { /* ignora falha de envio */ }
     }
+}
+
+/** Retorna instância do bot para uso pelo telegram-hitl.ts */
+export function getBotInstance(): Telegraf | null {
+    return bot;
+}
+
+/** Retorna ID do usuário autorizado */
+export function getTelegramUserId(): number | null {
+    return _authorizedUserId;
 }

@@ -6,6 +6,9 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
+import { getEnrichedFormattingBlock } from '../../batch/legal-templates';
+import { getFullStyleBlock } from '../../legal/style-rules';
+import { detectLegalArea } from '../../legal/legal-language-engine';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -75,20 +78,45 @@ const docGerar: Skill = {
         try {
             const { callAI } = await import('../../ai-handler');
 
+            // Monta system prompt enriquecido com templates + estilo jurídico
+            const areas = detectLegalArea(instrucoes || tipoFormatado);
+            const primaryArea = areas[0] || 'civil';
+            const formattingBlock = getEnrichedFormattingBlock(tipo, { area: primaryArea });
+            const styleBlock = getFullStyleBlock(primaryArea, tipo);
+
+            // Súmulas e artigos relevantes do store dinâmico
+            let legalRefBlock = '';
+            try {
+                const { searchSumulas, searchArticles } = await import('../../legal/legal-store');
+                const queryText = instrucoes || tipoFormatado;
+                const sumulasRel = searchSumulas(queryText, 5);
+                const artigosRel = searchArticles(queryText, 5);
+
+                if (sumulasRel.length > 0) {
+                    legalRefBlock += '\nSÚMULAS VERIFICADAS (use na fundamentação):\n';
+                    legalRefBlock += sumulasRel.map(s =>
+                        `- Súmula ${s.numero} do ${s.tribunal}: ${s.texto.substring(0, 200)}`
+                    ).join('\n');
+                }
+                if (artigosRel.length > 0) {
+                    legalRefBlock += '\n\nARTIGOS COM TEXTO OFICIAL (cite com precisão):\n';
+                    legalRefBlock += artigosRel.map(a =>
+                        `- ${a.artigo} da ${a.lei}: ${a.texto.substring(0, 200)}`
+                    ).join('\n');
+                }
+            } catch { /* legal store not available */ }
+
             const conteudoHTML = await callAI({
                 system: `Você é um especialista em redação jurídica brasileira com vasta experiência em documentos processuais.
 
 Gere um documento jurídico completo do tipo "${tipoFormatado}" seguindo as normas processuais brasileiras.
 
-ESTRUTURA OBRIGATÓRIA (use exatamente estas seções):
-1. Cabeçalho — destinatário (Juízo/Tribunal competente com dados do processo)
-2. Qualificação das partes — autor e réu com dados fornecidos
-3. DOS FATOS — narrativa factual clara e cronológica
-4. DO DIREITO — fundamentos jurídicos sólidos com artigos de lei e jurisprudência real (STJ/STF/TRT)
-5. DOS PEDIDOS — numerados, específicos e fundamentados
-6. Encerramento — local, data por extenso e linha de assinatura do advogado
+${formattingBlock}
 
-REGRAS:
+${styleBlock}
+${legalRefBlock}
+
+REGRAS ADICIONAIS:
 - Linguagem ${estilo === 'formal' ? 'formal e técnica, própria do foro' : 'clara, objetiva e respeitosa'}
 - Cite pelo menos 2 decisões jurisprudenciais reais e relevantes
 - Use [CAMPO] para dados não fornecidos que devem ser preenchidos

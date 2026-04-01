@@ -20,7 +20,7 @@ import { htmlHasCaptcha } from '../../browser/captcha';
 // TYPES
 // ============================================================================
 
-interface Acordao {
+export interface Acordao {
     tribunal: string;
     numero:   string;
     ementa:   string;
@@ -481,7 +481,7 @@ async function buscarTRT2(consulta: string, limite: number): Promise<Acordao[]> 
 // REGISTRY
 // ============================================================================
 
-const BUSCADORES: Record<string, (consulta: string, limite: number) => Promise<Acordao[]>> = {
+export const BUSCADORES: Record<string, (consulta: string, limite: number) => Promise<Acordao[]>> = {
     STF:  buscarSTF,
     TST:  buscarTST,
     STJ:  buscarSTJ,
@@ -492,7 +492,7 @@ const BUSCADORES: Record<string, (consulta: string, limite: number) => Promise<A
 };
 
 // Agrupamentos por área para roteamento inteligente
-const AREAS: Record<string, string[]> = {
+export const AREAS: Record<string, string[]> = {
     constitucional: ['STF'],
     federal:        ['STF', 'STJ', 'TRF1', 'TRF4'],
     trabalhista:    ['TST', 'TRT2'],

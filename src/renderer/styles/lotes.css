@@ -1,0 +1,1111 @@
+/* ============================================================================
+   Lotes (Producao em Lote) — Styles
+   ============================================================================ */
+
+.lotes-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────── */
+
+.lotes-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 24px;
+    padding-right: 160px; /* Espaço para titleBarOverlay (controles da janela) */
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.lotes-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    flex: 1;
+}
+
+.lotes-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 6px 14px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+}
+
+.btn-primary {
+    background: var(--accent-color);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.btn-primary:hover {
+    background: var(--accent-strong);
+}
+
+/* ─── List View ──────────────────────────────────────────────────── */
+
+.lotes-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+}
+
+.lotes-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+}
+
+.lotes-empty p {
+    margin: 4px 0;
+}
+
+.lotes-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lote-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.lote-card:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-tertiary);
+}
+
+.lote-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.lote-card-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lote-card-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.lote-card-progress {
+    width: 120px;
+    flex-shrink: 0;
+}
+
+/* ─── Status Badges ──────────────────────────────────────────────── */
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-producing    { background: rgba(var(--accent-rgb), 0.2); color: var(--accent-color); }
+.badge-review       { background: rgba(193, 154, 98, 0.2); color: var(--warning-color); }
+.badge-completed    { background: rgba(121, 170, 138, 0.2); color: var(--success-color); }
+.badge-error        { background: rgba(184, 126, 126, 0.2); color: var(--danger-color); }
+.badge-paused       { background: rgba(100, 100, 100, 0.2); color: var(--text-muted); }
+.badge-pending      { background: rgba(100, 100, 100, 0.15); color: var(--text-muted); }
+.badge-strategy     { background: rgba(var(--accent-rgb), 0.15); color: var(--accent-color); }
+
+/* ─── Progress Bar ───────────────────────────────────────────────── */
+
+.progress-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+    background: var(--accent-color);
+}
+
+.progress-fill.completed { background: var(--success-color); }
+.progress-fill.error     { background: var(--danger-color); }
+
+.progress-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    text-align: right;
+}
+
+/* ─── Detail View ────────────────────────────────────────────────── */
+
+.lote-detail {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+}
+
+.lote-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.lote-detail-header h3 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.lote-detail-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* ─── Wave Card ──────────────────────────────────────────────────── */
+
+.wave-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.wave-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wave-card-header:hover {
+    background: var(--bg-tertiary);
+}
+
+.wave-card-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.wave-card-body {
+    padding: 0 16px 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+.wave-card-body.collapsed {
+    display: none;
+}
+
+/* ─── Item Row ───────────────────────────────────────────────────── */
+
+.item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.item-row:hover {
+    background: rgba(255,255,255,0.02);
+}
+
+.item-row:last-child {
+    border-bottom: none;
+}
+
+.item-status-icon {
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.item-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.item-numero {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.item-open-btn {
+    font-size: 11px;
+    color: var(--accent-color);
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 8px;
+    border: 1px solid var(--accent-color);
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.item-open-btn:hover {
+    background: rgba(193, 154, 98, 0.15);
+}
+
+.item-reasoning-badge {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: rgba(193, 154, 98, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.item-error-msg {
+    font-size: 11px;
+    color: var(--danger-color);
+    flex-shrink: 0;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ─── Diff Score Bar ─────────────────────────────────────────────── */
+
+.diff-score {
+    width: 50px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.diff-score.high   { color: var(--success-color); }
+.diff-score.medium { color: var(--warning-color); }
+.diff-score.low    { color: var(--danger-color); }
+
+/* ─── Audit Card ─────────────────────────────────────────────────── */
+
+.audit-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.audit-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.audit-card-header h4 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.audit-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.audit-stat {
+    text-align: center;
+}
+
+.audit-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.audit-stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.audit-warnings {
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(184, 126, 126, 0.08);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--danger-color);
+}
+
+.audit-warning-item {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 4px 0;
+}
+
+.audit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+/* ─── Drawer (slide-in detail) ───────────────────────────────────── */
+
+.lote-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(700px, 80vw);
+    height: 100%;
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border-color);
+    z-index: 100;
+    overflow-y: auto;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+}
+
+.lote-drawer.open {
+    transform: translateX(0);
+}
+
+.drawer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    background: var(--bg-primary);
+    z-index: 1;
+}
+
+.drawer-header h4 {
+    margin: 0;
+    flex: 1;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.drawer-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+}
+
+.drawer-body {
+    padding: 16px;
+}
+
+.drawer-field {
+    margin-bottom: 14px;
+}
+
+.drawer-field-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.drawer-field-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.drawer-preview {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.6;
+}
+
+.drawer-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ─── Protocol View ──────────────────────────────────────────────── */
+
+.protocol-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--warning-color);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    text-align: center;
+}
+
+.protocol-warning {
+    font-size: 13px;
+    color: var(--warning-color);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.protocol-count {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 12px 0;
+}
+
+.protocol-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 16px;
+}
+
+/* ─── Button Variants ────────────────────────────────────────────── */
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+}
+
+.btn-success {
+    background: var(--success-color);
+    color: #000;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--danger-color);
+    border: 1px solid var(--danger-color);
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+/* ─── New Lote Modal ─────────────────────────────────────────────── */
+
+.lote-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lote-modal {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    width: 480px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.lote-modal.lote-modal-wide {
+    width: 600px;
+}
+
+.lote-modal h3 {
+    margin: 0 0 18px;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+.lote-form-section {
+    margin-bottom: 14px;
+}
+
+.lote-form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+}
+
+.lote-form-label .required {
+    color: var(--accent-color);
+}
+
+.lote-form-select,
+.lote-form-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.lote-form-select:focus,
+.lote-form-input:focus {
+    border-color: var(--accent-color);
+}
+
+.lote-form-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.lote-form-textarea:focus {
+    border-color: var(--accent-color);
+}
+
+.lote-form-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.lote-form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.lote-form-half {
+    flex: 1;
+}
+
+.lote-modal p {
+    margin: 0 0 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Legacy textarea (keep for backward compat) */
+.lote-modal textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.lote-modal textarea:focus {
+    border-color: var(--accent-color);
+}
+
+.lote-modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ─── Petition Editor (Drawer) ───────────────────────────────────── */
+
+.editor-tabs {
+    display: flex;
+    gap: 0;
+    margin-top: 14px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.editor-tab {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.editor-tab:hover {
+    color: var(--text-primary);
+}
+
+.editor-tab.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+.peticao-preview-frame {
+    width: 100%;
+    height: 50vh;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    margin-top: 10px;
+}
+
+.peticao-editor {
+    width: 100%;
+    height: 50vh;
+    padding: 12px;
+    margin-top: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+}
+
+.peticao-editor:focus {
+    border-color: var(--accent-color);
+}
+
+/* ─── Reasoning Accordion ────────────────────────────────────────── */
+
+.reasoning-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.reasoning-step {
+    border-left: 3px solid var(--accent-color);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: transparent;
+    transition: background 0.2s;
+}
+
+.reasoning-step[open] {
+    background: rgba(193, 154, 98, 0.06);
+}
+
+.reasoning-step summary {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-primary);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reasoning-step summary::-webkit-details-marker { display: none; }
+
+.reasoning-step summary::before {
+    content: attr(data-step);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    color: #000;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.reasoning-step-body {
+    padding: 2px 10px 10px 38px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.reasoning-step-enter {
+    animation: stepSlideIn 0.3s ease;
+}
+
+@keyframes stepSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Attach Document Components ─────────────────────────────────── */
+
+.lote-form-hint-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: #c9a84c;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.btn-link:hover {
+    background: rgba(201, 168, 76, 0.15);
+}
+
+.lote-attached-docs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.lote-attached-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(201, 168, 76, 0.15);
+    border: 1px solid rgba(201, 168, 76, 0.3);
+    border-radius: 16px;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: #ddd;
+}
+
+.lote-attached-remove {
+    cursor: pointer;
+    color: #999;
+    font-size: 14px;
+    margin-left: 2px;
+    line-height: 1;
+}
+
+.lote-attached-remove:hover {
+    color: #e74c3c;
+}
+
+/* Doc Picker Dropdown */
+.lote-doc-picker {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-top: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+
+.lote-doc-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.lote-doc-search {
+    flex: 1;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.lote-doc-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.lote-doc-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: background 0.1s;
+}
+
+.lote-doc-item:hover {
+    background: rgba(201, 168, 76, 0.1);
+    color: var(--text-primary);
+}
+
+.lote-doc-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.lote-doc-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Petition Editor Overlay (full-screen) ──────────────────────── */
+
+.petition-editor-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+}
+
+.petition-editor-overlay.hidden {
+    display: none;
+}
+
+.petition-editor-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px;
+    padding-right: 160px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+}
+
+.petition-editor-title {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.petition-editor-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.petition-editor-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.petition-reasoning-panel {
+    width: 320px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--bg-secondary);
+}
+
+.petition-editor-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Quill overrides for petition editor */
+#petition-quill-editor {
+    flex: 1;
+    overflow-y: auto;
+}
+
+#petition-quill-editor .ql-editor {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 12pt;
+    line-height: 1.8;
+    color: #e0e0e0;
+    padding: 60px 80px;
+    min-height: 100%;
+    background: #1a1a2e;
+}
+
+#petition-quill-editor .ql-editor h1 {
+    text-align: center;
+    font-size: 14pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+#petition-quill-editor .ql-editor h2 {
+    font-size: 12pt;
+    text-transform: uppercase;
+    text-decoration: underline;
+    color: #c9a84c;
+    margin-top: 24px;
+}
+
+#petition-quill-editor .ql-editor h3 {
+    font-size: 12pt;
+    color: #d4a843;
+    font-style: italic;
+}
+
+#petition-quill-editor .ql-editor p {
+    text-align: justify;
+    margin-bottom: 8px;
+}
+
+#petition-quill-editor .ql-editor strong {
+    color: #ffffff;
+}
+
+#petition-quill-editor .ql-editor blockquote {
+    border-left: 3px solid #c9a84c;
+    padding-left: 16px;
+    margin: 16px 40px;
+    color: #b0b0b0;
+    font-style: italic;
+}
+
+#petition-quill-editor .ql-editor ol,
+#petition-quill-editor .ql-editor ul {
+    padding-left: 24px;
+}
+
+#petition-quill-editor .ql-editor ol li,
+#petition-quill-editor .ql-editor ul li {
+    margin-bottom: 6px;
+}
+
+.petition-editor-main .ql-toolbar.ql-snow {
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.petition-editor-main .ql-toolbar.ql-snow .ql-stroke {
+    stroke: var(--text-secondary);
+}
+
+.petition-editor-main .ql-toolbar.ql-snow .ql-fill {
+    fill: var(--text-secondary);
+}
+
+.petition-editor-main .ql-toolbar.ql-snow .ql-picker-label {
+    color: var(--text-secondary);
+}
+
+.petition-editor-main .ql-container.ql-snow {
+    border: none;
+    flex: 1;
+    overflow-y: auto;
+    background: #1a1a2e;
+}
+
+/* Quill dropdown/picker menus in dark mode */
+.petition-editor-main .ql-toolbar.ql-snow .ql-picker-options {
+    background: #16213e;
+    border-color: #333;
+}
+
+.petition-editor-main .ql-toolbar.ql-snow .ql-picker-item {
+    color: #ccc;
+}
+
+.petition-editor-main .ql-toolbar.ql-snow button:hover .ql-stroke,
+.petition-editor-main .ql-toolbar.ql-snow button.ql-active .ql-stroke {
+    stroke: #c9a84c;
+}
+
+.petition-editor-main .ql-toolbar.ql-snow button:hover .ql-fill,
+.petition-editor-main .ql-toolbar.ql-snow button.ql-active .ql-fill {
+    fill: #c9a84c;
+}

@@ -7,7 +7,8 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { ensureBrowser, getActivePage, fillInFrames, clickInFrames, runBrowserTask } from '../../browser-manager';
+import { ensureBrowser, getActivePage, fillInFrames } from '../../browser-manager';
+import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveSelector, confirmResolved, recordSuccess } from '../../browser';
 
 // Seletores para localizar input por label text
@@ -135,7 +136,8 @@ Instruções:
             `.trim();
 
             try {
-                const resultado = await runBrowserTask(instrucao, 15);
+                const res = await runBrowserUseTask({ task: instrucao, maxSteps: 15 });
+                const resultado = res.result;
                 preenchidos.push(...Object.keys(pendentes));
                 return {
                     sucesso: true,

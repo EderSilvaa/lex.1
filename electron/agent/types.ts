@@ -18,7 +18,7 @@ export interface AgentState {
     startTime: number;
     endTime?: number;
     /** PII Vault — vive apenas durante o run, nunca persiste */
-    piiVault?: import('../privacy/pii-vault').PIIVault;
+    piiVault?: import('../privacy/pii-vault').PIIVault | undefined;
 }
 
 export type AgentStatus =
@@ -41,7 +41,7 @@ export interface AgentContext {
     documentos: DocumentoContext[];
 
     // Resultados acumulados das skills
-    resultados: Map<string, any>;
+    resultados: Record<string, any>;
 
     // Config do tenant (Prompt-Layer)
     tenantConfig?: TenantConfig;
@@ -54,6 +54,9 @@ export interface AgentContext {
 
     // RAG: chunks relevantes buscados nos documentos do workspace
     ragContexto?: RagChunk[];
+
+    // Histórico de chat injetado pela sessão multi-turn
+    chatHistory?: string;
 }
 
 export interface RagChunk {
@@ -68,6 +71,8 @@ export interface MemoriaContext {
     aprendizados: string[];
     preferencias: Record<string, any>;
     interacoesSimilares?: Array<{ objetivo: string; sucesso: boolean }>;
+    /** Cross-session facts — contexto de processos de sessões anteriores */
+    fatos?: CrossSessionFact[];
 }
 
 export interface ProcessoContext {
@@ -272,6 +277,19 @@ export type OrchestratorEvent =
     | { type: 'plan_failed'; error: string };
 
 // ============================================================================
+// AGENT LOOP OPTIONS
+// ============================================================================
+
+export interface AgentLoopOptions {
+    objetivo: string;
+    config?: Partial<AgentConfig>;
+    tenantConfig?: TenantConfig;
+    sessionId?: string;
+    agentSpec?: AgentSpec;
+    parentAbort?: AbortSignal;
+}
+
+// ============================================================================
 // CONFIG
 // ============================================================================
 
@@ -288,7 +306,7 @@ export interface AgentConfig {
     // LLM
     model?: string;
     temperature?: number;
-    criticModel?: string;
+    criticModel?: string | undefined;
     criticTemperature?: number;
 
     // Hooks
@@ -327,12 +345,18 @@ export interface TenantConfig {
         agentName: string;
         firmName: string;
         greeting: string;
+        /** Traços de personalidade e voz — injetados no system prompt */
+        personality?: string;
     };
     behavior: {
         style: 'formal' | 'semiformal' | 'informal';
         techLevel: 'leigo' | 'basico' | 'tecnico' | 'avancado';
         tone: 'neutro' | 'empatico' | 'assertivo' | 'didatico';
         depth: 'resumido' | 'normal' | 'detalhado' | 'exaustivo';
+        /** Regras de profundidade adaptativa por tipo de pergunta */
+        adaptiveDepth?: string;
+        /** Padrões de comunicação: o que evitar e o que preferir */
+        communicationPatterns?: string;
     };
     specialization: {
         areas: string[];
@@ -348,4 +372,82 @@ export interface TenantConfig {
         documentGeneration: boolean;
         jurisprudenceSearch: boolean;
     };
+}
+
+// ============================================================================
+// SESSION FACTS (Premium Context System)
+// ============================================================================
+
+export interface SessionFacts {
+    /** Processos discutidos (extraídos por regex + LLM) */
+    processos: ProcessoFact[];
+    /** Nomes de clientes/partes mencionados */
+    partes: string[];
+    /** Teses jurídicas, argumentos, estratégias */
+    teses: string[];
+    /** Decisões ou conclusões tomadas */
+    decisoes: string[];
+    /** Ações pendentes ou próximos passos */
+    pendencias: string[];
+    /** Prazos mencionados */
+    prazos: PrazoFact[];
+    /** Tribunal identificado */
+    tribunal?: string;
+    /** Skills executadas com sucesso nesta sessão */
+    skillsExecutadas: string[];
+    /** Tópicos/áreas do direito discutidos */
+    topicos: string[];
+    /** Timestamp da última atualização */
+    updatedAt: number;
+}
+
+export interface ProcessoFact {
+    numero: string;
+    classe?: string;
+    partes?: { autor?: string[]; reu?: string[] };
+    tribunal?: string;
+    status?: string;
+}
+
+export interface PrazoFact {
+    descricao: string;
+    data?: string | undefined;
+    processo?: string | undefined;
+}
+
+export interface StructuredSummary {
+    /** Processos discutidos com detalhes-chave */
+    processos: string[];
+    /** Análises e pareceres dados */
+    analises: string[];
+    /** Ações tomadas (skills executadas, resultados) */
+    acoesTomadas: string[];
+    /** Pendências */
+    pendencias: string[];
+    /** Fatos-chave do caso que importam para continuidade */
+    fatosChave: string[];
+}
+
+export interface SessionMeta {
+    tribunal?: string | undefined;
+    processNumbers: string[];
+    topics: string[];
+    stage: 'initial' | 'analysis' | 'action' | 'follow_up';
+    totalSkillsUsed: number;
+}
+
+// ============================================================================
+// CROSS-SESSION FACTS (Persistent Memory)
+// ============================================================================
+
+export interface CrossSessionFact {
+    processoNumero: string;
+    lastSessionId: string;
+    lastUpdated: number;
+    partes?: { autor?: string[]; reu?: string[] } | undefined;
+    classe?: string | undefined;
+    tribunal?: string | undefined;
+    tesesDiscutidas: string[];
+    decisoes: string[];
+    status?: string | undefined;
 }

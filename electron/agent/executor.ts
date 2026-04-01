@@ -232,19 +232,45 @@ export async function executeSkill(
     console.log(`[Executor] Sucesso: ${resultado.sucesso}`);
 
     // Validação pós-ação: compara DOM antes/depois
+    let afterSnapshot: DOMSnapshot | null = null;
+    let postValidation: ReturnType<typeof computeValidation> | null = null;
+    let domCompacto = '';
+
     if (snapshot && resultado.sucesso) {
         try {
             const { getActivePage } = require('../browser-manager');
             const page = getActivePage();
             if (page) {
-                const after = await captureDOMSnapshot(page);
-                const validation = computeValidation(snapshot, after, nome, paramsComDefaults);
-                resultado.dados = { ...(resultado.dados || {}), validation };
+                afterSnapshot = await captureDOMSnapshot(page);
+                postValidation = computeValidation(snapshot, afterSnapshot, nome, paramsComDefaults);
+                resultado.dados = { ...(resultado.dados || {}), validation: postValidation };
                 if (resultado.mensagem) {
-                    resultado.mensagem += `\n[Validação: ${validation.summary}]`;
+                    resultado.mensagem += `\n[Validação: ${postValidation.summary}]`;
                 }
+                // Captura DOM compacto para dataset de treino (non-blocking)
+                try {
+                    const { compactDOM } = require('./training-collector');
+                    domCompacto = await compactDOM(page);
+                } catch { /* training collector não disponível */ }
             }
         } catch { /* non-blocking */ }
+    }
+
+    // Training data collection (fire-and-forget, non-blocking)
+    if (isBrowserAction && resultado.sucesso && snapshot && afterSnapshot && postValidation && postValidation.confidence !== 'low') {
+        try {
+            const { collectTrainingExample } = require('./training-collector');
+            collectTrainingExample({
+                snapshot,
+                afterSnapshot,
+                validation: postValidation,
+                skillName: nome,
+                params: paramsComDefaults,
+                context,
+                duration,
+                domCompacto,
+            }).catch(() => {});
+        } catch { /* training collector não inicializado — ok */ }
     }
 
     // CAPTCHA detection pós-ação
@@ -349,7 +375,7 @@ function applyDefaults(
  * Na primeira iteração (iteracao <= 1), formato completo com parâmetros e exemplos.
  * A partir da 2ª iteração, formato compacto (nome + descrição) para economizar tokens.
  */
-export function getSkillsForPrompt(iteracao = 1, allowedCategories?: Array<Skill['categoria']>): string {
+export function getSkillsForPrompt(iteracao = 1, allowedCategories?: Array<Skill['categoria']>, forceCompact?: boolean): string {
     let skills = Object.values(skillRegistry);
 
     if (allowedCategories && allowedCategories.length > 0) {
@@ -371,7 +397,7 @@ export function getSkillsForPrompt(iteracao = 1, allowedCategories?: Array<Skill
         categorias[cat].push(skill);
     }
 
-    const compacto = iteracao > 1;
+    const compacto = forceCompact || iteracao > 1;
 
     // Formata
     const partes: string[] = [

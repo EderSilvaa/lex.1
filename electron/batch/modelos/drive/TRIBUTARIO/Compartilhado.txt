@@ -1,0 +1,66 @@
+﻿À ________
+Seção do Conselho Administrativo de Recursos Fiscais
+Processo n.º ________
+RECURSO VOLUNTÁRIO,
+em face do Auto de Infração nº ________, lavrado pela Unidade Autuante, relativo ao tributo (indicar o tributo), do qual foi notificado, pelos motivos que se seguem.
+DOS FATOS
+Entendeu a Receita Federal que no calendário de ________ , o Requente DEDUZIU INDEVIDAMENTE indicar imposto xxxxx, sendo aplicado, em consequência, de ofício AIIPM - Auto de Infração e Imposição de Penalidade de Multa.
+Houve impugnação, protocolo nº xxxx, no entanto, decidiu o Requerido por julgar improcedente o pedido, por entender equivocadamente que ________ , o que deve ser revisto pelos seguintes fundamentos.
+DAS PRELIMINARES - NULIDADES FORMAIS
+DA AUSÊNCIA DE NOTIFICAÇÃO - DIREITO AO CONTRADITÓRIO E À AMPLA DEFESA
+O artigo 23 do Decreto nº 70.235, de 1972, que dispõe sobre o processo administrativo fiscal, estabelece claramente:
+Art. 23. Far-se-á a intimação:
+(...)
+II - por via postal, telegráfica ou por qualquer outro meio ou via, com prova de recebimento no domicílio tributário eleito pelo sujeito passivo;
+Ocorre que não houve intimação ao Requerente, fato que não fica demonstrado em momento algum do processo administrativo. Tem-se por necessário, portanto, a nulidade do processo, por ausência de comprovação de notificação válida (com consequente nulidade do título executivo que aparelha a execução fiscal embargada), conforme precedentes sobre o tema:
+APELAÇÃO COM REMESSA NECESSÁRIA - MANDADO DE SEGURANÇA -ICMS- LANÇAMENTO FUNDAMENTADO EM CRUZAMENTO DE INFORMAÇÕES FORNECIDAS POR ADMINISTRADORA DE CARTÃO DE CRÉDITO- POSSIBILIDADE CONFERIDA PELO ART. 6º DA LEI COMPLEMENTAR Nº. 105 /2001 - CONSTITUCIONALIDADE DECLARADA PELO STF NO JULGAMENTO DO RE Nº. 601.314/SP - NECESSIDADE DE PRÉVIA INSTAURAÇÃO DE PROCEDIMENTO ADMINISTRATIVO OU DE PROCEDIMENTO FISCAL EM CURSO - INEXISTÊNCIA NO PRESENTE CASO - VIOLAÇÃO DO ART. 148 DO CTN , BEM COMO DO ART. 5º , INCISOS LIVE LV DA CF/88 - DIREITO LÍQUIDO E CERTO VIOLADO - RECURSO DESPROVIDO - SENTENÇA RATIFICADA. Consoante entendimento da Suprema Corte lançado por ocasião do julgamento do RE 601.314/SP, com reconhecimento da repercussão geral com o Tema 225, a previsão contida no art. 6º da Lei Complementar nº. 105 /2001 é constitucional, de modo que não há irregularidade de lançamento tributário na realização por meio de cruzamento de informações fornecidas por administradoras de cartão de crédito/débito de contribuintes, uma vez que isso não resulta em quebra indevida do sigilo bancário, mas de "transferência do sigilo" das instituições financeiras para a Administração fazendária. Entretanto, para que o lançamento seja considerado legal, nos termos do entendimento superior, imperioso e necessário que tais informações sejam obtidas por meio de procedimento administrativo previamente instaurado ou em procedimento fiscal em curso, garantindo-se o regular exercício do contraditório e da ampla defesa, requisitos estes não observado pelo fisco mato-grossense na espécie. (Apelação / Remessa Necessária 10755/2017, DESA. HELENA MARIA BEZERRA RAMOS, PRIMEIRA CÂMARA DE DIREITO PÚBLICO E COLETIVO, Julgado em 25/02/2019, Publicado no DJE 21/03/2019)
+#4652543
+TRIBUTÁRIO. COFINS. TRIBUTO SUJEITO A LANÇAMENTO POR HOMOLOGAÇÃO. AUSÊNCIA DE DECLARAÇÃO DO VALOR A SER PAGO A ESSE TÍTULO. LANÇAMENTO DE OFÍCIO. NECESSIDADE DE NOTIFICAÇÃO AO CONTRIBUINTE. I - No caso de tributos sujeitos a lançamento por homologação, a constituição do crédito se dá com a entrega da declaração pelo sujeito passivo, independentemente de qualquer atuação por parte do Fisco, nos moldes do art. 150 do CTN.II - A constituição do crédito tributário também poderá ocorrer de ofício, nos moldes do art. 149 do CTN, na ausência de declaração do contribuinte ou se elaborada em desacordo com a legislação tributária, com omissões ou inexatidões, sujeitando-se ao prazo decadencial do inciso I, do art. 173, do CTN.III - No caso de lançamento de ofício, a constituição definitiva do crédito se dá após a notificação do contribuinte, o qual terá o prazo de trinta dias para protocolizar eventual impugnação. Não havendo irresignação, a constituição definitiva ocorrerá no trigésimo primeiro dia após a notificação do lançamento.IV - No caso dos autos, conforme afirmado pela própria exequente, a contribuinte não declarou os valores a serem pagos a título de COFINS, por entender que estava abrangida pela isenção contida no art. 6º da Lei Complementar nº 70/91.V - Tendo ocorrido o lançamento de ofício, já que a apelada não declarou nem pagou o tributo que a exequente entende devido, havia a necessidade de notificação da apelada, não sendo cabível o entendimento de que, apesar de não ter declarado expressamente os valores a serem recolhidos a título de COFINS, tendo discriminado o faturamento e a referida contribuição incidindo à alíquota de 2% sobre o faturamento declarado, a contribuinte teria confessado tal débito.VI - Verificando ter havido omissão na declaração da contribuinte acerca da COFINS devida, a Fazenda Pública efetuou o lançamento de ofício, mostrando-se imprescindível, assim, a notificação regular do lançamento, que conduziria à constituição do crédito tributário, oportunizando-se à contribuinte apresentar eventual impugnação ( art. 145, I, do CTN), no prazo legal de trinta dias.VII - Não tendo havido a notificação do lançamento, não se verifica a constituição do crédito tributário, devendo ser reconhecida a inexistência do título executivo.VIII - Recurso de apelação improvido. (TRF 3ª Região, QUARTA TURMA, ApelRemNec - APELAÇÃO/REMESSA NECESSÁRIA - 1232967 - 0014005-52.2001.4.03.6182, Rel. DESEMBARGADOR FEDERAL MARCELO SARAIVA, julgado em 13/06/2019, e-DJF3 Judicial 1 DATA:17/07/2019)
+TRIBUTÁRIO E PROCESSUAL CIVIL. EMBARGOS À EXECUÇÃO FISCAL. CONSELHO DE FISCALIZAÇÃO PROFISSIONAL. NOTIFICAÇÃO DO EXECUTADO. IRREGULARIDADE. NULIDADE DA CDA.1. A notificação do sujeito passivo é condição de eficácia do lançamento. A presunção de legitimidade da certidão de dívida ativa descrita no art. 3º da Lei 6.830/80 somente deve ser considerada estando a dívida regularmente inscrita. Assim, a falta de notificação válida implica ausência de aperfeiçoamento do lançamento e de constituição do crédito tributário.2. À análise dos autos, verifico que foi comprovado o envio da notificação constante do evento 8, NOT2. Todavia, conforme delineado na fundamentação, a notificação dando conta do vencimento do tributo e da iminente inscrição em dívida ativa não supre o requisito necessário à regular constituição do crédito, porquanto se trata de etapa posterior e que não se confunde com o lançamento de ofício.3. Conclui-se, assim, que a falta de notificação válida implica ausência de aperfeiçoamento do lançamento e de constituição do crédito tributário. A presunção de legitimidade da certidão de dívida ativa descrita no art. 3º da Lei 6.830/80 somente deve ser considerada estando a dívida regularmente inscrita. Desta maneira, a regularidade da inscrição é pressuposto indispensável para formação válida do título executivo que embasa o executivo fiscal.4. Desprovido o apelo. (TRF4, AC 5000094-16.2017.4.04.7210, Relator (a): ROGER RAUPP RIOS, PRIMEIRA TURMA, Julgado em: 15/05/2019, Publicado em: 15/05/2019, #94652543)
+Cabe esclarecer, que o lançamento tributário é ato isolado, decorrente de procedimento prévio a fim de apurar a ocorrência do fato gerador, identificar o sujeito passivo e quantificar a exação.
+Feitos tais procedimentos, é indispensável a notificação do sujeito passivo, para pagar o valor indicado ou para apresentar impugnação, na forma do artigo 11, II, do Decreto nº 70.235, de 1972, que dispõe:
+Art. 11. A notificação de lançamento será expedida pelo órgão que administra o tributo e conterá obrigatoriamente:
+(...)
+II - o valor do crédito tributário e o prazo para recolhimento ou impugnação;
+Assim, em fase posterior ao lançamento deve ser garantido ao contribuinte o exercício do contraditório, constitucionalmente assegurado pelo artigo 5º, LV, da Constituição Federal.
+Diante da ausência deste procedimento, resta evidenciado o desrespeito às normas constitucionais e legais regulatórias dos processos em geral e, especificamente, do processo administrativo fiscal, culminando na não-perfectibilizaçao do lançamento e, consequentemente, na nulidade dos títulos executivos embasados no crédito defeituosamente constituído.
+DO FATO GERADOR DO IMPOSTO DE RENDA
+Para fins de aplicabilidade do imposto de renda, verifica-se que o fato gerador, nas palavras de Hugo de Brito Machado, é a "aquisição da disponibilidade econômica ou jurídica de renda, assim entendido o produto do capital, do trabalho ou da combinação de ambos" (in Curso de Direito Tributário. 14ª ed. p. 226)
+O conceito de renda, então, assume crucial importância para fins de análise de sua exigibilidade. Dessa forma, o imposto tem-se configurado diante do "acréscimo patrimonial", na mesma linha do que faz o Código Tributário Nacional ao referir:
+"Art. 43. O imposto, de competência da União, sobre a renda e proventos de qualquer natureza tem como fato gerador a aquisição da disponibilidade econômica ou jurídica:
+I - de renda, assim entendido o produto do capital, do trabalho ou da combinação de ambos;
+II - de proventos de qualquer natureza, assim entendidos os acréscimos patrimoniais não compreendidos no inciso anterior."
+Assim, para que haja renda, deve haver um acréscimo patrimonial. Segue a mesma linha a lição de José Artur Lima Gonçalves:
+"A extensão dos termos "renda"e "proventos de qualquer natureza" dá o contorno do que pode ser tributado e do que não pode ser tributado a tal título. Na instituição do imposto, o legislador ordinário não pode extrapolar a amplitude de tais conceitos, sob pena de inconstitucionalidade. A renda é o acréscimo patrimonial produto do capital ou do trabalho. Proventos são os acréscimos patrimoniais decorrentes de uma atividade que já cessou."Acréscimo patrimonial", portanto, é o elemento comum e nuclear dos conceitos de renda e de proventos, ressaltado pelo próprio art. 43 do CTN na definição do fato gerador de tal imposto." (PAULSEN, Leandro. Curso de Direito Tributário Completo. 9.ed. SaraivaJur, 2018. Versão E-pub, Cap. XXIII/143)
+Ocorre que no presente caso, a exigibilidade do imposto de renda esta maculada, devendo ser revista.
+DA DEDUÇÃO DE RECIBOS MÉDICOS DO IR
+Pela redação da Lei 9.250/95, em seu art. 8º, inciso II, b, há possibilidade de dedução das despesas médicas da base de cálculo do Imposto de Renda, in verbis:
+Art. 8º A base de cálculo do imposto devido no ano-calendário será a diferença entre as somas:
+I - de todos os rendimentos percebidos durante o ano-calendário, exceto os isentos, os não-tributáveis, os tributáveis exclusivamente na fonte e os sujeitos à tributação definitiva;
+II - das deduções relativas:
+a) aos pagamentos efetuados, no ano-calendário, a médicos, dentistas, psicólogos, fisioterapeutas, fonoaudiólogos, terapeutas ocupacionais e hospitais, bem como as despesas com exames laboratoriais, serviços radiológicos, aparelhos ortopédicos e próteses ortopédicas e dentárias;
+Nesse mesmo sentido é a redação do decreto nº 9.580/2018:
+Das despesas médicas
+Art. 73. Na determinação da base de cálculo do imposto sobre a renda devido na declaração de ajuste anual, poderão ser deduzidos os pagamentos efetuados, no ano-calendário, a médicos, dentistas, psicólogos, fisioterapeutas, fonoaudiólogos, terapeutas ocupacionais e hospitais, e as despesas com exames laboratoriais, serviços radiológicos, aparelhos ortopédicos e próteses ortopédicas e dentárias (Lei nº 9.250, de 1995, art. 8º, caput, inciso II, alínea a).
+Portanto, não há qualquer fundamento que se justifique a negativa de dedução pelos documentos apresentados, conforme documentos em anexo.
+DAS DILIGÊNCIAS NECESSÁRIAS
+Para fins de provar o acima alegado, requer:
+a) A promoção de perícia em ________ ;
+b) A oitiva de testemunhas, para fins de comprovar a ________ ;
+DO PEDIDO
+Diante do exposto, requer o acolhimento do presente recurso à vista de todo o exposto, demonstrada a insubsistência e improcedência da ação fiscal. Além disso, espera e requer a Recorrente seja acolhido o presente recurso para o fim de assim ser decidido, cancelando-se o débito fiscal reclamado.
+Termos em que, pede deferimento.
+________ e ________
+Nome e assinatura do Recorrente
+ANEXOS
+Pessoa Física
+Espólio
+Pessoa Jurídica
+1. Identificação do Autor
+2. Procuração
+3. Cópia do Auto de Infração
+4. Documentos que provam a defesa
+5. Prova do recolhimento ou pedido de parcelamento da parte não impugnada
+6. Cópia simples da petição inicial, se a matéria impugnada foi submetida à apreciação judicial.
+7. Prova da legitimidade
+8. Ato constitutivo

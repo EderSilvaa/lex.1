@@ -11,19 +11,16 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import {
     AgentState,
-    AgentContext,
     AgentStep,
     AgentConfig,
     AgentEvent,
-    AgentSpec,
-    ThinkDecision,
+    AgentLoopOptions,
     SkillResult,
     DEFAULT_CONFIG,
-    TenantConfig
 } from './types';
-import { think } from './think';
+import { think, clearPromptCache } from './think';
 import { critic } from './critic';
-import { executeSkill, getSkillsForPrompt } from './executor';
+import { executeSkill } from './executor';
 import { getMemory } from './memory';
 import { getResponseCache } from './cache';
 import { getSessionManager } from './session';
@@ -31,15 +28,60 @@ import { getActivePage } from '../browser-manager';
 import { getDocIndex } from './doc-index';
 import { normalizeTribunalCode, inferTribunalKey } from '../pje/tribunal-urls';
 import { getAnalytics } from '../analytics';
+import { getActiveConfig, setActiveConfig, PROVIDER_PRESETS, type ActiveProviderConfig } from '../provider-config';
 import {
     createVault, clearVault, unmask, getVaultStats, getVaultSummary,
-    shouldMaskPII, shouldUseLocalModel, getEffectiveLevel,
-    logLLMCall
+    shouldMaskPII, shouldUseLocalModel,
 } from '../privacy';
-import type { PIIVault, PIICategory } from '../privacy';
+import type { PIIVault } from '../privacy';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
+
+// ============================================================================
+// PRIVACY ROUTING
+// ============================================================================
+
+interface PrivacyContext {
+    vault: PIIVault | undefined;
+    /** Restaura provider original e limpa vault. Chamar no finally do run. */
+    cleanup: () => void;
+}
+
+/**
+ * Configura privacy para o run: cria PII vault e auto-redireciona
+ * para Ollama (level 0) se necessário. Retorna cleanup para o finally.
+ */
+function setupPrivacy(): PrivacyContext {
+    const activeProviderId = getActiveConfig().providerId;
+    const privacyEnabled = shouldMaskPII(activeProviderId);
+    const vault = privacyEnabled ? createVault() : undefined;
+
+    // Privacy level 0: auto-route to Ollama (nothing leaves the machine)
+    let prevConfig: ActiveProviderConfig | undefined;
+    if (shouldUseLocalModel(activeProviderId) && activeProviderId !== 'ollama') {
+        prevConfig = { ...getActiveConfig() };
+        const ollPreset = PROVIDER_PRESETS.ollama;
+        setActiveConfig({
+            providerId: 'ollama',
+            apiKey: 'ollama',
+            agentModel: ollPreset.defaultAgentModel,
+            visionModel: ollPreset.defaultVisionModel,
+        });
+        console.log('[Agent] Privacy level 0 → auto-routing to Ollama');
+    }
+
+    return {
+        vault,
+        cleanup() {
+            if (vault) clearVault(vault);
+            if (prevConfig) {
+                setActiveConfig(prevConfig);
+                console.log('[Agent] Provider restaurado para', prevConfig.providerId);
+            }
+        },
+    };
+}
 
 // A3: Registry de runs ativos para cancel/state
 const activeRuns = new Map<string, { state: AgentState; abort: AbortController }>();
@@ -71,14 +113,8 @@ function log(verbose: boolean, ...args: any[]): void {
  * @param tenantConfig - Config do tenant (Prompt-Layer)
  * @returns Resposta final do agente
  */
-export async function runAgentLoop(
-    objetivo: string,
-    config: Partial<AgentConfig> = {},
-    tenantConfig?: TenantConfig,
-    sessionId?: string,   // A2: ID da sessão para multi-turn
-    agentSpec?: AgentSpec,  // Phase 1 AIOS: especialização do agente
-    parentAbort?: AbortSignal  // P0 Fix 4: abort propagation from parent
-): Promise<string> {
+export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
+    const { objetivo, config = {}, tenantConfig, sessionId, agentSpec, parentAbort } = opts;
     const cfg = { ...DEFAULT_CONFIG, ...config, ...(agentSpec?.configOverrides || {}) };
     const runId = randomUUID();
     const abort = new AbortController();
@@ -105,32 +141,9 @@ export async function runAgentLoop(
         memoriaData.preferencias?.['tribunal_preferido'] || usuarioData.tribunal_preferido
     );
 
-    // Privacy: cria vault para este run (se mascaramento ativo)
-    let activeProviderId: string | undefined;
-    try {
-        const { getActiveConfig } = await import('../provider-config');
-        activeProviderId = getActiveConfig().providerId;
-    } catch { /* ignore */ }
-    const privacyEnabled = shouldMaskPII(activeProviderId);
-    const vault = privacyEnabled ? createVault() : undefined;
-
-    // Privacy level 0: auto-route to Ollama (nothing leaves the machine)
-    let _prevConfig: { providerId: string; agentModel: string; visionModel: string; apiKey: string } | undefined;
-    if (shouldUseLocalModel(activeProviderId) && activeProviderId !== 'ollama') {
-        try {
-            const { getActiveConfig, setActiveConfig, PROVIDER_PRESETS } = await import('../provider-config');
-            const prev = getActiveConfig();
-            _prevConfig = { ...prev };
-            const ollPreset = PROVIDER_PRESETS.ollama;
-            setActiveConfig({
-                providerId: 'ollama',
-                apiKey: 'ollama',
-                agentModel: ollPreset.defaultAgentModel,
-                visionModel: ollPreset.defaultVisionModel,
-            });
-            console.log('[Agent] Privacy level 0 → auto-routing to Ollama');
-        } catch { /* ignore */ }
-    }
+    // Privacy: vault + auto-route to Ollama se level 0
+    const privacy = setupPrivacy();
+    const vault = privacy.vault;
 
     // Inicializa estado
     const state: AgentState = {
@@ -140,7 +153,7 @@ export async function runAgentLoop(
         piiVault: vault,
         contexto: {
             documentos: [],
-            resultados: new Map(),
+            resultados: {},
             usuario: {
                 ...usuarioData,
                 ...(preferredTribunal ? { tribunal_preferido: preferredTribunal } : {})
@@ -172,7 +185,7 @@ export async function runAgentLoop(
         const historyPrompt = await sessionManager.formatHistoryWithSummary(sessionId);
         if (historyPrompt) {
             // Injeta histórico no contexto para uso pelo think.ts
-            (state.contexto as any).chatHistory = historyPrompt;
+            state.contexto.chatHistory = historyPrompt;
         }
         // Registra mensagem do usuário na sessão
         sessionManager.addMessage(sessionId, 'user', objetivo);
@@ -190,11 +203,8 @@ export async function runAgentLoop(
     // Analytics: rastreia mensagem e provider
     const analytics = getAnalytics();
     analytics.trackMessage();
-    try {
-        const { getActiveConfig } = await import('../provider-config');
-        const providerCfg = getActiveConfig();
-        analytics.trackProvider(providerCfg.providerId, providerCfg.agentModel);
-    } catch { /* ignore */ }
+    const providerCfg = getActiveConfig();
+    analytics.trackProvider(providerCfg.providerId, providerCfg.agentModel);
 
     // B1: Verificar cache antes de entrar no loop
     const cache = getResponseCache();
@@ -381,7 +391,21 @@ export async function runAgentLoop(
                                 .filter(p => p.tipo === 'act' && p.skill)
                                 .map(p => p.skill!)
                         });
+
+                        // Premium: extração de facts + promoção cross-session (async, non-blocking)
+                        sessionManager.extractAndStoreFacts(activeSessionId).catch(e =>
+                            console.warn('[Agent] Fact extraction failed:', e.message)
+                        );
+                        sessionManager.promoteCrossSessionFacts(activeSessionId, memory).catch(e =>
+                            console.warn('[Agent] Cross-session promotion failed:', e.message)
+                        );
                     }
+
+                    // Legal Extractor: extrai citações jurídicas e salva no store (async, non-blocking)
+                    try {
+                        const { extractAndSave } = require('../legal/legal-extractor');
+                        extractAndSave(decisao.resposta!);
+                    } catch { /* legal extractor optional */ }
 
                     return decisao.resposta!;
                 }
@@ -407,6 +431,11 @@ export async function runAgentLoop(
 
                     if (activeSessionId) {
                         sessionManager.addMessage(activeSessionId, 'assistant', decisao.pergunta!);
+
+                        // Premium: extração de facts (async, non-blocking)
+                        sessionManager.extractAndStoreFacts(activeSessionId).catch(e =>
+                            console.warn('[Agent] Fact extraction failed:', e.message)
+                        );
                     }
 
                     // Retorna pergunta (UI deve lidar com continuação)
@@ -420,15 +449,11 @@ export async function runAgentLoop(
                     let skillName = decisao.skill!;
                     let params = decisao.parametros || {};
 
-                    // Guard: detecta loop infinito (mesma skill + mesmos params que o último ACT)
-                    const lastAct = [...state.passos].reverse().find(p => p.tipo === 'act');
-                    if (
-                        lastAct &&
-                        lastAct.skill === skillName &&
-                        JSON.stringify(lastAct.parametros) === JSON.stringify(params)
-                    ) {
+                    // Guard: detecta loop infinito (repetição ou ciclo nas últimas N ações)
+                    const loopDetected = detectSkillLoop(state.passos, skillName, params);
+                    if (loopDetected) {
                         state.status = 'waiting_user';
-                        const question = `Detectei que estou repetindo a mesma ação ("${skillName}") com os mesmos parâmetros. Quer tentar uma abordagem diferente ou devo tentar novamente?`;
+                        const question = `Detectei que estou repetindo ações (${loopDetected}). Quer tentar uma abordagem diferente ou devo tentar novamente?`;
                         emit({ type: 'waiting_user', pergunta: question, opcoes: ['Tente novamente', 'Tente outra abordagem', 'Cancelar'] });
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
@@ -438,53 +463,25 @@ export async function runAgentLoop(
                     }
 
                     if (cfg.enableCritic) {
-                        log(cfg.verbose, 'Critic: revisando acao planejada...');
-                        const criticStart = Date.now();
-                        const criticDecision = await critic(state, { skill: skillName, parametros: params }, cfg);
-                        const criticDuration = Date.now() - criticStart;
+                        const criticResult = await applyCritic(state, skillName, params, cfg);
 
-                        const criticStep: AgentStep = {
-                            iteracao: state.iteracao,
-                            timestamp: new Date().toISOString(),
-                            tipo: 'critic',
-                            critic: criticDecision,
-                            duracao: criticDuration
-                        };
-                        state.passos.push(criticStep);
-
-                        emit({ type: 'criticizing', decision: criticDecision, iteracao: state.iteracao });
-                        emit({
-                            type: 'thinking',
-                            pensamento: `[Critic] ${criticDecision.reason}`,
-                            iteracao: state.iteracao
-                        });
-
-                        if (cfg.hooks?.afterCritic) {
-                            await cfg.hooks.afterCritic(state, criticDecision);
-                        }
-
-                        if (!criticDecision.approved || criticDecision.requiresUserConfirmation) {
+                        // Critic bloqueou → pergunta ao usuário
+                        if (criticResult.blocked) {
                             state.status = 'waiting_user';
-                            const question = criticDecision.suggestedQuestion
-                                || `A ação "${skillName}" foi retida pelo critic: ${criticDecision.reason}`;
                             emit({
                                 type: 'waiting_user',
-                                pergunta: question,
+                                pergunta: criticResult.blocked,
                                 opcoes: ['Sim, confirmar', 'Cancelar']
                             });
                             if (activeSessionId) {
-                                sessionManager.addMessage(activeSessionId, 'assistant', question);
+                                sessionManager.addMessage(activeSessionId, 'assistant', criticResult.blocked);
                             }
-                            return `❓ ${question}`;
+                            return `❓ ${criticResult.blocked}`;
                         }
 
-                        if (criticDecision.correctedDecision?.skill) {
-                            skillName = criticDecision.correctedDecision.skill;
-                            if (criticDecision.correctedDecision.parametros) {
-                                params = criticDecision.correctedDecision.parametros;
-                            }
-                            log(cfg.verbose, `Critic: acao ajustada para ${skillName}`);
-                        }
+                        // Critic pode ter corrigido skill/params
+                        skillName = criticResult.skillName;
+                        params = criticResult.params;
                     }
 
                     log(cfg.verbose, `🔧 Executando: ${skillName}`);
@@ -584,25 +581,17 @@ export async function runAgentLoop(
         if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', errorMsg);
         return errorMsg;
     } finally {
+        // Limpa cache de prompt estático deste run
+        clearPromptCache(runId);
         // Garante que sessão é salva em disco independente do exit path
         if (activeSessionId) {
             try { await sessionManager.flush(); } catch { /* best-effort */ }
         }
         // P0 Fix 4: cleanup parent abort listener
         parentCleanup?.();
-        // Privacy: limpa vault (dados sensíveis nunca persistem)
-        if (vault) {
-            clearVault(vault);
-            state.piiVault = undefined;
-        }
-        // Restaura provider original se foi auto-roteado para Ollama
-        if (_prevConfig) {
-            try {
-                const { setActiveConfig } = await import('../provider-config');
-                setActiveConfig(_prevConfig as any);
-                console.log('[Agent] Provider restaurado para', _prevConfig.providerId);
-            } catch { /* ignore */ }
-        }
+        // Privacy: limpa vault + restaura provider original
+        privacy.cleanup();
+        state.piiVault = undefined;
     }
 }
 
@@ -613,7 +602,7 @@ async function updateContext(state: AgentState, skill: string, resultado: SkillR
     if (!resultado.sucesso || !resultado.dados) return;
 
     // Armazena resultado
-    state.contexto.resultados.set(skill, resultado.dados);
+    state.contexto.resultados[skill] = resultado.dados;
 
     // Atualiza contexto específico baseado no tipo de skill
     if (skill.startsWith('pje_') && resultado.dados.processo) {
@@ -697,11 +686,11 @@ function inferTribunalFromContext(state: AgentState): string | null {
     const processTribunal = normalizeTribunalCode(state.contexto.processo?.tribunal);
     if (processTribunal) return processTribunal;
 
-    const pjeAbrirResult = state.contexto.resultados.get('pje_abrir');
+    const pjeAbrirResult = state.contexto.resultados['pje_abrir'];
     const fromOpenSkill = extractTribunalFromData(pjeAbrirResult);
     if (fromOpenSkill) return fromOpenSkill;
 
-    const pjeConsultarResult = state.contexto.resultados.get('pje_consultar');
+    const pjeConsultarResult = state.contexto.resultados['pje_consultar'];
     const fromConsultSkill = extractTribunalFromData(pjeConsultarResult);
     if (fromConsultSkill) return fromConsultSkill;
 
@@ -787,6 +776,147 @@ export function listActiveRuns(): Array<{ runId: string; objetivo: string; itera
         runs.push({ runId: id, objetivo: run.state.objetivo, iteracao: run.state.iteracao });
     });
     return runs;
+}
+
+// ============================================================================
+// LOOP DETECTION
+// ============================================================================
+
+// ============================================================================
+// CRITIC
+// ============================================================================
+
+interface CriticResult {
+    skillName: string;
+    params: Record<string, any>;
+    /** Se definido, o critic bloqueou a ação — valor é a pergunta para o usuário */
+    blocked?: string;
+}
+
+/**
+ * Avalia a ação planejada via critic. Retorna skill/params (possivelmente corrigidos)
+ * ou `blocked` com a pergunta para o usuário se o critic reprovou.
+ */
+async function applyCritic(
+    state: AgentState,
+    skillName: string,
+    params: Record<string, any>,
+    cfg: AgentConfig
+): Promise<CriticResult> {
+    log(cfg.verbose, 'Critic: revisando acao planejada...');
+    const criticStart = Date.now();
+    const criticDecision = await critic(state, { skill: skillName, parametros: params }, cfg);
+    const criticDuration = Date.now() - criticStart;
+
+    // Registra passo
+    state.passos.push({
+        iteracao: state.iteracao,
+        timestamp: new Date().toISOString(),
+        tipo: 'critic',
+        critic: criticDecision,
+        duracao: criticDuration
+    });
+
+    emit({ type: 'criticizing', decision: criticDecision, iteracao: state.iteracao });
+    emit({
+        type: 'thinking',
+        pensamento: `[Critic] ${criticDecision.reason}`,
+        iteracao: state.iteracao
+    });
+
+    // Hook
+    if (cfg.hooks?.afterCritic) {
+        await cfg.hooks.afterCritic(state, criticDecision);
+    }
+
+    // Bloqueado ou requer confirmação
+    if (!criticDecision.approved || criticDecision.requiresUserConfirmation) {
+        const question = criticDecision.suggestedQuestion
+            || `A ação "${skillName}" foi retida pelo critic: ${criticDecision.reason}`;
+        return { skillName, params, blocked: question };
+    }
+
+    // Correção de skill/params
+    let finalSkill = skillName;
+    let finalParams = params;
+    if (criticDecision.correctedDecision?.skill) {
+        finalSkill = criticDecision.correctedDecision.skill;
+        if (criticDecision.correctedDecision.parametros) {
+            finalParams = criticDecision.correctedDecision.parametros;
+        }
+        log(cfg.verbose, `Critic: acao ajustada para ${finalSkill}`);
+    }
+
+    return { skillName: finalSkill, params: finalParams };
+}
+
+// ============================================================================
+// LOOP DETECTION
+// ============================================================================
+
+const LOOP_WINDOW = 6; // últimos N act steps a verificar
+
+/**
+ * Detecta loops nas ações do agente. Retorna descrição do loop ou null.
+ *
+ * Detecta 3 padrões:
+ * 1. Repetição direta: A(p) → A(p) (mesma skill + mesmos params)
+ * 2. Ciclo ping-pong: A → B → A → B (2 skills alternando)
+ * 3. Skill sem progresso: mesma skill 3+ vezes (params diferentes mas sem avanço)
+ */
+function detectSkillLoop(
+    passos: AgentStep[],
+    nextSkill: string,
+    nextParams: Record<string, any>
+): string | null {
+    const acts = passos.filter(p => p.tipo === 'act').slice(-LOOP_WINDOW);
+    if (acts.length === 0) return null;
+
+    const nextSig = `${nextSkill}:${JSON.stringify(nextParams)}`;
+
+    // 1. Repetição direta: última ação é idêntica (skill + params)
+    const last = acts[acts.length - 1]!;
+    const lastSig = `${last.skill}:${JSON.stringify(last.parametros || {})}`;
+    if (nextSig === lastSig) {
+        return `"${nextSkill}" com mesmos parâmetros`;
+    }
+
+    // 2. Ciclo ping-pong: A→B→A→B (verificar se as últimas 3+ ações + próxima formam ciclo)
+    if (acts.length >= 3) {
+        const recentSkills = acts.slice(-3).map(a => a.skill);
+        recentSkills.push(nextSkill);
+        // Checa padrão A,B,A,B
+        if (
+            recentSkills[0] === recentSkills[2] &&
+            recentSkills[1] === recentSkills[3] &&
+            recentSkills[0] !== recentSkills[1]
+        ) {
+            return `ciclo "${recentSkills[0]}" ↔ "${recentSkills[1]}"`;
+        }
+    }
+
+    // 3. Mesma skill 3+ vezes na janela (params podem variar)
+    const skillCounts = new Map<string, number>();
+    for (const act of acts) {
+        skillCounts.set(act.skill!, (skillCounts.get(act.skill!) || 0) + 1);
+    }
+    const nextCount = (skillCounts.get(nextSkill) || 0) + 1;
+    if (nextCount >= 3) {
+        // Verifica se os observes dessa skill indicam sucesso — se sim, não é loop
+        const observes = passos
+            .filter(p => p.tipo === 'observe' && p.resultado)
+            .slice(-LOOP_WINDOW);
+        const relevantObserves = observes.filter(() => {
+            return acts.some(a => a.skill === nextSkill);
+        });
+        const allFailed = relevantObserves.length > 0 &&
+            relevantObserves.every(o => !o.resultado?.sucesso);
+        if (allFailed) {
+            return `"${nextSkill}" falhou ${nextCount - 1}x consecutivas`;
+        }
+    }
+
+    return null;
 }
 
 function shouldPauseForUserAction(resultado: SkillResult): boolean {

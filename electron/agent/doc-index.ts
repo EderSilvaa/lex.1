@@ -71,12 +71,25 @@ class DocIndex {
     /**
      * Indexa todos os documentos dos workspaces.
      * Re-indexação completa — substitui o índice anterior.
+     * Inclui automaticamente a base de modelos jurídicos embutida.
      */
     async indexarWorkspace(workspacePaths: string[]): Promise<{ chunks: number; arquivos: number }> {
         const novosChunks: DocChunk[] = [];
         let arquivosIndexados = 0;
 
-        for (const wsPath of workspacePaths) {
+        // Incluir modelos jurídicos embutidos automaticamente
+        const allPaths = [...workspacePaths];
+        const modelosDir = path.join(__dirname, 'batch', 'modelos', 'drive');
+        if (fs.existsSync(modelosDir) && !allPaths.includes(modelosDir)) {
+            allPaths.push(modelosDir);
+        }
+        // Fallback: path em dev mode
+        const modelosDevDir = path.join(__dirname, '..', 'electron', 'batch', 'modelos', 'drive');
+        if (fs.existsSync(modelosDevDir) && !allPaths.includes(modelosDevDir) && !allPaths.includes(modelosDir)) {
+            allPaths.push(modelosDevDir);
+        }
+
+        for (const wsPath of allPaths) {
             if (!fs.existsSync(wsPath)) continue;
             const arquivos = this.listarArquivos(wsPath);
 
@@ -93,7 +106,8 @@ class DocIndex {
         this.chunks = novosChunks;
         this.persistir(workspacePaths);
 
-        console.log(`[DocIndex] Indexados ${novosChunks.length} chunks de ${arquivosIndexados} arquivos`);
+        const modelosCount = allPaths.length - workspacePaths.length;
+        console.log(`[DocIndex] Indexados ${novosChunks.length} chunks de ${arquivosIndexados} arquivos${modelosCount > 0 ? ' (inclui modelos jurídicos)' : ''}`);
         return { chunks: novosChunks.length, arquivos: arquivosIndexados };
     }
 

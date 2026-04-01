@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
+import type { CrossSessionFact } from './types';
 
 // ============================================================================
 // TYPES
@@ -19,6 +20,8 @@ export interface MemoriaData {
     aprendizados: string[];
     preferencias: Record<string, any>;
     usuario: UsuarioData;
+    /** Cross-session facts — contexto persistente de processos entre sessões */
+    fatos: CrossSessionFact[];
 }
 
 export interface InteracaoSalva {
@@ -56,7 +59,8 @@ const DEFAULTS: MemoriaData = {
     interacoes: [],
     aprendizados: [],
     preferencias: {},
-    usuario: {}
+    usuario: {},
+    fatos: []
 };
 
 export class Memory {
@@ -273,6 +277,49 @@ export class Memory {
     }
 
     // ========================================================================
+    // CROSS-SESSION FACTS
+    // ========================================================================
+
+    /**
+     * Adiciona ou atualiza fato de processo. Merge teses/decisões por processoNumero.
+     * Max 100 fatos, evict oldest.
+     */
+    async addOrUpdateFact(fact: CrossSessionFact): Promise<void> {
+        const fatos = this.data.fatos ?? [];
+        const existingIdx = fatos.findIndex(f => f.processoNumero === fact.processoNumero);
+
+        if (existingIdx >= 0) {
+            const old = fatos[existingIdx]!;
+            fatos[existingIdx] = {
+                ...old,
+                ...fact,
+                tesesDiscutidas: [...new Set([...old.tesesDiscutidas, ...fact.tesesDiscutidas])],
+                decisoes: [...new Set([...old.decisoes, ...fact.decisoes])],
+                lastUpdated: Date.now(),
+            };
+        } else {
+            fatos.push({ ...fact, lastUpdated: Date.now() });
+        }
+
+        // Max 100, evict oldest
+        this.data.fatos = fatos
+            .sort((a, b) => b.lastUpdated - a.lastUpdated)
+            .slice(0, 100);
+        this.save();
+        console.log(`[Memory] Fato cross-session: ${fact.processoNumero}`);
+    }
+
+    async getFactsForProcess(numero: string): Promise<CrossSessionFact | undefined> {
+        return (this.data.fatos ?? []).find(f => f.processoNumero === numero);
+    }
+
+    async getRecentFacts(limit = 10): Promise<CrossSessionFact[]> {
+        return (this.data.fatos ?? [])
+            .sort((a, b) => b.lastUpdated - a.lastUpdated)
+            .slice(0, limit);
+    }
+
+    // ========================================================================
     // PREFERÊNCIAS
     // ========================================================================
 
@@ -296,6 +343,7 @@ export class Memory {
         const recentes = await this.getProcessosRecentes(5);
         const aprendizados = (this.data.aprendizados ?? []).slice(-5);
         const usuario = await this.getUsuario();
+        const fatos = this.data.fatos ?? [];
 
         const partes: string[] = [];
 
@@ -305,6 +353,33 @@ export class Memory {
 
         if (recentes.length > 0) {
             partes.push(`Processos recentes: ${recentes.join(', ')}`);
+        }
+
+        // Cross-session facts: busca processos mencionados no objetivo
+        const processRegex = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
+        const processMatches = objetivo.match(processRegex) || [];
+        for (const num of processMatches) {
+            const fact = fatos.find(f => f.processoNumero === num);
+            if (fact) {
+                const lines = [`Contexto anterior do processo ${num}:`];
+                if (fact.classe) lines.push(`  Classe: ${fact.classe}`);
+                if (fact.partes?.autor) lines.push(`  Autor: ${fact.partes.autor.join(', ')}`);
+                if (fact.partes?.reu) lines.push(`  Réu: ${fact.partes.reu.join(', ')}`);
+                if (fact.tribunal) lines.push(`  Tribunal: ${fact.tribunal}`);
+                if (fact.tesesDiscutidas.length) lines.push(`  Teses: ${fact.tesesDiscutidas.join('; ')}`);
+                if (fact.decisoes.length) lines.push(`  Decisões: ${fact.decisoes.join('; ')}`);
+                if (fact.status) lines.push(`  Status: ${fact.status}`);
+                partes.push(lines.join('\n'));
+            }
+        }
+
+        // Se não mencionou processo específico, mostra fatos recentes como contexto
+        if (processMatches.length === 0 && fatos.length > 0) {
+            const recentFacts = fatos.slice(0, 3);
+            const factLines = recentFacts.map(f =>
+                `• ${f.processoNumero}${f.classe ? ` (${f.classe})` : ''}: ${f.tesesDiscutidas.slice(0, 2).join(', ') || 'sem teses'}`
+            );
+            partes.push(`Processos recentes com contexto:\n${factLines.join('\n')}`);
         }
 
         if (similares.length > 0) {

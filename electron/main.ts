@@ -39,7 +39,7 @@ app.commandLine.appendSwitch('disable-gpu-sandbox')
 // Agent module loaded dynamically after app ready
 let agentModule: {
     initializeAgent: () => Promise<void>;
-    runAgentLoop: (objetivo: string, config: any, tenantConfig: any, sessionId?: string, agentSpec?: any, parentAbort?: AbortSignal) => Promise<string>;
+    runAgentLoop: (opts: import('./agent/types').AgentLoopOptions) => Promise<string>;
     cancelAgentLoop: (runId?: string) => boolean;
     agentEmitter: import('events').EventEmitter;
     getDefaultTenantConfig: () => any;
@@ -357,11 +357,30 @@ OBS: Se o usuário pedir para pesquisar algo (ex: "busque decisões sobre X"), a
 
 function criarPromptJuridico(contexto: any, pergunta: string): string {
     const tipoConversa = detectarTipoConversa(pergunta);
-    const promptBase = obterPromptBase(tipoConversa);
-    // Simple context formatting
-    const contextStr = JSON.stringify(contexto, null, 2);
 
-    return `${promptBase}\n\nCONTEXTO DO PROCESSO:\n${contextStr}\n\nPERGUNTA: ${pergunta}\n\n${obterInstrucoesEspecificas(tipoConversa)}`;
+    // Usa o prompt-layer para personalidade e comportamento (mesmo sistema do agent loop)
+    let systemPrompt: string;
+    try {
+        const tenantConfig = agentModule?.getDefaultTenantConfig?.();
+        if (tenantConfig) {
+            const { buildPromptLayerSystem } = require('./agent/prompt-layer');
+            systemPrompt = buildPromptLayerSystem(tenantConfig);
+        } else {
+            systemPrompt = obterPromptBase(tipoConversa);
+        }
+    } catch {
+        systemPrompt = obterPromptBase(tipoConversa);
+    }
+
+    // Contexto do processo (se houver)
+    const contextStr = contexto && Object.keys(contexto).length > 0
+        ? `\n\nCONTEXTO DO PROCESSO:\n${JSON.stringify(contexto, null, 2)}`
+        : '';
+
+    // Instruções específicas do tipo (mantém para automação)
+    const instrucoes = tipoConversa === 'automacao' ? `\n\n${obterInstrucoesEspecificas(tipoConversa)}` : '';
+
+    return `${systemPrompt}${contextStr}${instrucoes}`;
 }
 
 /**
@@ -535,6 +554,28 @@ ipcMain.handle('privacy-get-effective-level', (_event, providerId?: string) => {
 
 ipcMain.handle('privacy-get-audit-summary', (_event, days?: number) => {
     return getAuditSummary(days ?? 7);
+});
+
+// ── Training (PJe-Model dataset) ──────────────────────────────────────────
+
+ipcMain.handle('training-stats', () => {
+    try {
+        const { getStats } = require('./agent/training-collector');
+        return getStats();
+    } catch {
+        return { total: 0, today: 0, bySistema: {}, byTribunal: {}, bySkill: {}, oldestDate: '', newestDate: '' };
+    }
+});
+
+ipcMain.handle('training-export', async (_event, options?: { minConfidence?: 'medium' | 'high'; sistema?: string; tribunal?: string; maxExamples?: number }) => {
+    try {
+        const userData = app.getPath('userData');
+        const trainingDir = require('path').join(userData, 'training');
+        const { exportForFineTune } = require('./agent/training-exporter');
+        return await exportForFineTune(trainingDir, options ?? {});
+    } catch (err: any) {
+        return { success: false, outputPath: '', stats: {}, error: err.message };
+    }
 });
 
 // ── Ollama (Modelo Local) ──────────────────────────────────────────────────
@@ -1138,6 +1179,12 @@ app.whenReady().then(async () => {
     initRouteMemory(userData);
     initSelectorMemory(userData);
 
+    // Training collector — coleta dados de treino para PJe-model
+    try {
+        const { initTrainingCollector } = require('./agent/training-collector');
+        initTrainingCollector(userData);
+    } catch { /* módulo não disponível */ }
+
     // Inicia backend Node.js separado (agent + browser + skills)
     try {
         await startBackend(userData);
@@ -1188,6 +1235,120 @@ app.whenReady().then(async () => {
         await initScheduler();
     } catch (err: any) {
         console.error('[Scheduler] Falha ao inicializar:', err.message);
+    }
+
+    // Terminal embutido (xterm.js + node-pty)
+    try {
+        const { initTerminal, getPtyManager } = await import('./terminal');
+        initTerminal();
+        const ptyMgr = getPtyManager();
+
+        ipcMain.handle('terminal-create', async (_, opts) => {
+            try {
+                await ptyMgr.createSession(opts.sessionId, opts);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-write', async (_, { sessionId, data }) => {
+            try {
+                ptyMgr.write(sessionId, data);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-resize', async (_, { sessionId, cols, rows }) => {
+            try {
+                ptyMgr.resize(sessionId, cols, rows);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-kill', async (_, sessionId) => {
+            try {
+                ptyMgr.killSession(sessionId);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-list-sessions', async () => {
+            return { success: true, data: ptyMgr.listSessions() };
+        });
+
+        // Forward PTY events para renderer
+        ptyMgr.on('data', (sessionId: string, data: string) => {
+            mainWindow?.webContents.send('terminal-data', { sessionId, data });
+        });
+
+        ptyMgr.on('exit', (sessionId: string, exitCode: number) => {
+            mainWindow?.webContents.send('terminal-exit', { sessionId, exitCode });
+        });
+
+        // Cleanup no quit
+        app.on('before-quit', () => ptyMgr.killAll());
+
+        console.log('[Terminal] IPC handlers registrados');
+    } catch (err: any) {
+        console.error('[Terminal] Falha ao inicializar:', err.message);
+    }
+
+    // Legal Store — base jurídica dinâmica (seed no primeiro uso)
+    try {
+        const { initLegalStore } = await import('./legal/legal-store');
+        initLegalStore();
+    } catch (err: any) {
+        console.warn('[LegalStore] Falha ao inicializar:', err.message);
+    }
+
+    // DataJud Pipeline — data pipeline jurídica (async, não bloqueia boot)
+    try {
+        const { initDataPipeline } = await import('./datajud');
+        await initDataPipeline();
+    } catch (err: any) {
+        console.warn('[DataPipeline] Falha ao inicializar:', err.message);
+    }
+
+    // Knowledge Base de Documentos — schemas + exemplos + seed pipeline
+    try {
+        const { initDocSchemaRegistry } = await import('./legal/doc-schema-registry');
+        const { initDocExamples } = await import('./legal/doc-examples');
+        const { seedIfEmpty } = await import('./legal/doc-seed-pipeline');
+        initDocSchemaRegistry();
+        initDocExamples();
+        const seedResult = seedIfEmpty();
+        if (seedResult) {
+            console.log(`[KnowledgeBase] Seed: ${seedResult.imported} exemplos importados`);
+        }
+    } catch (err: any) {
+        console.warn('[KnowledgeBase] Falha ao inicializar:', err.message);
+    }
+
+    // Python embedded — setup async em background (não bloqueia boot)
+    try {
+        const { initPythonEnv, getPythonEnv } = await import('./python');
+        initPythonEnv();
+        getPythonEnv().setup()
+            .then(() => {
+                // Instala browser-use em background após Python estar pronto
+                import('./browser/browser-use-setup').then(({ ensureBrowserUseInstalled }) =>
+                    ensureBrowserUseInstalled().catch((err: any) =>
+                        console.warn('[BrowserUse] Instalação falhou:', err.message)
+                    )
+                ).catch(() => { /* módulo não disponível */ });
+            })
+            .catch((err: any) =>
+                console.warn('[Python] Setup falhou:', err.message)
+            );
+    } catch (err: any) {
+        console.error('[Python] Falha ao inicializar módulo:', err.message);
     }
 
     // Sync de legislação em background (não bloqueia boot)
@@ -1299,6 +1460,7 @@ app.on('window-all-closed', async function () {
     // Fallback local caso backend não estivesse rodando
     flushRouteMemory();
     flushSelectorMemory();
+    try { require('./agent/training-collector').flush(); } catch { /* ok */ }
     await closeBrowser();
     try {
         if (agentModule) {
@@ -1549,8 +1711,7 @@ async function ensureAgentInitialized() {
     if (!agentInitialized) {
         await agent.initializeAgent();
         // Injeta dialog nativo do Electron para confirmação de ações perigosas
-        const { setConfirmDialog } = await import('./skills/os/sistema');
-        setConfirmDialog(async (titulo: string, detalhe: string) => {
+        const confirmFn = async (titulo: string, detalhe: string) => {
             const { response } = await dialog.showMessageBox({
                 type: 'warning',
                 buttons: ['Cancelar', 'Executar'],
@@ -1562,7 +1723,11 @@ async function ensureAgentInitialized() {
                 noLink: true
             });
             return response === 1;
-        });
+        };
+
+        const { setConfirmDialog } = await import('./skills/os/sistema');
+        setConfirmDialog(confirmFn);
+
         agentInitialized = true;
     }
     return agent;
@@ -1920,12 +2085,12 @@ async function runAgentForTelegram(text: string, sessionId: string): Promise<str
     const agent = await ensureAgentInitialized();
     const tenantConfig = agent.getDefaultTenantConfig();
     const objetivoFinal = injectDisambiguationIfNeeded(text);
-    return await agent.runAgentLoop(
-        objetivoFinal,
-        { maxIterations: 8, timeoutMs: 120000 },
+    return await agent.runAgentLoop({
+        objetivo: objetivoFinal,
+        config: { maxIterations: 8, timeoutMs: 120000 },
         tenantConfig,
-        sessionId
-    );
+        sessionId,
+    });
 }
 
 /** Retorna config do Telegram (sem o token completo) */
@@ -2022,10 +2187,12 @@ ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessi
     try {
         const agent = await ensureAgentInitialized();
         const tenantConfig = agent.getDefaultTenantConfig();
-        const resposta = await agent.runAgentLoop(objetivoFinal, {
-            maxIterations: maxIter,
-            timeoutMs
-        }, tenantConfig, sessionId || AGENT_SESSION_ID);
+        const resposta = await agent.runAgentLoop({
+            objetivo: objetivoFinal,
+            config: { maxIterations: maxIter, timeoutMs },
+            tenantConfig,
+            sessionId: sessionId || AGENT_SESSION_ID,
+        });
         return { success: true, resposta };
     } catch (error: any) {
         console.error('[Agent Local] Erro:', error);
@@ -2164,6 +2331,413 @@ ipcMain.handle('scheduler-set-auto-launch', async (_event, enabled: boolean) => 
 ipcMain.handle('scheduler-get-auto-launch', async () => {
     const settings = app.getLoginItemSettings();
     return { enabled: settings.openAtLogin };
+});
+
+// ============================================================================
+// IPC: DataJud Pipeline
+// ============================================================================
+
+ipcMain.handle('datajud-get-profile', async () => {
+    const { getProfile } = await import('./datajud');
+    return getProfile();
+});
+
+ipcMain.handle('datajud-save-profile', async (_event, profile: any) => {
+    const { saveProfile } = await import('./datajud');
+    await saveProfile(profile);
+    return { success: true };
+});
+
+ipcMain.handle('datajud-set-api-key', async (_event, key: string) => {
+    const { setDataJudApiKey, getSyncEngine } = await import('./datajud');
+    await setDataJudApiKey(key);
+    // Reinicia sync engine com a nova key
+    const engine = getSyncEngine();
+    if (engine) await engine.restart();
+    return { success: true };
+});
+
+ipcMain.handle('datajud-has-api-key', async () => {
+    const { hasDataJudApiKey } = await import('./datajud');
+    return hasDataJudApiKey();
+});
+
+ipcMain.handle('datajud-add-processo', async (_event, processo: any) => {
+    const { addMonitoredProcesso } = await import('./datajud');
+    await addMonitoredProcesso(processo);
+    return { success: true };
+});
+
+ipcMain.handle('datajud-remove-processo', async (_event, numero: string) => {
+    const { removeMonitoredProcesso } = await import('./datajud');
+    await removeMonitoredProcesso(numero);
+    return { success: true };
+});
+
+ipcMain.handle('datajud-list-processos', async () => {
+    const { getMonitoredProcessos } = await import('./datajud');
+    return getMonitoredProcessos();
+});
+
+ipcMain.handle('datajud-search', async (_event, { numero, tribunal }: { numero: string; tribunal?: string }) => {
+    const { getSyncEngine } = await import('./datajud');
+    const engine = getSyncEngine();
+    if (!engine) return { error: 'Pipeline não inicializado' };
+    const result = await engine.queryCold(numero, tribunal);
+    return result || { error: 'Processo não encontrado' };
+});
+
+ipcMain.handle('datajud-trigger-hot', async () => {
+    const { getSyncEngine } = await import('./datajud');
+    const engine = getSyncEngine();
+    if (!engine) return { error: 'Pipeline não inicializado' };
+    return engine.runHotSync();
+});
+
+ipcMain.handle('datajud-trigger-warm', async () => {
+    const { getSyncEngine } = await import('./datajud');
+    const engine = getSyncEngine();
+    if (!engine) return { error: 'Pipeline não inicializado' };
+    return engine.runWarmSync();
+});
+
+ipcMain.handle('datajud-get-sync-state', async () => {
+    const { getSyncEngine } = await import('./datajud');
+    const engine = getSyncEngine();
+    if (!engine) return null;
+    return engine.getState();
+});
+
+ipcMain.handle('datajud-get-stats', async () => {
+    const { getProfile, hasDataJudApiKey, getProcessoStoreStats, getJurisprudenciaStats, getSyncEngine } = await import('./datajud');
+    const profile = await getProfile();
+    const hasKey = await hasDataJudApiKey();
+    const processoStats = getProcessoStoreStats();
+    const jurispStats = getJurisprudenciaStats();
+    const engine = getSyncEngine();
+    const state = engine?.getState();
+
+    return {
+        profileConfigured: profile.tribunais.length > 0 || profile.areasAtuacao.length > 0,
+        hasApiKey: hasKey,
+        processosMonitorados: profile.processosMonitorados.length,
+        processosAtivos: profile.processosMonitorados.filter(p => p.ativo).length,
+        decisoesArmazenadas: jurispStats.total,
+        processosArmazenados: processoStats.total,
+        lastHotSync: state?.lastHotSync || null,
+        lastWarmSync: state?.lastWarmSync || null,
+        consecutiveErrors: state?.consecutiveErrors || 0,
+    };
+});
+
+// ============================================================================
+// IPC: Knowledge Base de Documentos (Fase 3.5.3)
+// ============================================================================
+
+// Schemas
+ipcMain.handle('doc-kb-list-schemas', async () => {
+    const { getAllSchemas } = await import('./legal/doc-schema-registry');
+    return getAllSchemas();
+});
+
+ipcMain.handle('doc-kb-get-schema', async (_, id: string) => {
+    const { getSchema } = await import('./legal/doc-schema-registry');
+    return getSchema(id);
+});
+
+ipcMain.handle('doc-kb-search-schemas', async (_, query: string) => {
+    const { searchSchemas } = await import('./legal/doc-schema-registry');
+    return searchSchemas(query);
+});
+
+ipcMain.handle('doc-kb-get-categories', async () => {
+    const { listCategories } = await import('./legal/doc-schema-registry');
+    return listCategories();
+});
+
+ipcMain.handle('doc-kb-schemas-by-category', async (_, cat: string) => {
+    const { getSchemasByCategory } = await import('./legal/doc-schema-registry');
+    return getSchemasByCategory(cat as any);
+});
+
+// Examples
+ipcMain.handle('doc-kb-get-examples', async (_, { schemaId, limit }: { schemaId: string; limit?: number }) => {
+    const { getExamples } = await import('./legal/doc-examples');
+    return getExamples(schemaId, limit);
+});
+
+ipcMain.handle('doc-kb-search-examples', async (_, { query, limit }: { query: string; limit?: number }) => {
+    const { searchExamples } = await import('./legal/doc-examples');
+    return searchExamples(query, limit);
+});
+
+ipcMain.handle('doc-kb-get-stats', async () => {
+    const { getExampleStats } = await import('./legal/doc-examples');
+    const { getSchemaStats } = await import('./legal/doc-schema-registry');
+    return {
+        schemas: getSchemaStats(),
+        examples: getExampleStats(),
+    };
+});
+
+// Import
+ipcMain.handle('doc-kb-import-folder', async (_, folderPath: string) => {
+    const { importFolder } = await import('./legal/doc-importer');
+    return importFolder(folderPath, (msg) => {
+        mainWindow?.webContents.send('doc-kb-import-progress', msg);
+    });
+});
+
+ipcMain.handle('doc-kb-import-file', async (_, filePath: string) => {
+    const { importFile } = await import('./legal/doc-importer');
+    return importFile(filePath);
+});
+
+ipcMain.handle('doc-kb-select-and-import', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+        properties: ['openDirectory'],
+        title: 'Selecionar pasta com documentos jurídicos',
+    });
+    if (result.canceled || !result.filePaths[0]) return { imported: 0, skipped: 0, errors: [] };
+    const { importFolder } = await import('./legal/doc-importer');
+    return importFolder(result.filePaths[0], (msg) => {
+        mainWindow?.webContents.send('doc-kb-import-progress', msg);
+    });
+});
+
+// ============================================================================
+// IPC: Batch Petitioning (Produção em Lote)
+// ============================================================================
+
+ipcMain.handle('batch-list-lotes', async () => {
+    const { getLoteStore } = await import('./batch');
+    return getLoteStore().getAllLotes();
+});
+
+ipcMain.handle('batch-get-lote', async (_event, id: string) => {
+    const { getLoteStore } = await import('./batch');
+    return getLoteStore().getLote(id);
+});
+
+ipcMain.handle('batch-remove-lote', async (_event, id: string) => {
+    const { getLoteStore, unregisterPipeline } = await import('./batch');
+    unregisterPipeline(id);
+    return getLoteStore().removeLote(id);
+});
+
+ipcMain.handle('batch-create-lote', async (_event, params: {
+    rawInput: string; nome: string;
+    tipoPeticao?: string; tese?: string; tribunal?: string;
+    tom?: string; userInstructions?: string;
+    attachedDocs?: string[];
+}) => {
+    try {
+        await ensureAgentInitialized(); // Skills precisam estar registradas
+        const { createBatchLote, registerPipeline } = await import('./batch');
+
+        // Ler conteúdo dos documentos anexados e adicionar ao contexto
+        if (params.attachedDocs && params.attachedDocs.length > 0) {
+            const fs = await import('fs');
+            const path = await import('path');
+            const docContents: string[] = [];
+
+            for (const docPath of params.attachedDocs) {
+                try {
+                    const ext = path.extname(docPath).toLowerCase();
+                    let text = '';
+
+                    if (ext === '.txt' || ext === '.md') {
+                        text = fs.readFileSync(docPath, 'utf-8');
+                    } else if (ext === '.docx') {
+                        const mammoth = await import('mammoth');
+                        const result = await mammoth.extractRawText({ path: docPath });
+                        text = result.value;
+                    } else if (ext === '.pdf') {
+                        const pdfParseModule: any = await import('pdf-parse');
+                        const buf = fs.readFileSync(docPath);
+                        const pdfParseFn = pdfParseModule?.default ?? pdfParseModule;
+                        if (typeof pdfParseFn === 'function') {
+                            const data = await pdfParseFn(buf);
+                            text = data.text;
+                        }
+                    }
+
+                    if (text && text.length > 50) {
+                        const name = path.basename(docPath);
+                        docContents.push(`--- [${name}] ---\n${text.substring(0, 8000)}`);
+                        console.log(`[Batch] Documento anexado: ${name} (${text.length} chars)`);
+                    }
+                } catch (e: any) {
+                    console.warn(`[Batch] Erro ao ler doc anexado ${docPath}: ${e.message}`);
+                }
+            }
+
+            if (docContents.length > 0) {
+                const docContext = '\n\n## DOCUMENTOS DE REFERÊNCIA (anexados pelo advogado)\n\n' + docContents.join('\n\n');
+                params.tese = (params.tese || '') + docContext;
+            }
+        }
+
+        const { lote, pipeline } = await createBatchLote(params);
+
+        // Forward pipeline events to renderer
+        pipeline.on('event', (event: any) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('batch-event', event);
+            }
+        });
+
+        registerPipeline(lote.id, pipeline);
+
+        // Start pipeline (async — não espera)
+        pipeline.run().catch((err: any) => {
+            console.error('[Batch] Pipeline error:', err.message);
+        });
+
+        return { success: true, loteId: lote.id, strategy: lote.strategy };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('batch-approve-strategy', async (_event, loteId: string) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.approveStrategy('app');
+    return { success: true };
+});
+
+ipcMain.handle('batch-approve-wave', async (_event, { loteId, waveIndex, redraftIds }: { loteId: string; waveIndex: number; redraftIds?: string[] }) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.approveWave(waveIndex, 'app', redraftIds);
+    return { success: true };
+});
+
+ipcMain.handle('batch-approve-protocol', async (_event, loteId: string) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.approveProtocol('app');
+    return { success: true };
+});
+
+ipcMain.handle('batch-pause', async (_event, loteId: string) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.pause();
+    return { success: true };
+});
+
+ipcMain.handle('batch-resume', async (_event, loteId: string) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.resume();
+    return { success: true };
+});
+
+ipcMain.handle('batch-cancel', async (_event, loteId: string) => {
+    const { getActivePipeline } = await import('./batch');
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline) return { success: false, error: 'Pipeline não encontrado' };
+    await pipeline.cancel();
+    return { success: true };
+});
+
+// ─── Batch: Leitura/Escrita de petição (editor) ──────────────────
+ipcMain.handle('batch-read-peticao', async (_event, filePath: string) => {
+    try {
+        const fs = await import('fs');
+        if (!fs.existsSync(filePath)) return { success: false, error: 'Arquivo não encontrado' };
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, content };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('batch-save-peticao', async (_event, { filePath, content }: { filePath: string; content: string }) => {
+    try {
+        const fs = await import('fs');
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('batch-open-folder', async (_event, folderPath: string) => {
+    const { shell } = await import('electron');
+    shell.openPath(folderPath);
+    return { success: true };
+});
+
+// ─── Batch: Export DOCX ──────────────────────────────────────────
+ipcMain.handle('batch-export-docx', async (_event, filePath: string) => {
+    try {
+        const fs = await import('fs');
+        if (!fs.existsSync(filePath)) return { success: false, error: 'Arquivo não encontrado' };
+
+        const htmlContent = fs.readFileSync(filePath, 'utf-8');
+        const outputPath = filePath.replace(/\.html?$/i, '.doc');
+
+        // HTML-as-DOC: Word/LibreOffice open this natively
+        const docContent = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40">
+${htmlContent.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '')}
+</html>`;
+
+        fs.writeFileSync(outputPath, docContent, 'utf-8');
+        const { shell } = await import('electron');
+        shell.showItemInFolder(outputPath);
+        return { success: true, path: outputPath };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+});
+
+// ─── Batch: Export PDF (via Chromium printToPDF) ─────────────────
+ipcMain.handle('batch-export-pdf', async (_event, filePath: string) => {
+    try {
+        const fs = await import('fs');
+        const pathModule = await import('path');
+        if (!fs.existsSync(filePath)) return { success: false, error: 'Arquivo não encontrado' };
+
+        const htmlContent = fs.readFileSync(filePath, 'utf-8');
+        const outputPath = filePath.replace(/\.html?$/i, '.pdf');
+
+        // Use a hidden BrowserWindow to render HTML and print to PDF
+        const { BrowserWindow: BW } = await import('electron');
+        const pdfWin = new BW({ show: false, width: 794, height: 1123 });
+
+        // Load HTML content
+        const tempPath = pathModule.join(pathModule.dirname(filePath), '_temp_pdf.html');
+        fs.writeFileSync(tempPath, htmlContent, 'utf-8');
+        await pdfWin.loadFile(tempPath);
+
+        const pdfBuffer = await pdfWin.webContents.printToPDF({
+            pageSize: 'A4',
+            margins: { marginType: 'default' },
+            printBackground: true,
+        });
+
+        fs.writeFileSync(outputPath, pdfBuffer);
+        pdfWin.close();
+
+        // Cleanup temp
+        try { fs.unlinkSync(tempPath); } catch {}
+
+        const { shell } = await import('electron');
+        shell.showItemInFolder(outputPath);
+        return { success: true, path: outputPath };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
 });
 
 // ============================================================================

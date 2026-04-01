@@ -1,0 +1,145 @@
+/* ============================================================================
+   TERMINAL EMBUTIDO — xterm.js
+   ============================================================================ */
+
+.terminal-wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-canvas);
+    overflow: hidden;
+}
+
+/* ── Session Tab Bar ── */
+
+.terminal-session-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    min-height: 38px;
+    flex-shrink: 0;
+}
+
+.terminal-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    flex: 1;
+    scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.terminal-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+}
+
+.terminal-tab:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.terminal-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.terminal-tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.terminal-tab:hover .terminal-tab-close,
+.terminal-tab.active .terminal-tab-close {
+    opacity: 1;
+}
+
+.terminal-tab-close:hover {
+    background: var(--danger-color);
+    color: var(--text-primary);
+}
+
+.terminal-new-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+}
+
+.terminal-new-btn:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* ── Terminal Container ── */
+
+.terminal-container {
+    flex: 1;
+    padding: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.terminal-container .xterm {
+    height: 100%;
+}
+
+/* ── Empty State ── */
+
+.terminal-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    gap: 12px;
+}
+
+.terminal-empty svg {
+    opacity: 0.3;
+}
+
+.terminal-empty p {
+    font-size: 13px;
+}

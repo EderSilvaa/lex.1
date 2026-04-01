@@ -1180,6 +1180,49 @@ export async function closeBrowser(): Promise<void> {
   console.log('[Browser] Chromium encerrado')
 }
 
+/**
+ * Desconecta Playwright do CDP sem matar Chrome nem bridge.
+ * Usado pelo BrowserLock para liberar a porta CDP para browser-use.
+ */
+export async function disconnectPlaywright(): Promise<void> {
+  stopHeartbeat()
+  if (cdpBrowser) {
+    try { await cdpBrowser.close() } catch { /* ignorar */ }
+    cdpBrowser = null
+    context = null
+  }
+  activePageIndex = 0
+  console.log('[Browser] Playwright desconectado (Chrome + bridge continuam)')
+}
+
+/**
+ * Reconecta Playwright ao Chrome via bridge proxy-only.
+ * Reutiliza a lógica de recovery do bridgeDied.
+ * Usado pelo BrowserLock após browser-use terminar.
+ */
+export async function reconnectPlaywright(): Promise<void> {
+  if (cdpBrowser) {
+    console.log('[Browser] Playwright já conectado — skip reconnect')
+    return
+  }
+
+  console.log('[Browser] Reconectando Playwright ao Chrome...')
+
+  if (isElectronProcess()) {
+    cdpBrowser = await connectViaBridgeProxyOnly(CDP_PORT)
+  } else {
+    cdpBrowser = await connectDirectCDP(CDP_PORT)
+  }
+
+  const contexts = cdpBrowser.contexts()
+  context = contexts[0] ?? await cdpBrowser.newContext()
+  if (context.pages().length === 0) await context.newPage()
+  activePageIndex = 0
+  setupPageListeners()
+  startHeartbeat()
+  console.log('[Browser] Playwright reconectado')
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // killPreviousChrome — encerra Chrome anterior graciosamente (salva sessão/cookies)
 // ─────────────────────────────────────────────────────────────────────────────

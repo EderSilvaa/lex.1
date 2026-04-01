@@ -93,7 +93,7 @@ export async function callAI(options: CallAIOptions): Promise<string> {
                 system: options.system,
                 messages: [{ role: 'user', content: options.user }],
                 temperature: options.temperature ?? 0.3,
-                maxOutputTokens: options.maxTokens ?? 4000,
+                maxOutputTokens: options.maxTokens ?? 8000,
             });
 
             let fullText = '';
@@ -114,7 +114,7 @@ export async function callAI(options: CallAIOptions): Promise<string> {
             system: options.system,
             messages: [{ role: 'user', content: options.user }],
             temperature: options.temperature ?? 0.3,
-            maxOutputTokens: options.maxTokens ?? 4000,
+            maxOutputTokens: options.maxTokens ?? 8000,
         });
 
         if (!text) throw new Error('Resposta vazia do LLM');

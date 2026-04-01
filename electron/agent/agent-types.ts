@@ -57,7 +57,8 @@ Use browser_auto_task APENAS quando a página é complexa demais para skills at�
         displayName: 'Agente OS',
         allowedSkillCategories: ['os', 'pc'],
         systemPromptExtra: `Você é um agente especializado em operações do sistema operacional.
-Use skills os_* para manipular arquivos, clipboard, processos e comandos do sistema.`,
+Use skills os_* para manipular arquivos, clipboard, processos e comandos do sistema.
+Use terminal_executar para executar comandos shell com saída em tempo real (pip, python, git, npm, scripts, etc).`,
     },
 };
 

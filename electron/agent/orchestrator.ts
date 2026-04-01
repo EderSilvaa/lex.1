@@ -14,6 +14,7 @@ import { Plan, SubTask, OrchestratorEvent } from './types';
 import { createPlan, shouldUsePlanner } from './planner';
 import { AgentPool } from './agent-pool';
 import { Blackboard } from './blackboard';
+import { buildPromptLayerSystem, getDefaultTenantConfig } from './prompt-layer';
 
 export class Orchestrator extends EventEmitter {
     private pool: AgentPool;
@@ -143,10 +144,14 @@ export class Orchestrator extends EventEmitter {
             ? `\n\n## Subtasks não completadas\n${skipped.map(t => `- ${t.description}: ${t.error || 'ignorada'}`).join('\n')}`
             : '';
 
+        const personalidade = buildPromptLayerSystem(getDefaultTenantConfig());
+        const synthesisInstructions = `Sintetize os resultados das subtasks em uma resposta coesa. Use markdown.
+Comece pelo resultado principal, depois detalhe. Cite artigos de lei específicos quando relevante.
+Se alguma subtask falhou, mencione brevemente mas foque no que foi alcançado.
+Termine com um próximo passo concreto ("Quer que eu...").`;
+
         const response = await callAI({
-            system: `Você é Lex, assistente jurídica. Sintetize os resultados das subtasks em uma resposta coesa para o usuário.
-Seja direta e organize a informação de forma clara. Use markdown.
-Se alguma subtask falhou, mencione brevemente mas foque no que foi alcançado.`,
+            system: `${personalidade}\n\n---\n\n${synthesisInstructions}`,
             user: `## Objetivo Original\n"${goal}"\n\n## Resultados das Subtasks\n${resultsText}${skippedText}\n\nSintetize uma resposta final coesa.`,
             temperature: 0.3,
             maxTokens: 3000,

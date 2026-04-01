@@ -10,6 +10,9 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/file-manager.css">
+    <link rel="stylesheet" href="styles/lotes.css">
+    <link rel="stylesheet" href="styles/quill.snow.css">
+
 </head>
 
 <body>
@@ -41,6 +44,15 @@
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span class="label">Arquivos</span>
+                </button>
+                <button class="nav-item" id="nav-lotes" title="Producao em Lote">
+                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                        fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                    <span class="label">Lotes</span>
                 </button>
             </nav>
 
@@ -510,7 +522,64 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Lotes (Producao em Lote) View -->
+            <div class="lotes-wrapper hidden">
+                <div class="lotes-header">
+                    <button id="btn-back-lotes" class="icon-btn hidden" title="Voltar">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </button>
+                    <h2 id="lotes-title">Producao em Lote</h2>
+                    <div class="lotes-header-actions">
+                        <button id="btn-new-lote" class="btn-primary btn-sm">+ Novo Lote</button>
+                    </div>
+                </div>
+                <div id="lotes-list" class="lotes-list">
+                    <div class="lotes-empty">
+                        <p>Nenhum lote criado.</p>
+                        <p class="text-muted">Inicie um lote no chat ou clique em "+ Novo Lote".</p>
+                    </div>
+                </div>
+                <div id="lote-detail" class="lote-detail hidden">
+                    <!-- Populated by lotes.js -->
+                </div>
+                <div id="lote-item-drawer" class="lote-drawer">
+                    <!-- Slide-in detail drawer -->
+                </div>
+            </div>
         </main>
+    </div>
+
+    <!-- ===== OVERLAY: Editor de Peticao ===== -->
+    <div id="petition-editor-overlay" class="petition-editor-overlay hidden">
+        <div class="petition-editor-header">
+            <button id="btn-editor-back" class="icon-btn" title="Voltar">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div class="petition-editor-title">
+                <span id="petition-editor-numero"></span>
+                <span id="petition-editor-badge"></span>
+            </div>
+            <div class="petition-editor-actions">
+                <button id="btn-export-docx" class="btn-secondary btn-sm">DOCX</button>
+                <button id="btn-export-pdf" class="btn-secondary btn-sm">PDF</button>
+                <button id="btn-save-petition" class="btn-primary btn-sm" style="display:none">Salvar</button>
+            </div>
+        </div>
+        <div class="petition-editor-body">
+            <aside id="petition-reasoning-panel" class="petition-reasoning-panel">
+                <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-primary);">Processo de Raciocinio</h4>
+                <div id="reasoning-steps-container"></div>
+            </aside>
+            <div class="petition-editor-main">
+                <div id="petition-quill-toolbar"></div>
+                <div id="petition-quill-editor"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ===== OVERLAY: Privacidade (First-Run) ===== -->
@@ -676,8 +745,10 @@
 
     <script src="js/marked.min.js"></script>
     <script src="js/purify.min.js"></script>
+    <script src="js/quill.min.js"></script>
     <script src="js/app.js"></script>
     <script src="js/file-manager.js"></script>
+    <script src="js/lotes.js"></script>
 </body>
 
 </html>

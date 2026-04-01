@@ -1,0 +1,963 @@
+﻿.
+Ao iniciar-mos nossos estudos para elaboração de recursos devemos ter consciência de que a nossa procura é pelos principais erros dos agentes ou entidades responsáveis pela elaboração dos autos de infrações.
+
+
+Inúmeros são os erros  nos autos, desde erros de preenchimento, como de impressão por parte gráfica.
+Visto que o agente de trânsito tem fé pública, somente através de seus erros é que podemos conseguir sucesso ao impetrar-mos um recurso ou  através de urgências comprovadas.
+Há também a possibilidade da conversão de alguns tipos de autuação em advertência, mas isso não abrange o geral.
+Assim sendo, através desta apostila vamos abordar, demonstrar e também dar aos leitores modelos de recursos de infração de trânsito.
+
+
+Primeiramente vamos apresentar aqui alguns autos de infração:
+  
+  
+  
+  
+  
+  
+
+Ainda relativo a figura anterior vemos o campo para autuação de radar, embora possa não ser usado é necessário que esteja contido em todos os autos de infração de acordo com a resolução 1 do CONTRAN em seu anexo 1(um). Se não houver, esta irregular ou inconsistente.
+
+
+
+
+Agora vamos ao campo das infrações. Esse campo também abrange o de outras infrações.
+
+
+Nesse campo o erro mais comum é o agente errar quando relata que o condutor de uma moto não usava o cinto de segurança ou que o motorista de um carro não usava o capacete. Pode ser até cômico, mas acontece.
+Ainda nesse campo, está a parte para fiscalização por radar (essa deve conter em qualquer auto de infração mesmo que não venha a ser utilizada, de acordo com a resolução 1 anexo 1 , do CONTRAN).
+Devemos aqui nos atermos as placas de sinalização, acontece às vezes do agente aferir a 40 km e a via permite até 60 km.
+Na identificação do condutor verifique se conferem com sua Carteira nacional de habilitação caso não, há erro.
+Os demais campos não importam tanto para procura de erros.
+
+
+Auto de infração estadual:
+
+
+Agora, na próxima página um auto de infração do tipo estadual, nesse o erro é gráfico. Olhe no item espécie que há classificações como:
+Automóvel, caminhão, motocicleta e ônibus.
+
+
+Aí esta o erro, essas classificações são quanto ao tipo e não quanto a espécie.
+
+
+Classificações quanto a espécie:
+
+
+Passageiro
+Carga
+Misto 
+Tração 
+Corrida 
+Especial
+
+
+Nota-se que devemos  nos atentar a qualquer possível erro do agente ou órgão autuador. 
+
+
+  
+
+  
+  
+
+
+
+
+
+Eis aqui um outro tipo de auto de  infração :
+
+
+  
+
+
+
+No auto acima não se encontra o item espécie, está então inconsistente.
+Os itens placa, cidade, endereço e proprietário foram suprimidos pelo autor como forma de evitar possíveis transtornos ao condutor autuado. Aqui  nosso intuito é apenas didático.
+Caros leitores esse erro é bastante comum nos autos de infração em geral dando margem a muitos recursos, agora é claro que com isso os órgãos autuadores vão aperfeiçoando-se, então aproveite enquanto isso não ocorre em seu município.
+Como podem perceber meus caros, esse auto de infração acima é de radar um dos mais difíceis mais não impossível de anulação via recurso.
+Outro erro muito comum é a troca de  enquadramento.
+Por exemplo:
+O órgão autuador relata no auto que o veículo foi enquadrado no art.218 II A e diz que esse artigo relata que o veiculo transitava em velocidade superior em até 20% a máxima permitida para rodovia, vias de trânsito rápido e arteriais.
+O erro está no art.218 II, pois o enquadramento acima citado é do artigo 218 I.
+Outra irregularidade é quando o órgão autuador ou seus agentes de cidades do interior, relatam em seus autos o termo, via de trânsito rápido que somente as grandes capitais suportam tais vias.
+Portanto se sua autuação for dentro de um município, no nível urbano, veja se está mencionado que seu veículo foi autuado numa via de transito rápido. Se constar, pode estar errado pois normalmente nas cidades interioranas existem apenas as vias arteriais, coletoras e locais.
+
+
+Via de trânsito rápido - aquela caracterizada por acessos especiais com trânsito livre, sem interseções em nível (cruzamentos), sem acessibilidade direta aos lotes lindeiros e sem travessia de pedestres em nível (travessia de pedestres se dá apenas por pontes ou túneis).
+
+
+No estado de São Paulo há o comunicado 2 do CETRAN que determina constar no auto de infração 3 velocidades. A velocidade da via, a aferida e a considerada para efeitos de penalidade.
+
+
+No auto acima não esta determinado a velocidade a ser considerada
+O que determina a margem para a velocidade considerada é a portaria 115 do inmétro que admite erros máximos de:
+Para velocidades de até 100 km/h —7 km/h.
+Para velocidades acima de 100 km/h — 7% da velocidade aferida.
+Deve-se levar em conta que esse cálculo deve ser feito a favor do condutor o que verifíca-se da seguinte forma:
+Equipamento medindo 60km/h — velocidade considerada 67 km/h
+Equipamento medindo 200 km/h — velocidade considerada 186 km/h.
+Veja que para velocidade de 68 km/h a infração é de 540 ufirs, no entanto a velocidade a ser considerada, o valor cai para 120 ufirs.
+Muitos autos de infração, ainda enquadram a infração pela velocidade aferida de modo que cabe recurso alegando que deve-se considerar a velocidade estabelecida pela margem do comunicado 2 do CETRAN/SP e portaria 115 do inmétro.
+Lembre-se esse é um caso específico para São Paulo de modo que cada estado tem seu CETRAN assim faz- se necessário uma consulta ao CETRAN de seu estado, o que pode ser feito pela Internet.
+
+
+Como puderam ver caros leitores há sempre uma possibilidade de recurso, e essa deve ser aproveitada, visto que mesmo que não haja erro o órgão julgador deverá julgar o mérito de seu recurso no prazo de 30 dias de acordo com o art. 285 do CTB no país todo, e no caso específico de São Paulo ainda pela deliberação 100 do CETRAN – SP, caso não seja julgado nesse período, devem liberar o licenciamento e julgar o mérito do recurso depois.
+
+
+Mais um erro dos agentes de trânsito é fazer a autuação baseados em terceiros ou seja:
+O agente autua o condutor a pedido do delegado do padeiro, do leiteiro, do prefeito, etc..
+Ainda sendo policial militar faz a autuação por ordem de superior hierárquico ou por apoio a viatura que
+não seja especializada em trânsito.
+
+
+É comum uma viatura patrulhamento pedir apoio para uma viatura de trânsito para autuar um condutor infrator.
+Nesse caso, se possível recorrer a testemunhas, quem abordou e viu a infração foi um e quem confeccionou a autuação foi outra, caso não tenha testemunhas peça ao agente que cite na observação que a autuação foi elaborada a pedido de fulano ou por ordem de ciclano.
+Veja, a infração pressupõe o flagrante, o ato de ter presenciado o ato do infrator de trânsito. Se o agente elaborador veio em apoio e não viu a infração, mesmo que veja documentos vencidos ele não viu o infrator conduzindo o veículo, então como pode elaborar um auto de infração o qual ele não presenciou? Baseado nesse entendimento você pode desde já elaborar um recurso amparando-se legalmente na decisão do CETRAN-SP no processo 20/91.
+No caso de ser fora do estado de São Paulo a autuação e o respectivo CETRAN de seu estado não entender ou não ter proferido sentença a respeito ocorrerá que elencando a idéia citada em lª instância. poderá surtir efeito imediato, caso não recorra em 2ª instância e terá algo administrativamente. Se ambos os resultados forem negativos o condutor poderá, mediante advogado, impetrar mandado de segurança por uma decisão que seu advogado elencará como ilegal, assim a justiça local se manifestará e findará com uma jurisprudência local.
+
+
+Caso o condutor não foi de imediato notificado recebendo a segunda via da autuação,  fica o órgão competente pela via obrigado a notificá-lo no prazo legal de 30 dias sob pena de arquivamento do auto de infração de acordo com o artigo 281 parágrafo único inc. II. No caso das infrações de radares eletrônicos ou fotográficos as autuações são remetidas ao condutor posteriormente e devem obedecer o prazo de 30 dias a contar da data da infração.
+
+
+Esse prazo é o mesmo que após o condutor ter recebido a notificação, deverá entrar com o recurso. Veja que no caso de mudança de endereço a notificação será enviada no local que constar no documento do veículo, ainda também se ninguém quiser receber ou estiver pelo local por 3 tentativas, será então considerado notificado o proprietário do veículo.
+É interessante manter o endereço do veículo atualizado.
+
+
+
+
+
+
+Multas leves e médias (advertência).
+
+
+Essas multas tem valores de pontuação de 3 e 4 pontos respectivamente.
+Agora o grande valor delas para nosso estudo é que de acordo como artigo 267 da Lei 9.503/97 (CTB) essas multas podem ser convertidas em advertência desde que o condutor não tenha sido enquadrado na mesma infração nos últimos 12 meses.
+Vejam, na mesma infracção ou seja o condutor pode ter uma multa de cartão sem preencher (estacionar em desacordo c/ regulamentação), outra de cartão vencido, outra de não portar documentos exigidos por lei e ainda assim cabe abrigo no artigo citado acima pois são todos de enquadramento diferentes.
+Os 2 primeiros incorrem no artigo 281, porém em incisos diferentes e o último está no artigo 262 do
+CTB.
+Multas leves e médias são as mais comuns, mas também as mais fáceis de obtermos êxito com o recurso.
+
+
+Até aqui abrangemos genéricamente técnicas de recurso abaixo um caso especifico:
+Art. 165 do CTB — Dirigir sob a influência de álcool, em nível superior a seis decigramas por litro de sangue, ou qualquer substância entorpecente que determine dependência física ou psíquica:
+Infração - gravíssima
+Penalidade multa 180 ufirs (5 vezes) e suspensão do direito de dirigir.
+
+
+Notem que o artigo cita uma quantidade a ser aferida de álcool no sangue, essa quantidade deve ser aferida por equipamento hábil aferido por órgão competente, aparelho o qual você não tem por obrigação alguma submeter se a ele, porém deve dar a oportunidade do exame clínico, sempre deve-se deixar um meio do estado aferir embora não obrigatório.
+No caso de doar sangue para teste de embriagues você não é obrigado a doar e mesmo que o condutor seja submetido a teste clínico esse não determina a quantidade de álcool no sangue e sim o estado de embriagues.
+Concluindo, se o condutor não se submeter a testes de alcoolemia ( bafômetro e exame de sangue) já que ele não é obrigado a multa pode ser anulada mediante recurso alegando que não pôde ser feito a aferição de quantidade de álcool no sangue, assim não pode o agente determinar se havia ultrapassado o limite estipulado no caput do artigo 165 ou seja, seis decigramas por litro de sangue. O agente vai lavrar o auto por força de deliberação, assim cabendo ao condutor recorrer, se não por força da mesma nem autuar poderia o agente, pois ele não pode determinar a quantidade de álcool no sangue do condutor por mera suposição.
+De qualquer modo não aconselhamos ninguém a dirigir embriagado, pois fora os acidentes existe ainda há a possibilidade de prisão por efeito do artigo 306 (crime de trânsito). Nele não está especificado quantidade de álcool no sangue de modo que basta o teste clínico para que o condutor tenha problemas judiciais. Então evitem somar bebida e direção, mas se forem autuados não se submetam a testes de alcoolemia como sangue e bafômetro, pois assim ao menos você economiza 900 ufirs (mais de 1000 reais). Submeta-se apenas ao exame clínico. 
+
+
+
+
+Até aqui foras apresentadas técnicas para que possamos usar de erros dos agentes a nosso favor, a seguir mostraremos caro leitor alguns embasamentos legais que darão respaldo a seus recursos.
+
+
+
+
+
+
+
+
+
+
+Portaria 515/98 do DETRAN- SP em seu Artigo 76 “que em caso de erro ou falta de dados em seu preenchimento” a notificação será cancelada. (Somente em São Paulo).
+
+
+
+
+Código de Trânsito Brasileiro:
+
+
+Artigos:
+
+
+165,267, 280, 28l parágrafo único incisos I e II, 282 parágrafo 40, 285 parágrafo 1º, 306.
+
+
+(No Brasil todo)
+Resoluções:
+
+
+01, 13, 14,15,17,20,43,73,79
+
+
+
+
+(Brasil todo)
+
+
+
+
+
+
+
+
+
+
+CETRAN-SP
+
+
+
+
+Deliberações:
+
+
+02,05, 07/98 94/95 100/2000 71/2012
+
+
+
+
+Comunicado:
+
+
+02/2012
+
+
+Esses documentos podem ser facilmente adquiridos em despachantes, alguns cobram pela cópia outros
+não.
+
+
+
+
+
+
+Sites na Internet que auxiliam no conhecimento das leis e elaboração de recursos:
+
+
+www.mj.gov.br/Contran
+www.detran.df.gov.br
+www.mj.gov.br/denatran
+www.polmil.sp.gov.br/unidades/cptran
+www.detran.sp.gov.br
+www.multacar.com.br
+
+
+
+
+
+
+Busque pelas palavras contran, detran, denatran, recursos no seu site de busca preferido.
+
+
+
+
+Livros:
+
+
+Código de trânsito brasileiro- editora edipro
+
+
+Manual Faria de trânsito- editora ,Juarez de Oliveira- 3ª edição- Gilberto Antonio Farias Dias
+
+
+Dos recursos em matéria de trânsito- editora millenniun- José Geraldo da Silva e Roberta Ceriolo Sophi
+Existem livrarias onde você pode lê-los gratuitamente, vale a pena procurar
+
+
+Caso deseje adquiri-los o investimento é cerca de R$ 90,00 e caso não esteja na livraria pode- se fazer a
+
+
+encomenda nas próprias livrarias.
+
+
+O        investimento compensa mesmo.
+
+
+
+
+Como cobrar pelos recursos:
+
+
+Leves — 15,00 Médias — R$ 20,00 Graves — R$ 25,00 a 30,00 Gravíssimas — R$ 30,00 a 50,00
+
+
+
+
+Lembre-se você vai cobrar pela elaboração do serviço, com esses conhecimentos você aumentara as chances de êxito do condutor.
+Veja, um advogado cobra pela prestação do serviço e não pode dar ao cliente a certeza de vitória e sim aumentar suas chances com seu conhecimento,
+
+
+Como entrar com o recurso.
+
+
+Em 1ª e 2ª instância:
+
+
+1.        O recurso deve ser remetido à autoridade que impôs a penalidade.
+(JARJ municipal, C]RETRANS, DFR, DERSA, CETRAN, CONTRANDIFE ou outro o qual deverá estar contido na autuação).
+No caso de recurso em 2ª instância remeta o recurso para o CETRAN do respectivo estado ou CONTRANDIFE (distrito federal).
+
+
+2.Caso a autuação diferir do município de residência do infrator, deverá remeter ao órgão local que enviará ao órgão competente. Na prática quem faz o envio na maioria das vezes é o próprio infrator, mas se o fizer faça em carta registrada para garantir o recebimento por parte do órgão.
+Vá ao correio e informe que essa deve ser uma carta registrada.
+
+
+
+
+
+
+
+
+Documentos necessários:
+
+
+Em primeira instância:
+
+
+-        Recurso em si:
+Cópia xerox da Carteira de habilitação
+-        Cópia xerox do documento do veículo (CLA ou CRLV)
+-        Cópia xerox do RG (caso a CNH for antiga sem foto)
+-        Cópia xerox da autuação
+-        Outros documentos que possam dar amparo como provas, caso necessário.
+Exs:
+Notas fiscais, bilhetes de pedágio, comprovantes médicos de internação etc...
+Há casos de autuações que o veículo não estava pelo local ou cidade citados.
+Esses devem ser autênticos, pois podem ser verificados pelo órgão julgador e o infrator incorrer em crime.
+Não vale a pena para sair de uma pena administrativa incorrer em crime.
+
+
+Documentos necessários:
+
+
+Em segunda instância:
+
+
+-        Os de 1ª instância (Novo recurso baseado no que o órgão do 1ª instância embasar)
+-        Comprovante de pagamento da multa
+-        Cópia da decisão do órgão de lª instância, se possível.
+Para entrar em 2ª instância, o infrator deverá pedir vistas ao processo, assim saberá no que se embasou o órgão julgador.
+
+
+Só deve ser feito recurso em 2ª instância se perder na 1ª.
+Tanto em 1ª quanto em 2ª instâncias devem ser remetidos um recurso por infração independente se o condutor e o veículo forem os mesmos.
+Cada infração um recurso.
+Como podemos ver um pouco de leitura e as técnicas aqui demonstradas aumentam e muito as chances de vitória de um recurso.
+
+
+Não esqueça, a procura por erros é essencial!
+
+
+Há erros de escrita do agente, no preenchimento, de impressão do documento, de enquadramento entre outros.
+Caso o auto não contenha os itens obrigatórios (resolução1 contran anexo1) poderá ser anulado por inconsistência ou irregularidade (art. 281 parágrafo único inc. I).
+
+
+Como diz o ditado popular “errar é humano’. Cada município ou estado tem seu próprio modelo de auto de infração, assim como as polícias de trânsito, rodoviária estadual e federal e outros órgãos, porém todos devem estar de acordo com a resolução1 e seu anexo1. Aqui foram demonstrados alguns exemplos de possíveis erros de fator humano.
+
+
+A resolução é quem determina os itens mínimos que devem conter os autos de infração.
+Na cidade de São Paulo por exemplo as multas de estacionamento não contêm a área reservada para equipamento hábil, embora não haja a necessidade de instrumento de aferição, deve estar tal campo contido no auto por determinação da referida resolução, ela estabelece os itens mínimos, então esse campo deve estar lá.
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Monte seu próprio negócio ou utilize para si próprio.  
+Agora o mais importante, modelos prontos para você seguir como exemplo e elaborar os seus.
+
+
+Boa sorte e sucesso !!!
+
+
+
+
+ILUSTRÍSSIMO SENHOR PRESIDENTE DA JARI MUNICIPAL — SANTOS - SP
+JUNTA ADMINISTRATIVA DE RECURSOS E INFRAÇOES
+
+
+Eu , Júnior de Mello RG - XXXXXXNXX (CPF-xxxxxxxx CNH de REGISTRO xxxxxxxxx residente à Rua xxxxxxxxxxx nº 1-61 Bairro xxxxxxxx CEP – xxxxxxxx Município Santos – SP. Condutor do veículo - placa: XXN\\\\, marca — 1 Honda modelo —CG 125 TITAN, Cor -CINZA ,espécie PASSAGEIRO, tipo – MOTOCICLETA, categoria -PARTICULAR, ano 1996.
+Lendo recebido o auto de infração nº 22222222222, acusando infração dia 04/07/2012 às 23:32 horas na AV xxxxxxxxxxxxxx X AV. yyyvyyyyyyyvvyvvv, correspondente Artigo 207 do C.T.B. ou seja. EXECUTAR CONVERSAO À ESQUERDA EM LOCAL PROIBIDO, venho interpor recurso alegando como defesa o seguinte:
+Conforme pode ser observado na notificação em anexo, não vemos o que o Código de Trânsito Brasileiro determina em seu Art. 280. inciso III ou seja:
+Ocorrendo infração prevista na legislação de trânsito, lavrar-se-á auto de infração, do qual constará:
+III- caracteres da placa de identificação do veículo, sua marca e ESPÉCIE, e outros elementos julgados necessários à sua identificação. Podemos verificar que o item ESPÉCIE não consta da notificação em anexo, o que contraria o referido artigo citado acima.
+
+
+Venho ainda pedir o efeito suspensivo do auto de infração, caso o recurso não for julgado no prazo estabelecido pelo art. 285 do C.T.B, como decide a deliberação 100 do CETRAN-SP.
+Face ao exposto, através do art. 281. parágrafo único, inciso “I”, requer-se o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral Único do Recorrente, julgando o AUTO DE INFRAÇÁO, aqui citado como inconsistente ou irregular. arquivando-o.
+Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+JUNIOR DE MELLO
+Santos, 04 de agosto de 200].
+
+
+
+
+ILUSTRÍSSIMO SENHOR SUPERINTENDENTE DO DEPARTAMENTO DE ESTRADAS DE RODAGEM DO ESTADO DE SÃO PAULO
+
+
+Data: 26/03/2012. OFÍCIO S/N6
+
+
+Proprietário do veículo:
+MARCO ANTONIO OLIVEIRA PGU 300000000-2 RG N0000000 CPF N0058 00000000. Rua José Miguel .nº203 CEP- 000000000 Vila Ipiranga Cidade – XXXXX. Veículo MARCA-HONDA /MODELO-CBX 200 STRADA/ESPECIE-PASSAGEIRO/TIPO MOTOCICLO / COR- VERMELHA PLACA-XXXxxx
+Município de licenciamento: XXXXX - SP
+Auto de infração para imposição de penalidades SERIE- M FAIXA —41 N 222048— hora.08:45 — Data.24/0912012 Local: Rodovia SP 300. KM 338 + 400 metros. Descrição da infração: Artigo244 do CTB, “CONDUZIR MOTOCICLETA , MOTONETA ou CICLOMOTOR COM OS FARÓIS APAGADOS.”
+O         requerente acima qualificado, abaixo assinado, tem a alegar em sua defesa o seguinte: Preliminarmente.
+Poderíamos até chegar ao entendimento de que, inclusive, as motocicletas e as motonetas devessem transitar com os faróis acesos, durante o dia entretanto, analisando sistematicamente alguns dispositivos do CTB, concluímos que, legalmente. não e bem assim que deve ser.
+
+
+Com efeito, as regras de utilização de luzes, para todos os tipos de veículos, inclusive motocicletas, motonetas e ciclomotores, respeita as  peculiaridades de cada um, estão dispostas no art. 40 e seus
+‘incisos, sendo que, como regra geral, o inciso1  estabelece o seguinte:
+
+
+“O condutor manterá acesos os faróis do veículo, utilizando luz baixa, durante a noite e durante o
+dia nos túneis providos de iluminação pública”.
+
+
+Há, porém, alguns casos específicos, que foram tratados no parágrafo único, do referido dispositivo, que diz, in verbis:
+
+
+“Os veículos de transporte coletivo regular de passageiros, quando circularem em faixas próprias a eles “destinadas, e os ciclomotorizados deverão utilizar-se de farol de luz baixa durante o dia e a noite”.
+ 
+Aquele que deixar de observar tais preceitos, poderá ser autuado, conforme o caso, no dispositivo seguinte:
+“Art. 250. Quando o veículo estiver em movimento.
+
+
+1-        deixar de manter acesa a luz baixa:
+a)        durante à noite
+b)        de dia nos túneis providos de iluminação pública;
+3. de dia e de noite tratando-se de veículo de transporte coletivo de passageiros circulando em faixas ou
+pistas a eles destinadas;
+d) de dia e de noite, tratando-se de ciclomotores
+INFRAÇÃO:        Média;
+PENALIDADE:        Multa
+
+
+
+
+Pelo exposto até aqui, e utilizando o princípio da especialidade, podemos chegar às seguintes conclusões:
+a)        ao condutor que deixar de acender a luz baixa dos faróis de qualquer veículo (exceto motocicletas, motonetas ou ciclomotores), durante a noite quando em movimento, inclusive nas vias dotadas de iluminação pública, aplica-se o art.250 I a, cuja penalidade é de multa, no valor de R$85, 12;
+
+
+b)        . ao condutor que deixar de acender a luz baixa dos faróis de qualquer veiculo (inclusive motocicletas motonetas ou ciclomotores), durante o dia quando em movimento nos túneis (exclusivamente), inclusive naqueles providos de iluminação pública, aplica-se o art. 250, I, b  cuja penalidade é de multa, no valor de R$85,12;
+
+
+e)        ao condutor que deixar de acender a luz baixa do farol de ciclomotores
+(exclusivamente) de dia ou de noite, inclusive na vias dotadas de iluminação
+pública (exceto nos túneis), aplica-se o art. 250,I, “d’, cuja penalidade é
+de multa, no valor de R$85,12; e ao        condutor de motocicleta e motoneta (exclusivamente), que for flagrado com os faróis apagados, durante a noite (só durante a noite, por força da regra geral do art. 40,I, supra), aplica-se o art. 144,1V, cuja penalidade é de multa, no valor de R$191,53, e suspensão do direito de dirigir. “Art. 244 do C.T.B. Conduzir motocicleta, motoneta e ciclomotor IV - com os faróis apagados;
+
+
+Infração - Gravíssima
+Penalidade- Multa e suspensão do direito de dirigir
+Medida administrativa Recolhimento do documento de habilitação”
+
+
+Resolução do CONTRAN 18/98:
+
+
+Art. 1º - Resolve:
+Recomendar às autoridades com circunscrição sobre as vias terrestres, que por meio de campanhas educativas, motivem seus usuários a manter o farol baixo aceso durante o dia, nas rodovias.
+Concluindo:
+
+
+Vemos pela cópia em anexo da autuação que o veículo citado foi autuado ás 08:45 da manhã, portanto a luz solar, de modo que foi injustamente autuado estando o enquadramento usado errado.
+O agente foi contra às normas gerais de circulação e conduta (Capitulo III da lei n” 95O3 de setembro de 1997 atualizada com a lei n0 9602 de 21/01/1998) no tocante ao art. 46 inc. I da referida lei. Analisando ainda a resolução 18/98 vê-se que o CONTRAN apenas recomenda a motivação do uso de farol aceso durante o dia, nas rodovias, e que faz-se necessário o uso de campanhas educativas. Recomendar não é ordenar e que no local não se fazia campanha educativa e sim, fiscalização de trânsito de acordo com o art.23 do C.T.B.
+
+
+Face ao exposto, através da Portaria 515/98 do DETRAN em seu Artigo 70 “que em caso de erro ou falta de dados em seu preenchimento, a notificação será cancelada e ainda conforme o Código de Trânsito Brasileiro em seu Artigo 281 parágrafo único I. O auto de infração será arquivado e seu registro julgado insubsistente”. Se considerado inconsistente ou irregular.
+
+
+Venho requerer o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral único do Recorrente, julgando o AUTO DE INFRAÇÃO, aqui citado como inconsistente ou irregular, arquivando-o.
+Venho ainda pedir o efeito suspensivo do auto de infração, caso o recurso não for julgado no prazo estabelecido pelo art. 285 do CT.B, conto decide a deliberação 100 do CETRAN/SP.
+Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito
+de defesa assegurado pela Constituição Federal.
+
+
+
+
+MARCO ANTONIO OLIVEIRA
+
+
+Bauru, 26 de setembro de 2012
+
+
+
+
+ILMO. SENHOR DELEGADO DA l80ª CIRETRAN DE PIRATININGA
+
+
+Eu, REINALDO CÉSAR RG -XXXXXXXXXXXX , CPF-XXXXXXXXXXCNH DE Registro N0
+01000000006 residente a R — PA(JL[NODONn02-85 Bairro JD A.RARAS CEP - 21025-070
+município — BAURU - SP condutor do veículo – placa XXXXXX, marca — HONDA modelo — CG125
+TITAN, Cor -VERMELHA, espécie — PASSAGEIRO, tipo -MOTOCICLO, categoria -
+PARTICULAR, ano l998.
+Tendo recebido o auto de infração nº 443448 SERIE D, acusando infração no dia 14/08(2012 ás 09:00 horas na PÇA ANTONIO SOUSA Q-1,correspondente ao Artigo 230VII do C.T.B. ou seja, VEICULO COM COR OU Característica ALTERADA, venho interpor recurso alegando como defesa o seguinte:
+Conforme pode ser observado na NOTIFICAÇÃO DA INFRAÇÃO em anexo vemos que houve erro por parte do agente na classificação quanto á espécie do veículo.
+
+
+O veículo segundo o CLA, está classificado como espécie passageiro, no auto de infração está classificado como espécie motocicleta, é evidente que houve erro, pois motocicleta é classificação quanto o tipo e não quanto a espécie.
+Digo ainda que o agente não é competente para julgar se houve alteração ou não do veículo, pois o mesmo é sim técnico em trânsito e não perito mecânico.
+
+
+Acrescento que estabelece a Portaria 515/98 do DETRAN em seu Artigo V “que em caso de erro ou falta de dados em seu preenchimento”, a notificação será cancelada e conforme o Código de Trânsito Brasileiro em seu Artigo 281 parágrafo único I:
+
+
+o auto de infração será arquivado e seu registro julgado
+
+
+insubsistente”:
+
+
+—        Se considerado inconsistente ou irregular.
+
+
+Face ao exposto, requer-se o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral Único do Recorrente, julgando o AUTO DE INFRAÇÃO, aqui citado como inconsistente ou irregular arquivando-o.
+Venho ainda pedir o efeito suspensivo do auto de infração, caso o recurso não for julgado no prazo estabelecido pelo art. 285 do C.T.B. como decide a deliberação 100 do CETRAN-SP.
+Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+
+
+
+
+REINALDO CÉSAR
+
+
+xxxxx, l0 de agosto de 2012.
+
+
+
+
+ILIJSTRÍSSIMO SENHOR PRESIDENTE DA JARI MUNICIPAL -
+ARARAS - SP JUNTA ADMINISTRATIVA DE RECURSOS E
+INFRAÇÕES.
+
+
+
+
+Eu, KELLY CRISTINA RG — ililltLtliLi , CPF-1ll1ll1l1I CNH DE REGISTRO N0
+
+
+1111111 11111 residente rua BETINO n0 01-43 Bairro CENTRO CEP - 19020-280 Município —BAURU - SI’ condutor do veículo - placa: BJDXXXX, marca — FORD modelo — PAMPA GL, Cor -
+CINZA espécie — CARGA, tipo -CAMIONETA. categoria-PARTLCULAR,anol99O. Tendo recebido o auto de infração nº 26E43008779, acusando infração no dia 23/11/2012 às 14:32
+
+
+horas na R - RIO BRANCO N06-15 , correspondente Artigo 181 XVII do CT,B. ou seja, ESTACIONAR EM DESACORDO COM A REGULAMENTAÇÃO- SEM CARTÃO, venho interpor recurso alegando como defesa o seguinte:
+Solicito o amparo do artigo 267 da Lei 9.503/97 já que preencho todos os seus ítens, ou seja, esta é uma infração de natureza LEVE e não sou reincidente, na mesma infração nos últimos doze meses.
+Venho ainda pedir o efeito suspensivo do auto de infração, caso o recurso não for julgado no prazo estabelecido pelo art. 285 do C.T.B, como decide a deliberação 100 do CETRAN.
+Acrescento ainda que o auto é de natureza duvidosa visto que segundo o art. 181 XVII do C.T.B. a medida administrativa é de remoção, o que não houve.
+Face ao exposto, através do Art. 281. parágrafo único, inciso “I”, requer-se o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral Único do Recorrente, julgando o AUTO DE INFRAÇÃO aqui citado como inconsistente ou irregular arquivando-o.
+
+
+Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+
+
+
+
+
+
+KELLY CRISTINA
+
+
+xxxxx, 16 de Janeiro de 2002.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ILUSTRÍSSIMO SENHOR PRESIDENTE JARI DE ITUIUTABA-MG.
+
+
+
+
+
+
+
+
+Recurso de Multa de Trânsito
+
+
+
+
+
+
+
+
+
+
+CLODOALDO VASCONCELOS, condutor/ proprietário do veículo autuado, casado, autônomo, portador do RG n0 2666666666, CPF n0 48885555555534 ,CNI-3 de registro n.º 33333333333 residente na R Augusto Munhoz n0 1-90 — BARCA 1 - Cep: 150039-000 ITUIUTABA - MG, condutor devidamente indicado conforme art. 257 § 70 do CTB, vem com o devido respeito e lisura apresentar o recurso de multa de trânsito, conforme informações abaixo, neste douto órgão onde se pede o envio do mesmo para a sessão julgadora competente.
+
+
+
+
+O        Auto de Infração de n0 26V43000032foi baseado no artigo 218 I B-TRANS VELOC. ACIMA DE
+20% A MAX PERM.MEDIDA POR INSTR. OU EQUIP. HÁBIL -. VIA
+ARTERIAL , lavrado em 22/06/2012, na AV. JOÃO LAPÃO Q 30 NO
+        SENTIDO CENTRO BAIRRO - 2        ESQ
+
+
+
+
+O veículo autuado foi, PLACAS - BIKI 311 ,MARCA - FORO,  MODELO  ESCORT GL,  ESPÉCIE —PASSAGEIRO, CATEGORIA - PARTICULAR , COR AMARELA
+
+
+
+
+Razões do Recurso
+Preliminarmente
+
+
+Alego que o auto de infração está faltando dados necessários de acordo com o artigo 280 inc. III no auto não constam os itens espécie e cor, tomando se assim irregular. Digo também não ter sido notificado no prazo legal de 30 dias. Coloco ainda que o enquadramento está também errado, pois a velocidade aferida foi de 65 km/h e a permitida é de 50 km/h e de acordo com o comunicado 2 do CETRAN DE 08/06/200 1 pata efeito de penalidade de infração de excesso de velocidade admissível para velocidades até 100 km/h é de 7 km/h de margem de erro. Ao aplicar a penalidade a autoridade de trânsito deve considerar o erro máximo sempre a favor do condutor, nesse caso a velocidade a ser considerada é de 58 km/h.
+
+
+Sendo 58 km/h a velocidade não atinge 20% a mais da velocidade permitida de modo que o enquadramento correto é.
+
+
+
+
+Art. 218 I A -- transitar em velocidade superior a máxima permitida para o local em até 20% medida por instrumento Hábil — via arterial.
+
+
+Como explanado uma infração grave ,de 120 ufirs e não de 3 vezes 180 ufirs, é evidente que houve erro. Ambas as irregularidades ferem o art. 281 do C.T.B. no seu parágrafo único inc. I e II.
+Alego ainda que o item, cor é imprescindível, já que o instrumento hábil não identifica esse item, pois terceiros podem clonar placas e usá-las em autos de mesmo modelo.
+
+
+
+
+Dos Pedidos.
+
+
+
+
+Diante de todo o exarado, requer-se o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral único do Recorrente.
+
+
+ Requer-se também o beneficio do efeito suspensivo no caso do recurso não ter sido julgado em até 30 dias da data de seu protocolo na conformidade do artigo 285 § 30 do CTB como decide a deliberação n0 100.
+
+
+        Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+
+
+
+
+BAURÚ, 19 de novembro de 2012.
+
+
+
+
+CLODOALDO VASCONCELOS
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ILUSTRÍSSIMO SENHOR PRESIDENTE DA JARI DO MUNICÍPIO DE
+RIBEIRÃO PRETO.
+
+
+Recurso de Multa de Trânsito
+
+
+
+
+Eu, EVA LANI, casada, SERVENTE DE LIMPEZA, portador do RG n0 36222222, CPF 10222115503, residente na RUA. ELIÃS DOZE 213 - VL. ITU - JAÚ —SP Cep: 23056-050, onde recebe notificações, vem como devido respeito e lisura apresentar Recurso de Multa de Trânsito, conforme informações abaixo, neste Douto órgão onde se pede o envio do mesmo para a sessão julgadora competente.
+
+
+O        Auto de Infração dei0 087] 29-2 foi baseado no artigo 208— AVANÇAR SINAL VERMELHO DO SEMÁFORO lavrado em 28/08/2000, na ÃV. FRANCISCO JUNQUEIRA X AV. SÁ às 22:35 hrs
+
+
+O        veículo autuado foi uma VW /PARAT1 CL, ano1990, Cor CINZA, e placa CFE-1235, licenciado em 2000 ESPÉCIE PASSAGEIRO CATEGORIA PARTICULAR TIPO CAMIONETA.
+
+
+Razões do Recurso
+
+
+Preliminarmente
+Alego que “não fui notificada da infração o que dela teve ciência ocasionalmente pela Internet, após novo dono tê-la informado que no citado automóvel descrito havia débito de multa . O fato contraria o artigo 282 do CT.B., tomando o auto de infração insubsistente, levando a muita ao arquivamento conforme art. 2Slparâgrafo Único inciso lido CTB.
+Acrescento que após várias consultas via Internet o cadastro de débito ora positivo ora negativo, sendo então feito uso do disque DETRAN no qual o débito era inexistente, posteriormente nova consulta feita na  Internet e lá constava o débito novamente.
+Alego ainda que não sou habilitada e que usava o veículo para idas esporádicas ao supermercado, sendo esse o motivo de não anexar cópia da C.N.H
+Junto ainda que não fazia viagens como automóvel e que na cidade de residência dela não existe o local referido nas consultas realizadas e que só soube que a autuação é da cidade de Ribeirão Preto quando tentou ingressar cem o recurso na ciretran de Jaú.
+Digo que foi feito a transferência do automóvel em data de 24/11/2000 e que não constava débitos o que seria impossível, pois as consultas declaram que a infração data de 28/08/2000 data essa anterior a transferência do automóvel ao novo dono.
+Declaro que era a proprietária do automóvel na data da suposta infração. Acrescentadas às documentações anexas,
+
+
+Do Mérito
+
+
+Venho informar que o veículo autuado não estava no local/hora descritos.
+Por conseguinte sugiro ajuntada do auto de infração e sua análise, pois pode haver erro no preenchimento quanto às descrições do veículo.
+
+
+Também pode ter havido confusão de letra e/ou número quanto ao cadastramento da infração no sistema do órgão de transito.
+
+
+
+
+A hipótese da existência de veículo clonado (duble) ou placa adulterada deve ser levada em consideração.
+
+
+A verdade é única, o veículo autuado não estava no local e hora da infração.
+
+
+
+
+Dos Pedidos
+
+
+Diante de todo o exarado, requero o DEFERIMENTO do presente recurso e o cancelamento da multa imposta.
+
+
+Requero também o beneficio do efeito suspensivo no caso do recurso não ter sido julgado em até 30 dias da data de seu protocolo na conformidade do artigo 285 § 3º do CTB.
+
+
+Por fim, requero que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+Bauru, O2de maio de 2012.
+
+
+EVA LANI 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ILUSTRÍSSIMO SENHOR PRESIDENTE DA JARI DE EMBÚ DAS      ARTES
+        EU        ______________        _______        residente,        a R.
+_______        ________ _______ Bairro:        ______________ , CEP:00000-721 , Município: EMBÚ,
+condutor do veículo: placa ________________, marca: _________________, Espécie: Passageiro Categoria Particular.
+Tendo recebido o auto de infração n0 _____________~•,~, acusando infração no dia _______ às ______ horas na Avenida Rodrigues Mello quadra 20(Paixa2), correspondente Artigo 218 lia do Código de Trânsito Brasileiro, ou seja, Transitar Velocidade Superior a Máxima em até 500/o nas Demais Vias, vem interpor recurso alegando como defesa o seguinte:
+Solicito que minhas alegações sejam analisadas com todo critério de justiça: recebi a
+        notificação__________________           da   __________________        pois segundo consta infringi a velocidade à Av. Rodrigues Mello, entretanto, tal notificação prejudica minha defesa pelo seguinte exposto:
+A tipificação da infração é “Transitar Velocidade Superior a Máxima em até 50% nas demais vias”. Ora, se a infração se deu na Av. Rodrigues Mello . e esta Avenida é uma Via Arterial, como bem cita o Anexo 1 do CTB, então o amparo legal é 218 I a e não o art. 218 II a.
+O artigo 60 do CTB classifica as vias abertas a circulação como sendo:
+trânsito rápido.
+via arterial.
+via coletora.
+via local.
+        Para concluir, se cometi a suposta infração por excesso de velocidade NAS DEMAIS VIAS, logicamente essa via seria as Vias Coletoras e as Vias Locais, pois a Via Trânsito Rápido e Arterial está prevista no artigo 218 I.
+
+
+Face ao exposto, através do Art. 281. parágrafo único. inciso “I”, requer-se o DEFERIMENTO do presente recurso, o cancelamento da multa imposta e a extinção da pontuação que a infração gerou no Prontuário Geral Único do Recorrente Julgando o AUTO DE INFRAÇÃO, aqui citado como inconsistente ou irregular arquivando-o.
+
+
+Requer-se também o beneficio do efeito suspensivo no caso do recurso não ter sido julgado em até 30 dias da data de seu protocolo na conformidade do artigo 285 § 3º do CTB
+
+
+Por fim, requer-se ainda que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+Embú, ______ de _______________ de 2012
+
+
+
+
+Ass. _____________________________ ____________
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ILUSTRÍSSIMO SENHOR PRESIDENTE DA JARI (JUNTA ADMINISTRATIVA DE RECURSOS DE INFRAÇÕES) JARINÚ/SP
+
+
+Arnaldo Ramiro Lopes RG n0 1000990. CNH PGU n0 01606000090, residente na R José Ramos n0
+28-22 Bairro VL Antártica CEPI 7013211 Município Jarinú, condutor do veículo Marca Vw modelo Gol Placas BPV0002 Cor cinza Espécie Passageiro Categoria Particular Tipo automóvel, tendo recebido a notificação n026v43 114467 correspondente ao artigo 203 II do CTB, ou seja, ultrapassar pela contramão na faixa de pedestre, vem interpor recurso alegando em sua defesa o seguinte;
+
+
+Solicito que minhas alegações sejam analisadas com todo critério de justiça, já que, acredito eu existir falhas técnicas do poder público, ora representada pela Polícia Militar, no preenchimento da autuação.
+Declaro que no ítem cor do auto de infração meu veículo foi classificado como de cor verde, ora esclareço que houve então o erro do agente acato do preenchimento, pois como consta no documento o veículo é de cor cinza.
+
+
+Elenco ainda que no local do fato há faixa demarcatória com permissão de ultrapassagem e que o ato de ultrapassagem é legal respeitadas as normas de segurança, o que fiz.
+
+
+Coloco ainda que a ultrapassagem é definida pelo anexo do C.T.B. como:
+
+
+“Movimento de passar á frente de outro veículo que se desloca no mesmo sentido, em menor velocidade em mesma fixa de tráfego, necessitando sair e retornar á faixa de origem”
+
+
+Ora veja, se no local a faixa amarela tracejada permite a ultrapassagem, que para constituir-se deve ser feito uso da outra faixa de rolamento, não constitui-se então a citada infração. Outra se no momento da suposta infração for feito o uso da mesma faixa de trânsito porém pelo lado direito da via, ou seja possível contramão, não constitui-se então ultrapassagem já que ai então não se sai da faixa de origem.
+
+
+Então saliento que houve não só o erro quanto a cor do veículo como também quanto a enquadramento do C.T.B. usado pelo agente, face ás explicações acima.
+
+
+Face ao exposto peço o cancelamento do auto de inflação com base na Portaria 515/98 do DETRAN em seu Artigo 7º  “que em caso de erro ou falta de dados em seu preenchimento”, a notificação será cancelada como também no Código de Trânsito Brasileiro em seu Artigo 281 parágrafo único I:
+
+
+o        auto de infração será arquivado e seu registro julgado insubsistente”:
+
+
+—        Se considerado inconsistente ou irregular.
+
+
+Solicito ainda o cancelamento da multa imposta e a extinção da pontuação que a inflação gerou no Prontuário Geral Único do Recorrente.
+Requer-se também o beneficio do efeito suspensivo no caso do recurso não ter sido julgado em até 30 dias da data de seu protocolo na conformidade do artigo 285 § 3ºdo CTB.
+Por fim, requer-se que a decisão seja fundamentada para que possa garantir o amplo direito de defesa assegurado pela Constituição Federal.
+
+
+
+
+Bauru, 05 de julho de 2012.
+
+
+
+
+
+
+Arnaldo Ramiro Lopes
+
+
+
+
+Artigo 285 § 3º ( do CTB prevê a suspensão da autuação, ou seja, caso não for julgado em
+30 dias seu recurso, o órgão deve suspender a autuação até que consiga julgá-la. nesse
+período o infrator poderá licenciar o veículo.
+O        pedido de suspensão deve ser feito em todos seus recursos assim você ganha tempo
+precioso.
+
+
+
+
+
+
+Aqui findamos nosso trabalho e estamos certos de que todas essas
+informações serão úteis aos nossos leitores.

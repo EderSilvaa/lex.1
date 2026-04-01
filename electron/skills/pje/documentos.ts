@@ -7,7 +7,8 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { ensureBrowser, getActivePage, clickInFrames, runBrowserTask } from '../../browser-manager';
+import { ensureBrowser, getActivePage, clickInFrames } from '../../browser-manager';
+import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveSelector, confirmResolved } from '../../browser';
 
 // Seletores conhecidos para a aba/seção de documentos no PJe
@@ -162,7 +163,8 @@ Objetivo: Extrair a lista de documentos do processo.
         `.trim();
 
         try {
-            const resultado = await runBrowserTask(instrucao, 15);
+            const res = await runBrowserUseTask({ task: instrucao, maxSteps: 15 });
+            const resultado = res.result;
             return { sucesso: true, dados: { numero, resultado, modo: 'vision' }, mensagem: resultado };
         } catch (error: any) {
             return { sucesso: false, erro: error.message, mensagem: `Erro ao extrair documentos: ${error.message}` };

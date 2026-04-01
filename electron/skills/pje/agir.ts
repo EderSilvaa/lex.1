@@ -1,14 +1,14 @@
 /**
  * Skill: pje_agir
  *
- * Executa qualquer ação no browser via Playwright CDP agent.
- * O agent raciocina sobre a tela atual e executa os passos necessários.
- * Substitui o loop Vision ReAct anterior (vision.ts + navegar.ts + preencher.ts).
+ * Motor principal de navegação PJe via browser-use (DOM-based, LLM-agnóstico).
+ * Fallback automático para runBrowserTask (vision) se browser-use não estiver disponível.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { runBrowserTask, injectOverlay } from '../../browser-manager';
+import { injectOverlay } from '../../browser-manager';
 import { agentEmitter } from '../../agent/loop';
+import { runBrowserUseTask } from '../../browser/browser-use-executor';
 
 export const pjeAgir: Skill = {
     nome: 'pje_agir',
@@ -23,15 +23,15 @@ export const pjeAgir: Skill = {
         },
         tribunal: {
             tipo: 'string',
-            descricao: 'Tribunal alvo (ex: TRT8, TJPA). Usado para dar contexto ao agent.',
+            descricao: 'Tribunal alvo (ex: TRT8, TJPA). Usado para dar contexto ao agent e para selector-memory.',
             obrigatorio: false,
             default: ''
         },
         maxPassos: {
             tipo: 'number',
-            descricao: 'Número máximo de passos do agent (default: 10)',
+            descricao: 'Número máximo de passos do agent (default: 15)',
             obrigatorio: false,
-            default: 10
+            default: 15
         }
     },
 
@@ -46,7 +46,7 @@ export const pjeAgir: Skill = {
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {
         const objetivo = String(params['objetivo'] || '');
         const tribunal = String(params['tribunal'] || '');
-        const maxPassos = Number(params['maxPassos'] || 10);
+        const maxPassos = Number(params['maxPassos'] || 15);
 
         if (!objetivo) {
             return { sucesso: false, erro: 'Parâmetro "objetivo" obrigatório.', mensagem: 'Informe o que deve ser feito.' };
@@ -57,26 +57,33 @@ export const pjeAgir: Skill = {
             ? `Contexto: você está operando o sistema ${tribunal} (PJe - Processo Judicial Eletrônico brasileiro).\n\nObjetivo: ${objetivo}`
             : `Contexto: você está operando um sistema judicial brasileiro (PJe).\n\nObjetivo: ${objetivo}`;
 
-        console.log(`[pje_agir] Executando: "${objetivo}" ${tribunal ? `(${tribunal})` : ''}`);
+        console.log(`[pje_agir] Executando via browser-use: "${objetivo}" ${tribunal ? `(${tribunal})` : ''}`);
 
         try {
-            const resultado = await runBrowserTask(
-                instrucao,
-                maxPassos,
-                (step) => {
+            const result = await runBrowserUseTask({
+                task: instrucao,
+                ...(tribunal ? { tribunal } : {}),
+                context: 'pje_agir',
+                maxSteps: maxPassos,
+                onStep: (step) => {
                     agentEmitter.emit('agent-event', {
                         type: 'thinking',
-                        pensamento: `🌐 ${step}`,
-                        iteracao: 0
+                        pensamento: `🌐 ${step.description}`,
+                        iteracao: step.step_number,
                     });
-                    injectOverlay(step);
-                }
-            );
+                    injectOverlay(step.description.slice(0, 80));
+                },
+            });
+
+            if (result.usedFallback) {
+                console.log('[pje_agir] Usou fallback (vision)');
+            }
 
             return {
-                sucesso: true,
-                dados: { resultado },
-                mensagem: resultado || 'Ação executada com sucesso no Chrome.'
+                sucesso: result.success,
+                dados: { resultado: result.result, steps: result.steps.length, captcha: result.captcha },
+                mensagem: result.result || 'Ação executada com sucesso no Chrome.',
+                ...(result.captcha ? { aviso: 'CAPTCHA detectado — pode precisar de intervenção manual.' } : {})
             };
         } catch (error: any) {
             console.error('[pje_agir] Erro:', error.message);
