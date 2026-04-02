@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { BrainStore } from './brain-store';
 import type { BrainNode } from './types';
+import { suppressWatcher } from './brain-md-watcher';
 
 const BRAIN_DIR = path.join(os.homedir(), '.lex', 'brain');
 
@@ -32,6 +33,7 @@ function sanitizeFilename(name: string): string {
  */
 export async function renderBrainMarkdown(brain: BrainStore): Promise<{ dir: string; fileCount: number }> {
     ensureDir(BRAIN_DIR);
+    suppressWatcher(6000); // evita feedback loop enquanto escrevemos os .md
     let fileCount = 0;
 
     // 1. Processos — um arquivo por processo

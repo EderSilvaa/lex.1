@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { BrainStore } from './brain-store';
+import { initBrainWatcher, stopBrainWatcher } from './brain-md-watcher';
 import { loadEncrypted } from '../privacy/encrypted-storage';
 import type { MemoriaData } from '../agent/memory';
 import type { CrossSessionFact } from '../agent/types';
@@ -86,6 +87,9 @@ export function initBrain(userDataDir: string): BrainStore {
         }
     }
 
+    // Inicia file watcher para sync Markdown → SQLite
+    initBrainWatcher(_brain);
+
     return _brain;
 }
 
@@ -106,6 +110,8 @@ export function getBrainSafe(): BrainStore | null {
  */
 export function closeBrain(): void {
     if (!_brain || !_dbPath || !_encPath || !_userDataDir) return;
+
+    stopBrainWatcher();
 
     try {
         _brain.close();
@@ -208,14 +214,14 @@ function migrateFromLegacy(brain: BrainStore, userDataDir: string): void {
                 for (const fact of fatos) {
                     brain.upsertProcesso(fact.processoNumero, {
                         processoNumero: fact.processoNumero,
-                        lastSessionId: fact.lastSessionId,
-                        lastUpdated: fact.lastUpdated,
-                        partes: fact.partes,
-                        classe: fact.classe,
-                        tribunal: fact.tribunal,
-                        tesesDiscutidas: fact.tesesDiscutidas,
-                        decisoes: fact.decisoes,
-                        status: fact.status,
+                        ...(fact.lastSessionId !== undefined && { lastSessionId: fact.lastSessionId }),
+                        ...(fact.lastUpdated !== undefined && { lastUpdated: fact.lastUpdated }),
+                        ...(fact.partes !== undefined && { partes: fact.partes }),
+                        ...(fact.classe !== undefined && { classe: fact.classe }),
+                        ...(fact.tribunal !== undefined && { tribunal: fact.tribunal }),
+                        ...(fact.tesesDiscutidas !== undefined && { tesesDiscutidas: fact.tesesDiscutidas }),
+                        ...(fact.decisoes !== undefined && { decisoes: fact.decisoes }),
+                        ...(fact.status !== undefined && { status: fact.status }),
                     });
                 }
                 console.log(`[Brain] Migrados ${fatos.length} fatos → nós processo`);
