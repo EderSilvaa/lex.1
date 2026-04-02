@@ -946,6 +946,7 @@ const views = {
     'nav-chat': document.querySelector('.chat-wrapper'),
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null,
+    'nav-brain': document.querySelector('.brain-wrapper'),
     'nav-lotes': document.querySelector('.lotes-wrapper'),
     'nav-settings': document.querySelector('.settings-wrapper')
 };
@@ -975,6 +976,11 @@ navItems.forEach(item => {
         // Init lotes view
         if (viewId === 'nav-lotes') {
             if (typeof initLotesView === 'function') initLotesView();
+        }
+
+        // Init brain view
+        if (viewId === 'nav-brain') {
+            if (typeof initBrainView === 'function') initBrainView();
         }
 
     });

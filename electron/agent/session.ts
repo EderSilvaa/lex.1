@@ -17,6 +17,7 @@ import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 import { getContextBudget } from './context-budget';
 import type { SessionFacts, ProcessoFact, PrazoFact, StructuredSummary, SessionMeta, CrossSessionFact } from './types';
 import type { Memory } from './memory';
+import type { BrainStore } from '../brain/brain-store';
 
 // ============================================================================
 // TYPES
@@ -592,7 +593,7 @@ Retorne APENAS campos com valores. Omita campos vazios. Se não há fatos releva
      * Promove fatos-chave da sessão para a memória persistente.
      * Fatos de processos sobrevivem entre sessões.
      */
-    async promoteCrossSessionFacts(sessionId: string, memory: Memory): Promise<void> {
+    async promoteCrossSessionFacts(sessionId: string, memory: Memory, brain?: BrainStore): Promise<void> {
         const session = this.sessions.get(sessionId);
         if (!session?.facts) return;
 
@@ -611,12 +612,33 @@ Retorne APENAS campos com valores. Omita campos vazios. Se não há fatos releva
                 decisoes: facts.decisoes,
                 status: processo.status,
             });
+
+            // Brain: upsert processo no grafo de conhecimento
+            if (brain) {
+                try {
+                    brain.upsertProcesso(processo.numero, {
+                        processoNumero: processo.numero,
+                        lastSessionId: sessionId,
+                        lastUpdated: Date.now(),
+                        partes: processo.partes,
+                        classe: processo.classe,
+                        tribunal: processo.tribunal || facts.tribunal,
+                        tesesDiscutidas: facts.teses,
+                        decisoes: facts.decisoes,
+                        status: processo.status,
+                    });
+                } catch (e) { console.warn('[Session] Brain upsertProcesso falhou:', e); }
+            }
         }
 
         // Teses sem processo associado → aprendizados gerais
         if (facts.processos.length === 0 && facts.teses.length > 0) {
             for (const tese of facts.teses.slice(0, 3)) {
                 await memory.addAprendizado(tese);
+                if (brain) {
+                    try { brain.addAprendizado(tese); }
+                    catch (e) { /* non-critical */ }
+                }
             }
         }
     }

@@ -168,6 +168,18 @@ contextBridge.exposeInMainWorld('schedulerApi', {
     offNotificationBadge: () => ipcRenderer.removeAllListeners('notification-badge'),
 });
 
+contextBridge.exposeInMainWorld('brainApi', {
+    getGraph: () => ipcRenderer.invoke('brain-get-graph'),
+    getSubgraph: (nodeId: string, depth?: number) => ipcRenderer.invoke('brain-get-subgraph', { nodeId, depth }),
+    search: (query: string, types?: string[], limit?: number) => ipcRenderer.invoke('brain-search', { query, types, limit }),
+    getStats: () => ipcRenderer.invoke('brain-get-stats'),
+    getNode: (nodeId: string) => ipcRenderer.invoke('brain-get-node', nodeId),
+    runDream: () => ipcRenderer.invoke('brain-run-dream'),
+    exportBrain: () => ipcRenderer.invoke('brain-export'),
+    importBrain: (zipPath: string) => ipcRenderer.invoke('brain-import', zipPath),
+    renderMarkdown: () => ipcRenderer.invoke('brain-render-markdown'),
+});
+
 contextBridge.exposeInMainWorld('datajudApi', {
     // Profile
     getProfile: () => ipcRenderer.invoke('datajud-get-profile'),

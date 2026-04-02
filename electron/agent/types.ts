@@ -57,6 +57,9 @@ export interface AgentContext {
 
     // Histórico de chat injetado pela sessão multi-turn
     chatHistory?: string;
+
+    // Brain (SQLite FTS5) — contexto montado pelo brain.getContext()
+    brainContext?: string;
 }
 
 export interface RagChunk {

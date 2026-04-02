@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/file-manager.css">
     <link rel="stylesheet" href="styles/lotes.css">
+    <link rel="stylesheet" href="styles/brain.css">
     <link rel="stylesheet" href="styles/quill.snow.css">
 
 </head>
@@ -44,6 +45,21 @@
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
                     <span class="label">Arquivos</span>
+                </button>
+                <button class="nav-item" id="nav-brain" title="Brain">
+                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                        fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <line x1="12" y1="2" x2="12" y2="5"></line>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                        <line x1="2" y1="12" x2="5" y2="12"></line>
+                        <line x1="19" y1="12" x2="22" y2="12"></line>
+                        <line x1="4.22" y1="4.22" x2="6.34" y2="6.34"></line>
+                        <line x1="17.66" y1="17.66" x2="19.78" y2="19.78"></line>
+                        <line x1="4.22" y1="19.78" x2="6.34" y2="17.66"></line>
+                        <line x1="17.66" y1="6.34" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <span class="label">Brain</span>
                 </button>
                 <button class="nav-item" id="nav-lotes" title="Producao em Lote">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
@@ -524,6 +540,36 @@
             </div>
 
             <!-- Lotes (Producao em Lote) View -->
+            <!-- ===== BRAIN ===== -->
+            <div class="brain-wrapper hidden">
+                <div class="brain-header">
+                    <h2>Brain</h2>
+                    <div class="brain-header-actions">
+                        <button id="btn-brain-search-toggle" class="btn-sm btn-ghost" title="Buscar">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                        </button>
+                        <button id="btn-brain-dream" class="btn-sm btn-ghost" title="Rodar Dream (consolidar memoria)">Dream</button>
+                        <button id="btn-brain-export" class="btn-sm btn-ghost" title="Exportar Brain">Export</button>
+                    </div>
+                </div>
+                <div id="brain-search-bar" class="brain-search-bar hidden">
+                    <input id="brain-search-input" type="text" placeholder="Buscar no Brain..." />
+                    <div id="brain-search-results" class="brain-search-results"></div>
+                </div>
+                <div class="brain-body">
+                    <div id="brain-graph" class="brain-graph"></div>
+                    <div id="brain-sidebar" class="brain-sidebar hidden">
+                        <button id="btn-brain-sidebar-close" class="brain-sidebar-close">×</button>
+                        <div id="brain-node-detail"></div>
+                    </div>
+                </div>
+                <div id="brain-stats-bar" class="brain-stats-bar">
+                    <span id="brain-stats-text">Carregando...</span>
+                </div>
+            </div>
+
             <div class="lotes-wrapper hidden">
                 <div class="lotes-header">
                     <button id="btn-back-lotes" class="icon-btn hidden" title="Voltar">
@@ -749,6 +795,8 @@
     <script src="js/app.js"></script>
     <script src="js/file-manager.js"></script>
     <script src="js/lotes.js"></script>
+    <script src="js/force-graph.min.js"></script>
+    <script src="js/brain.js"></script>
 </body>
 
 </html>

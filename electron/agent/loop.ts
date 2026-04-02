@@ -23,6 +23,8 @@ import { critic } from './critic';
 import { requiresDualValidation, validateWithDualAgent, validationToCriticDecision } from './validator-agent';
 import { executeSkill } from './executor';
 import { getMemory } from './memory';
+import { getBrainSafe } from '../brain';
+import { getContextBudget } from './context-budget';
 import { getResponseCache } from './cache';
 import { getSessionManager } from './session';
 import { getActivePage } from '../browser-manager';
@@ -131,6 +133,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
 
     // Carrega memória persistente e RAG em paralelo
     const memory = getMemory();
+    const brain = getBrainSafe();
     const docIndex = getDocIndex();
     const [memoriaData, usuarioData, interacoesSimilares, ragResultados] = await Promise.all([
         memory.carregar(),
@@ -173,6 +176,18 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
         iteracao: 0,
         startTime: Date.now()
     };
+
+    // Brain context (FTS5) — prioridade sobre memória legada
+    if (brain) {
+        try {
+            const brainCtx = brain.getContext(objetivo, getContextBudget());
+            if (brainCtx.text) {
+                state.contexto.brainContext = brainCtx.text;
+            }
+        } catch (err) {
+            console.warn('[Agent] Brain getContext falhou, usando memória legada:', err);
+        }
+    }
 
     // A3: Registra no registry
     activeRuns.set(runId, { state, abort });
@@ -341,7 +356,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
 
                     log(cfg.verbose, `✅ Objetivo completo em ${state.iteracao} passos (${duracao}ms)`);
 
-                    // Salva interação na memória
+                    // Salva interação na memória (legacy + brain)
                     await memory.salvarInteracao({
                         objetivo,
                         resposta: decisao.resposta!,
@@ -349,6 +364,17 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         duracao,
                         sucesso: true
                     });
+                    if (brain) {
+                        try {
+                            brain.saveInteraction({
+                                objetivo,
+                                resposta: decisao.resposta!,
+                                passos: state.iteracao,
+                                duracao,
+                                sucesso: true,
+                            });
+                        } catch (e) { console.warn('[Agent] Brain saveInteraction falhou:', e); }
+                    }
 
                     // Registra aprendizado quando skills PJe foram usadas
                     const pjeSkills = state.passos
@@ -361,6 +387,10 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         memory.addAprendizado(
                             `${label}"${objetivo.substring(0, 60)}" → ${skills}`
                         ).catch(() => {});
+                        if (brain) {
+                            try { brain.addAprendizado(`${label}"${objetivo.substring(0, 60)}" → ${skills}`); }
+                            catch (e) { /* non-critical */ }
+                        }
                     }
 
                     emit({
@@ -397,7 +427,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         sessionManager.extractAndStoreFacts(activeSessionId).catch(e =>
                             console.warn('[Agent] Fact extraction failed:', e.message)
                         );
-                        sessionManager.promoteCrossSessionFacts(activeSessionId, memory).catch(e =>
+                        sessionManager.promoteCrossSessionFacts(activeSessionId, memory, brain ?? undefined).catch(e =>
                             console.warn('[Agent] Cross-session promotion failed:', e.message)
                         );
                     }
@@ -407,6 +437,12 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         const { extractAndSave } = require('../legal/legal-extractor');
                         extractAndSave(decisao.resposta!);
                     } catch { /* legal extractor optional */ }
+
+                    // Brain: incrementa dream session count
+                    if (brain) {
+                        try { brain.incrementDreamSessionCount(); }
+                        catch (e) { /* non-critical */ }
+                    }
 
                     return decisao.resposta!;
                 }

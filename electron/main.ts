@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
 import { closeBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
 import { initMemoryDir } from './agent/memory';
+import { initBrain, getBrain, getBrainSafe, closeBrain } from './brain';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
 import { initSelectorMemory, flushSelectorMemory } from './browser';
 import { startBackend, stopBackend, rpcCall, backendEvents, syncConfigToBackend, isBackendAlive } from './backend-client';
@@ -1184,6 +1185,14 @@ app.whenReady().then(async () => {
     initRouteMemory(userData);
     initSelectorMemory(userData);
 
+    // Brain (SQLite FTS5 + grafo de conhecimento)
+    try {
+        initBrain(userData);
+        console.log('[Main] Brain inicializado');
+    } catch (err: any) {
+        console.error('[Main] Falha ao iniciar Brain:', err.message);
+    }
+
     // Training collector — coleta dados de treino para PJe-model
     try {
         const { initTrainingCollector } = require('./agent/training-collector');
@@ -1466,6 +1475,7 @@ app.on('window-all-closed', async function () {
     flushRouteMemory();
     flushSelectorMemory();
     try { require('./agent/training-collector').flush(); } catch { /* ok */ }
+    closeBrain();
     await closeBrowser();
     try {
         if (agentModule) {
@@ -2434,6 +2444,84 @@ ipcMain.handle('scheduler-set-auto-launch', async (_event, enabled: boolean) => 
 ipcMain.handle('scheduler-get-auto-launch', async () => {
     const settings = app.getLoginItemSettings();
     return { enabled: settings.openAtLogin };
+});
+
+// ============================================================================
+// IPC: Brain (SQLite FTS5 + Knowledge Graph)
+// ============================================================================
+
+ipcMain.handle('brain-get-graph', async () => {
+    const brain = getBrainSafe();
+    if (!brain) return { nodes: [], edges: [] };
+    return brain.getFullGraph();
+});
+
+ipcMain.handle('brain-get-subgraph', async (_event, { nodeId, depth }: { nodeId: string; depth?: number }) => {
+    const brain = getBrainSafe();
+    if (!brain) return { nodes: [], edges: [] };
+    return brain.getSubgraph(nodeId, depth ?? 1);
+});
+
+ipcMain.handle('brain-search', async (_event, { query, types, limit }: { query: string; types?: string[]; limit?: number }) => {
+    const brain = getBrainSafe();
+    if (!brain) return [];
+    return brain.search(query, { types: types as any, limit });
+});
+
+ipcMain.handle('brain-get-stats', async () => {
+    const brain = getBrainSafe();
+    if (!brain) return { nodeCount: 0, edgeCount: 0, byType: {} };
+    return brain.getStats();
+});
+
+ipcMain.handle('brain-get-node', async (_event, nodeId: string) => {
+    const brain = getBrainSafe();
+    if (!brain) return null;
+    return brain.getNode(nodeId);
+});
+
+ipcMain.handle('brain-run-dream', async () => {
+    try {
+        const { runDream } = await import('./brain/dream');
+        const brain = getBrain();
+        return await runDream(brain);
+    } catch (err: any) {
+        console.error('[Brain] Dream falhou:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('brain-export', async () => {
+    try {
+        const { exportBrain } = await import('./brain/brain-export');
+        const brain = getBrain();
+        return await exportBrain(brain);
+    } catch (err: any) {
+        console.error('[Brain] Export falhou:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('brain-import', async (_event, zipPath: string) => {
+    try {
+        const { importBrain } = await import('./brain/brain-export');
+        const brain = getBrain();
+        return await importBrain(brain, zipPath);
+    } catch (err: any) {
+        console.error('[Brain] Import falhou:', err);
+        return { error: err.message };
+    }
+});
+
+ipcMain.handle('brain-render-markdown', async () => {
+    try {
+        const { renderBrainMarkdown } = await import('./brain/brain-renderer');
+        const brain = getBrain();
+        return await renderBrainMarkdown(brain);
+    } catch (err: any) {
+        console.error('[Brain] Render falhou:', err);
+        return { error: err.message };
+    }
 });
 
 // ============================================================================

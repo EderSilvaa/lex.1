@@ -400,8 +400,15 @@ function buildContextSection(state: AgentState): string {
         parts.push(`## Tarefas Similares Anteriores\n${linhas.join('\n')}`);
     }
 
-    // Memória persistente (budget-aware)
-    if (state.contexto.memoria) {
+    // Brain context (FTS5 + grafo) — prioridade sobre memória legada
+    if (state.contexto.brainContext) {
+        let brainSection = `## Memória (Brain)\n${state.contexto.brainContext}`;
+        if (brainSection.length > budget.maxMemoryChars) {
+            brainSection = brainSection.substring(0, budget.maxMemoryChars) + '...';
+        }
+        parts.push(brainSection);
+    } else if (state.contexto.memoria) {
+        // Fallback: memória legada (budget-aware)
         const mem = state.contexto.memoria;
         const memParts: string[] = ['## Memória Persistente'];
 
