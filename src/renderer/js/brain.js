@@ -19,19 +19,32 @@
     let _initialized = false;
     let _searchDebounce = null;
 
-    // Node type → color
+    // Node type → neon color (space/neural palette)
     const TYPE_COLORS = {
-        processo:    '#a78bfa',   // purple
-        tese:        '#34d399',   // green
-        parte:       '#60a5fa',   // blue
-        aprendizado: '#fbbf24',   // amber
-        tribunal:    '#f87171',   // red
-        decisao:     '#fb923c',   // orange
-        selector:    '#94a3b8',   // slate
-        prazo:       '#e879f9',   // pink
+        processo:    '#a855f7',   // violet
+        tese:        '#22d3ee',   // cyan
+        parte:       '#38bdf8',   // sky blue
+        aprendizado: '#fbbf24',   // amber/gold
+        tribunal:    '#f472b6',   // pink/magenta
+        decisao:     '#4ade80',   // neon green
+        selector:    '#64748b',   // slate
+        prazo:       '#fb923c',   // orange
     };
 
-    const DEFAULT_COLOR = '#6b7280';
+    const DEFAULT_COLOR = '#6366f1';
+
+    // Glow alpha layers per type
+    const TYPE_GLOW = {
+        processo:    'rgba(168,85,247,',
+        tese:        'rgba(34,211,238,',
+        parte:       'rgba(56,189,248,',
+        aprendizado: 'rgba(251,191,36,',
+        tribunal:    'rgba(244,114,182,',
+        decisao:     'rgba(74,222,128,',
+        selector:    'rgba(100,116,139,',
+        prazo:       'rgba(251,146,60,',
+    };
+    const DEFAULT_GLOW = 'rgba(99,102,241,';
 
     // ========================================================================
     // INIT
@@ -70,7 +83,10 @@
         }
 
         if (!data || data.nodes.length === 0) {
-            _showEmpty(container, 'Brain vazio. Comece usando o agente para acumular conhecimento.');
+            data = _getMockData();
+            document.getElementById('brain-stats-text').textContent = '⚠ dados de exemplo — use o agente para popular o Brain';
+            _graphData = data;
+            _renderGraph(container, data);
             return;
         }
 
@@ -112,15 +128,76 @@
             .graphData({ nodes, links })
             .nodeId('id')
             .nodeLabel(n => `[${n.type}] ${n.label}`)
-            .nodeColor(n => TYPE_COLORS[n.type] || DEFAULT_COLOR)
-            .nodeVal(n => 2 + (n.confidence || 0.5) * 8)
+            .nodeCanvasObject((node, ctx, globalScale) => {
+                const color = TYPE_COLORS[node.type] || DEFAULT_COLOR;
+                const glowBase = TYPE_GLOW[node.type] || DEFAULT_GLOW;
+                const r = Math.max(3, 3 + (node.confidence || 0.5) * 6);
+                const x = node.x || 0;
+                const y = node.y || 0;
+
+                // Outer glow (3 layers)
+                for (const [radius, alpha] of [[r * 3.5, 0.04], [r * 2.2, 0.10], [r * 1.5, 0.22]]) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = glowBase + alpha + ')';
+                    ctx.fill();
+                }
+
+                // Core node
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.fillStyle = color;
+                ctx.fill();
+
+                // Inner highlight
+                ctx.beginPath();
+                ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.35, 0, 2 * Math.PI);
+                ctx.fillStyle = 'rgba(255,255,255,0.28)';
+                ctx.fill();
+
+                // Label at higher zoom
+                if (globalScale >= 1.4) {
+                    const label = node.label.length > 22 ? node.label.substring(0, 22) + '…' : node.label;
+                    ctx.font = `${Math.max(4, 10 / globalScale)}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = 'rgba(220,220,255,0.85)';
+                    ctx.fillText(label, x, y + r + 6 / globalScale);
+                }
+            })
+            .nodeCanvasObjectMode(() => 'replace')
             .linkSource('source')
             .linkTarget('target')
             .linkLabel(l => l.relation)
-            .linkColor(() => 'rgba(160,160,180,0.3)')
-            .linkWidth(l => Math.max(0.5, (l.weight || 1) * 0.5))
-            .linkDirectionalArrowLength(4)
+            .linkColor(l => {
+                const relColors = {
+                    has_tese:     'rgba(34,211,238,0.4)',
+                    has_parte:    'rgba(56,189,248,0.35)',
+                    has_decisao:  'rgba(74,222,128,0.4)',
+                    from_tribunal:'rgba(244,114,182,0.4)',
+                    related_to:   'rgba(168,85,247,0.35)',
+                    learned_from: 'rgba(251,191,36,0.4)',
+                    selector_for: 'rgba(100,116,139,0.3)',
+                    has_prazo:    'rgba(251,146,60,0.4)',
+                };
+                return relColors[l.relation] || 'rgba(150,150,200,0.25)';
+            })
+            .linkWidth(l => Math.max(0.5, (l.weight || 1) * 0.6))
+            .linkDirectionalArrowLength(5)
             .linkDirectionalArrowRelPos(1)
+            .linkDirectionalParticles(1)
+            .linkDirectionalParticleWidth(1.5)
+            .linkDirectionalParticleColor(l => {
+                const relColors = {
+                    has_tese:     '#22d3ee',
+                    has_parte:    '#38bdf8',
+                    has_decisao:  '#4ade80',
+                    from_tribunal:'#f472b6',
+                    related_to:   '#a855f7',
+                    learned_from: '#fbbf24',
+                };
+                return relColors[l.relation] || '#818cf8';
+            })
             .backgroundColor('transparent')
             .onNodeClick((node) => _showNodeDetail(node))
             .onBackgroundClick(() => _hideSidebar());
@@ -366,6 +443,74 @@
         } catch {
             el.textContent = '';
         }
+    }
+
+    // ========================================================================
+    // MOCK DATA (preview UX quando Brain está vazio)
+    // ========================================================================
+
+    function _getMockData() {
+        const n = (id, type, label, confidence, data) => ({ id, type, label, confidence: confidence || 0.7, data: data || {}, updatedAt: Date.now() - Math.random() * 30 * 86400000, accessedAt: Date.now() });
+        const e = (id, sourceId, targetId, relation) => ({ id, sourceId, targetId, relation, weight: 1.0 });
+
+        const nodes = [
+            // Processos
+            n('p1', 'processo', '0001234-12.2023.8.01.0001', 0.9, { classe: 'Ação de Indenização', tribunal: 'TJPA', status: 'Em andamento', partes: { autor: ['João Silva'], reu: ['Banco XYZ S.A.'] } }),
+            n('p2', 'processo', '0009876-45.2022.8.06.0001', 0.85, { classe: 'Revisão Contratual', tribunal: 'TJCE', status: 'Aguardando julgamento', partes: { autor: ['Maria Souza'], reu: ['Financeira ABC'] } }),
+            n('p3', 'processo', '0005555-77.2021.4.01.3400', 0.75, { classe: 'Mandado de Segurança', tribunal: 'TRF1', status: 'Recurso pendente', partes: { autor: ['Pedro Costa'], reu: ['União Federal'] } }),
+            // Teses
+            n('t1', 'tese', 'Juros abusivos acima da média de mercado', 0.8),
+            n('t2', 'tese', 'Dano moral por negativação indevida', 0.9),
+            n('t3', 'tese', 'Revisão de cláusulas abusivas CDC', 0.85),
+            n('t4', 'tese', 'Ilegalidade de cobrança de tarifa de cadastro', 0.7),
+            n('t5', 'tese', 'Direito líquido e certo — prazo decadencial', 0.65),
+            // Decisões
+            n('d1', 'decisao', 'Tutela antecipada deferida — suspensão de cobrança', 0.9),
+            n('d2', 'decisao', 'Sentença procedente — indenização R$ 8.000', 0.95),
+            n('d3', 'decisao', 'Acórdão: mantida sentença de 1º grau', 0.8),
+            // Partes
+            n('pa1', 'parte', 'Banco XYZ S.A.', 0.6),
+            n('pa2', 'parte', 'Financeira ABC', 0.6),
+            n('pa3', 'parte', 'João Silva', 0.7),
+            n('pa4', 'parte', 'Maria Souza', 0.7),
+            // Tribunais
+            n('tr1', 'tribunal', 'TJPA', 0.95),
+            n('tr2', 'tribunal', 'TJCE', 0.9),
+            n('tr3', 'tribunal', 'TRF1', 0.85),
+            // Aprendizados
+            n('a1', 'aprendizado', '[TJPA] "negativação indevida" → pje_consultar, pje_agir', 0.8),
+            n('a2', 'aprendizado', 'Usar pje_documentos antes de pje_agir em recursos', 0.75),
+            n('a3', 'aprendizado', '[TJCE] Petição inicial: sempre incluir valor da causa', 0.7),
+        ];
+
+        const edges = [
+            // p1 → teses, decisão, parte, tribunal
+            e('e1',  'p1', 't1', 'has_tese'),
+            e('e2',  'p1', 't2', 'has_tese'),
+            e('e3',  'p1', 'd1', 'has_decisao'),
+            e('e4',  'p1', 'd2', 'has_decisao'),
+            e('e5',  'p1', 'pa1', 'has_parte'),
+            e('e6',  'p1', 'pa3', 'has_parte'),
+            e('e7',  'p1', 'tr1', 'from_tribunal'),
+            // p2 → teses, parte, tribunal
+            e('e8',  'p2', 't3', 'has_tese'),
+            e('e9',  'p2', 't4', 'has_tese'),
+            e('e10', 'p2', 'd3', 'has_decisao'),
+            e('e11', 'p2', 'pa2', 'has_parte'),
+            e('e12', 'p2', 'pa4', 'has_parte'),
+            e('e13', 'p2', 'tr2', 'from_tribunal'),
+            // p3 → teses, tribunal
+            e('e14', 'p3', 't5', 'has_tese'),
+            e('e15', 'p3', 'tr3', 'from_tribunal'),
+            // teses relacionadas
+            e('e16', 't1', 't3', 'related_to'),
+            e('e17', 't2', 'd2', 'learned_from'),
+            // aprendizados vinculados a tribunais
+            e('e18', 'a1', 'tr1', 'learned_from'),
+            e('e19', 'a3', 'tr2', 'learned_from'),
+        ];
+
+        return { nodes, edges };
     }
 
     // ========================================================================

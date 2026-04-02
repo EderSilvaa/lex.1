@@ -542,29 +542,38 @@
             <!-- Lotes (Producao em Lote) View -->
             <!-- ===== BRAIN ===== -->
             <div class="brain-wrapper hidden">
-                <div class="brain-header">
-                    <h2>Brain</h2>
-                    <div class="brain-header-actions">
-                        <button id="btn-brain-search-toggle" class="btn-sm btn-ghost" title="Buscar">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <div class="brain-body">
+                    <!-- Graph canvas -->
+                    <div id="brain-graph" class="brain-graph"></div>
+
+                    <!-- Floating toolbar (top-left, inside graph) -->
+                    <div class="brain-toolbar">
+                        <span class="brain-toolbar-title">BRAIN</span>
+                        <div class="brain-toolbar-divider"></div>
+                        <button id="btn-brain-search-toggle" class="brain-btn brain-btn-cyan">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
+                            Buscar
                         </button>
-                        <button id="btn-brain-dream" class="btn-sm btn-ghost" title="Rodar Dream (consolidar memoria)">Dream</button>
-                        <button id="btn-brain-export" class="btn-sm btn-ghost" title="Exportar Brain">Export</button>
+                        <button id="btn-brain-dream" class="brain-btn">✦ Dream</button>
+                        <button id="btn-brain-export" class="brain-btn">↑ Export</button>
                     </div>
-                </div>
-                <div id="brain-search-bar" class="brain-search-bar hidden">
-                    <input id="brain-search-input" type="text" placeholder="Buscar no Brain..." />
-                    <div id="brain-search-results" class="brain-search-results"></div>
-                </div>
-                <div class="brain-body">
-                    <div id="brain-graph" class="brain-graph"></div>
+
+                    <!-- Search bar (slide-in below toolbar) -->
+                    <div id="brain-search-bar" class="brain-search-bar hidden">
+                        <input id="brain-search-input" type="text" placeholder="Buscar no Brain..." />
+                        <div id="brain-search-results" class="brain-search-results"></div>
+                    </div>
+
+                    <!-- Node detail sidebar -->
                     <div id="brain-sidebar" class="brain-sidebar hidden">
                         <button id="btn-brain-sidebar-close" class="brain-sidebar-close">×</button>
                         <div id="brain-node-detail"></div>
                     </div>
                 </div>
+
+                <!-- Stats bar -->
                 <div id="brain-stats-bar" class="brain-stats-bar">
                     <span id="brain-stats-text">Carregando...</span>
                 </div>
