@@ -16,13 +16,25 @@ import { EventEmitter } from 'events';
 
 const BACKEND_PORT = 19876;
 const BACKEND_READY_TIMEOUT = 15000;
+const DEFAULT_RPC_TIMEOUT = 120000;
+const AGENT_RUN_RPC_TIMEOUT = 12 * 60 * 1000;
 
 let backendProc: ChildProcess | null = null;
 let ws: WebSocket | null = null;
 let connected = false;
 
-// Pending RPC calls: id → { resolve, reject }
-const pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+interface PendingRpcCall {
+    resolve: (v: any) => void;
+    reject: (e: Error) => void;
+    timer: NodeJS.Timeout;
+}
+
+interface RpcCallOptions {
+    timeoutMs?: number;
+}
+
+// Pending RPC calls: id → { resolve, reject, timer }
+const pending = new Map<string, PendingRpcCall>();
 
 // Event emitter para forward de eventos do backend → renderer
 export const backendEvents = new EventEmitter();
@@ -70,7 +82,8 @@ export async function startBackend(userDataDir: string): Promise<void> {
         ws = null;
         backendProc = null;
         // Rejeita todas as chamadas pendentes
-        for (const [id, { reject }] of pending) {
+        for (const [id, { reject, timer }] of pending) {
+            clearTimeout(timer);
             reject(new Error('Backend process exited'));
             pending.delete(id);
         }
@@ -117,8 +130,9 @@ function setupWsHandlers(socket: WebSocket): void {
 
         // RPC Response
         if (msg.id && pending.has(msg.id)) {
-            const { resolve, reject } = pending.get(msg.id)!;
+            const { resolve, reject, timer } = pending.get(msg.id)!;
             pending.delete(msg.id);
+            clearTimeout(timer);
             if (msg.error) {
                 reject(new Error(msg.error));
             } else {
@@ -143,24 +157,32 @@ function setupWsHandlers(socket: WebSocket): void {
 }
 
 /** Chamada RPC para o backend. Retorna Promise com resultado. */
-export function rpcCall(method: string, params?: any): Promise<any> {
+function getRpcTimeout(method: string, timeoutOverride?: number): number {
+    if (Number.isFinite(timeoutOverride) && (timeoutOverride as number) > 0) {
+        return timeoutOverride as number;
+    }
+    if (method === 'agent-run') return AGENT_RUN_RPC_TIMEOUT;
+    return DEFAULT_RPC_TIMEOUT;
+}
+
+/** Chamada RPC para o backend. Retorna Promise com resultado. */
+export function rpcCall(method: string, params?: any, options?: RpcCallOptions): Promise<any> {
     return new Promise((resolve, reject) => {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
             return reject(new Error('Backend não conectado'));
         }
 
         const id = randomUUID();
-        pending.set(id, { resolve, reject });
-
-        ws.send(JSON.stringify({ id, method, params: params ?? {} }));
-
-        // Timeout por chamada (2 minutos)
-        setTimeout(() => {
+        const timeoutMs = getRpcTimeout(method, options?.timeoutMs);
+        const timer = setTimeout(() => {
             if (pending.has(id)) {
                 pending.delete(id);
                 reject(new Error(`RPC timeout: ${method}`));
             }
-        }, 120000);
+        }, timeoutMs);
+
+        pending.set(id, { resolve, reject, timer });
+        ws.send(JSON.stringify({ id, method, params: params ?? {} }));
     });
 }
 
@@ -197,3 +219,4 @@ export async function stopBackend(): Promise<void> {
 export function isBackendAlive(): boolean {
     return connected && ws?.readyState === WebSocket.OPEN;
 }
+

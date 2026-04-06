@@ -2213,7 +2213,7 @@ ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessi
                 objetivo: objetivoFinal,
                 config: { maxIterations: maxIter, timeoutMs },
                 sessionId: sessionId || AGENT_SESSION_ID,
-            });
+            }, { timeoutMs: timeoutMs + 60_000 });
             return { success: true, resposta };
         } catch (error: any) {
             console.error('[Agent via Backend] Erro:', error.message);
