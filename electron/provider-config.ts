@@ -67,18 +67,18 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
         name: 'OpenRouter (multi-modelo)',
         baseUrl: 'https://openrouter.ai/api/v1',
         apiKeyUrl: 'https://openrouter.ai/keys',
-        defaultAgentModel: 'qwen/qwen3-235b-a22b:free',
-        defaultVisionModel: 'qwen/qwen2.5-vl-32b-instruct:free',
+        defaultAgentModel: 'qwen/qwen3.6-plus:free',
+        defaultVisionModel: 'nvidia/nemotron-nano-12b-v2-vl:free',
         models: [
             // ── Gratuitos — Vision ──
-            { id: 'qwen/qwen2.5-vl-32b-instruct:free', name: 'Qwen2.5-VL 32B (grátis, vision)', vision: true },
+            { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B VL (grátis, vision)', vision: true },
             { id: 'meta-llama/llama-4-maverick:free', name: 'Llama 4 Maverick (grátis, vision)', vision: true },
             { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B (grátis, vision)', vision: true },
             { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 (grátis, vision)', vision: true },
             { id: 'microsoft/phi-4-multimodal-instruct:free', name: 'Phi-4 Multimodal (grátis, vision)', vision: true },
             // ── Gratuitos — Texto ──
-            { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B (grátis, melhor texto)', vision: false },
-            { id: 'qwen/qwen3-30b-a3b:free', name: 'Qwen3 30B (grátis, rápido)', vision: false },
+            { id: 'qwen/qwen3.6-plus:free', name: 'Qwen 3.6 Plus (grátis, melhor texto)', vision: false },
+            { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (grátis, coding)', vision: false },
             { id: 'deepseek/deepseek-v3-0324:free', name: 'DeepSeek V3 (grátis, coding)', vision: false },
             { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 (grátis, raciocínio)', vision: false },
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (grátis, texto)', vision: false },

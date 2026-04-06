@@ -116,8 +116,22 @@ function log(verbose: boolean, ...args: any[]): void {
  * @param tenantConfig - Config do tenant (Prompt-Layer)
  * @returns Resposta final do agente
  */
+/**
+ * Normaliza números CNJ: 20 dígitos puros → NNNNNNN-NN.NNNN.N.NN.NNNN
+ * Também trata dígitos com pontuação parcial ou zero-width chars.
+ */
+function normalizeCnjInText(text: string): string {
+    // Remove zero-width chars que copiam de PDFs/sites
+    const clean = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+    // 20 dígitos consecutivos → formato CNJ
+    return clean.replace(/\b(\d{20})\b/g, (_: string, d: string) =>
+        `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d.slice(13,14)}.${d.slice(14,16)}.${d.slice(16,20)}`
+    );
+}
+
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
-    const { objetivo, config = {}, tenantConfig, sessionId, agentSpec, parentAbort } = opts;
+    const { objetivo: objetivoRaw, config = {}, tenantConfig, sessionId, agentSpec, parentAbort } = opts;
+    const objetivo = normalizeCnjInText(objetivoRaw);
     const cfg = { ...DEFAULT_CONFIG, ...config, ...(agentSpec?.configOverrides || {}) };
     const runId = randomUUID();
     const abort = new AbortController();

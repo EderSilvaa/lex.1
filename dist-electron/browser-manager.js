@@ -50,16 +50,31 @@ exports.initBrowser = initBrowser;
 exports.reInitBrowser = reInitBrowser;
 exports.getBrowserContext = getBrowserContext;
 exports.getActivePage = getActivePage;
+exports.setActivePage = setActivePage;
+exports.getActivePageIndex = getActivePageIndex;
 exports.ensureBrowser = ensureBrowser;
 exports.injectOverlay = injectOverlay;
 exports.showCursorAt = showCursorAt;
+exports.storeElementRefs = storeElementRefs;
+exports.resolveElementRef = resolveElementRef;
+exports.isRefMapStale = isRefMapStale;
+exports.findElementByText = findElementByText;
+exports.resolveTarget = resolveTarget;
+exports.fillInFrames = fillInFrames;
+exports.clickInFrames = clickInFrames;
+exports.typeInFrames = typeInFrames;
+exports.waitForSelectorInFrames = waitForSelectorInFrames;
+exports.smartClick = smartClick;
 exports.runBrowserTask = runBrowserTask;
 exports.closeBrowser = closeBrowser;
+exports.disconnectPlaywright = disconnectPlaywright;
+exports.reconnectPlaywright = reconnectPlaywright;
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const http_1 = __importDefault(require("http"));
 const child_process_1 = require("child_process");
 const playwright_core_1 = require("playwright-core");
+const text_normalize_1 = require("./text-normalize");
 // Porta 9222 é interceptada pelo Comet/Perplexity — usar porta alternativa
 const CDP_PORT = 19222;
 // ── userDataDir injetado pelo main.ts (ou backend) — sem dependência do Electron ──
@@ -226,6 +241,7 @@ process.on('disconnect', () => { try { chromeProc.kill(); } catch {} process.exi
 `;
 let bridgeProc = null;
 let bridgePort = null;
+let bridgeDied = false; // P2.3: flag para recovery sem matar Chrome
 /** Inicia o CDP bridge + Chrome como processo Node.js separado (não Electron)
  *  Chrome é spawnado DENTRO do bridge para evitar herança de handles do Electron */
 function startCdpBridge(chromePath, userDataDir, cdpPort) {
@@ -288,24 +304,29 @@ function startCdpBridge(chromePath, userDataDir, cdpPort) {
                     reject(new Error(`Bridge saiu com código ${code}`));
                 bridgeProc = null;
                 bridgePort = null;
+                // P2.3: marca bridge como morto para recovery sem matar Chrome
+                if (resolved)
+                    bridgeDied = true;
             });
             setTimeout(() => { if (!resolved)
                 reject(new Error('CDP bridge timeout (30s)')); }, 30000);
         });
     });
 }
-/** Spawna Chrome + proxy via bridge Node.js e conecta Playwright */
+/** Spawna Chrome via bridge Node.js e conecta Playwright direto no CDP do Chrome.
+ *  Bridge só serve para spawnar Chrome fora do Job Object do Electron.
+ *  Playwright conecta direto na porta do Chrome — sem passar pelo proxy. */
 function connectViaBridge(chromePath, userDataDir, cdpPort) {
     return __awaiter(this, void 0, void 0, function* () {
-        const port = yield startCdpBridge(chromePath, userDataDir, cdpPort);
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        yield startCdpBridge(chromePath, userDataDir, cdpPort);
+        // Conecta direto ao Chrome — bridge proxy não é necessário para Playwright
+        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     });
 }
-/** Proxy-only bridge (Chrome já está rodando) */
+/** Chrome já está rodando — conecta Playwright direto no CDP */
 function connectViaBridgeProxyOnly(cdpPort) {
     return __awaiter(this, void 0, void 0, function* () {
-        const port = yield startCdpBridge('PROXY_ONLY', '', cdpPort);
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     });
 }
 /** Launch direto: spawna Chrome sem bridge (para backend Node.js puro — sem env vars do Electron) */
@@ -390,6 +411,7 @@ let context = null;
 let chromeProc = null;
 let initPromise = null;
 let heartbeatTimer = null;
+let activePageIndex = 0;
 function initBrowser() {
     return __awaiter(this, void 0, void 0, function* () {
         if (initPromise)
@@ -404,11 +426,39 @@ function reInitBrowser() {
         yield initBrowser();
     });
 }
+/** Remove pastas de cache/migração que causam downgrade detection e crashes no Windows */
+function cleanProfileCaches(userDataDir) {
+    const toDelete = [
+        'GPUPersistentCache', 'GrShaderCache', 'ShaderCache',
+        'Snapshots', 'Crashpad', 'DawnGraphiteCache', 'DawnWebGPUCache',
+    ];
+    for (const dir of toDelete) {
+        try {
+            fs_1.default.rmSync(path_1.default.join(userDataDir, dir), { recursive: true, force: true });
+        }
+        catch ( /* ok */_a) { /* ok */ }
+    }
+    // Remove qualquer pasta CHROME_DELETE residual de tentativas anteriores
+    try {
+        for (const entry of fs_1.default.readdirSync(userDataDir)) {
+            if (entry.includes('CHROME_DELETE')) {
+                try {
+                    fs_1.default.rmSync(path_1.default.join(userDataDir, entry), { recursive: true, force: true });
+                }
+                catch ( /* ok */_b) { /* ok */ }
+            }
+        }
+    }
+    catch ( /* ok */_c) { /* ok */ }
+    console.log('[Browser] Profile caches limpos');
+}
 function _doInit() {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
         const userDataDir = path_1.default.join(getUserDataDir(), 'chrome-profile');
         fs_1.default.mkdirSync(userDataDir, { recursive: true });
+        // Limpa caches que causam downgrade detection e crashes
+        cleanProfileCaches(userDataDir);
         const useDirectLaunch = !isElectronProcess();
         // ── 1. Tenta reconectar SOMENTE se temos um chrome.pid próprio vivo ──
         // (evita conectar ao Comet/Perplexity ou outro Chrome de terceiros na porta)
@@ -422,6 +472,8 @@ function _doInit() {
             context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
             if (context.pages().length === 0)
                 yield context.newPage();
+            activePageIndex = 0;
+            setupPageListeners();
             console.log('[Browser] Reconectado ao Chrome existente');
             startHeartbeat();
             return;
@@ -474,6 +526,8 @@ function launchWithPlaywright(userDataDir, executablePath) {
         });
         if (context.pages().length === 0)
             yield context.newPage();
+        activePageIndex = 0;
+        setupPageListeners();
         console.log('[Browser] Playwright Chromium conectado');
         startHeartbeat();
     });
@@ -520,6 +574,8 @@ function launchWithGoogleChrome(userDataDir) {
         });
         if (context.pages().length === 0)
             yield context.newPage();
+        activePageIndex = 0;
+        setupPageListeners();
         console.log('[Browser] Google Chrome conectado via CDP bridge');
         startHeartbeat();
     });
@@ -562,27 +618,87 @@ function getBrowserContext() {
         throw new Error('[Browser] Não inicializado — chame initBrowser() primeiro');
     return context;
 }
-/** Retorna a Page ativa (primeira aba aberta) */
+/** Retorna a Page ativa (rastreia aba ativa por índice) */
 function getActivePage() {
-    var _a;
+    var _a, _b;
     if (!context)
         return null;
     const pages = context.pages();
-    return (_a = pages[0]) !== null && _a !== void 0 ? _a : null;
+    if (pages.length === 0)
+        return null;
+    // Garante que o índice é válido
+    if (activePageIndex >= pages.length)
+        activePageIndex = pages.length - 1;
+    if (activePageIndex < 0)
+        activePageIndex = 0;
+    return (_b = (_a = pages[activePageIndex]) !== null && _a !== void 0 ? _a : pages[0]) !== null && _b !== void 0 ? _b : null;
+}
+/** Define qual aba é a ativa por índice */
+function setActivePage(index) {
+    activePageIndex = Math.max(0, index);
+}
+/** Retorna o índice da aba ativa */
+function getActivePageIndex() {
+    return activePageIndex;
 }
 /** Garante que o browser está inicializado e a conexão está viva.
  *  Auto-recupera se o Chrome morreu ou a conexão CDP caiu. */
+/** Registra listeners de novas abas/popups no contexto */
+function setupPageListeners() {
+    if (!context)
+        return;
+    context.on('page', (newPage) => {
+        const pages = context.pages();
+        const newIndex = pages.indexOf(newPage);
+        console.log(`[Browser] Nova aba detectada: [${newIndex}] ${newPage.url()}`);
+        // Auto-switch para a nova aba (PJe abre docs/popups em abas novas)
+        if (newIndex >= 0) {
+            activePageIndex = newIndex;
+            console.log(`[Browser] Aba ativa atualizada para [${newIndex}]`);
+        }
+    });
+    context.on('close', () => {
+        console.log('[Browser] Contexto fechado');
+        context = null;
+        activePageIndex = 0;
+    });
+}
 function ensureBrowser() {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         if (!context) {
             console.log('[Browser] Não estava inicializado — inicializando agora...');
             yield initBrowser();
             return;
         }
-        // Health check: tenta acessar as pages — se a conexão morreu, lança
+        // P2.3: Se o bridge morreu mas Chrome pode estar vivo, tenta reconectar via proxy-only
+        if (bridgeDied && isElectronProcess()) {
+            console.log('[Browser] Bridge morreu — tentando reconectar sem matar Chrome...');
+            bridgeDied = false;
+            try {
+                cdpBrowser = yield connectViaBridgeProxyOnly(CDP_PORT);
+                const contexts = cdpBrowser.contexts();
+                context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
+                if (context.pages().length === 0)
+                    yield context.newPage();
+                activePageIndex = 0;
+                setupPageListeners();
+                startHeartbeat();
+                console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)');
+                return;
+            }
+            catch (e) {
+                console.warn('[Browser] Recovery do bridge falhou, reinit completo:', e.message);
+                context = null;
+                cdpBrowser = null;
+                activePageIndex = 0;
+                yield initBrowser();
+                return;
+            }
+        }
+        // Health check: testa se a conexão CDP está realmente viva
         try {
             const pages = context.pages();
-            // Testa se a conexão CDP está realmente viva (não só o objeto JS)
             if (pages.length > 0) {
                 yield pages[0].evaluate(() => true);
             }
@@ -592,9 +708,9 @@ function ensureBrowser() {
         }
         catch (e) {
             console.warn('[Browser] Conexão morta detectada — reinicializando...', e.message);
-            // Limpa estado stale
             context = null;
             cdpBrowser = null;
+            activePageIndex = 0;
             yield initBrowser();
         }
     });
@@ -681,6 +797,81 @@ function _showCursorAt(x, y) {
         catch ( /* ignorar */_a) { /* ignorar */ }
     });
 }
+let elementRefMap = [];
+let elementRefUrl = '';
+/** Armazena refs coletados pelo browser_get_state */
+function storeElementRefs(refs, url) {
+    elementRefMap = refs;
+    elementRefUrl = url;
+}
+/** Resolve ref numérico para ElementRef */
+function resolveElementRef(ref) {
+    var _a;
+    return (_a = elementRefMap[ref]) !== null && _a !== void 0 ? _a : null;
+}
+/** Verifica se os refs estão potencialmente stale (URL mudou) */
+function isRefMapStale(currentUrl) {
+    return elementRefUrl !== '' && elementRefUrl !== currentUrl;
+}
+/**
+ * Encontra elemento pelo texto visível (case-insensitive, accent-insensitive).
+ * Retorna o melhor match dos refs armazenados, ou constrói seletor text-based.
+ */
+function findElementByText(texto) {
+    const normTexto = (0, text_normalize_1.normalizeText)(texto);
+    // 1. Busca exata nos refs armazenados
+    for (const ref of elementRefMap) {
+        if ((0, text_normalize_1.normalizeText)(ref.text) === normTexto) {
+            return { selector: ref.selector, source: 'ref' };
+        }
+    }
+    // 2. Busca parcial (contains)
+    for (const ref of elementRefMap) {
+        const normRef = (0, text_normalize_1.normalizeText)(ref.text);
+        if (normRef && normTexto && (normRef.includes(normTexto) || normTexto.includes(normRef))) {
+            return { selector: ref.selector, source: 'ref' };
+        }
+    }
+    // 3. Constrói seletor text-based (funciona mesmo sem get_state prévio)
+    const escaped = texto.replace(/"/g, '\\"');
+    return { selector: `text="${escaped}"`, source: 'constructed' };
+}
+/**
+ * Resolve target de elemento: ref → elemento → seletor.
+ * Usado por todas as skills de ação browser (click, fill, type).
+ */
+function resolveTarget(params) {
+    // 1. Ref numérico
+    if (params.ref !== undefined && params.ref >= 0) {
+        const refInfo = resolveElementRef(params.ref);
+        if (refInfo) {
+            // Warning se stale (não bloqueia)
+            try {
+                const page = getActivePage();
+                if (page && isRefMapStale(page.url())) {
+                    console.log(`[ElementRef] Warning: refs podem estar stale (URL mudou desde get_state)`);
+                }
+            }
+            catch (_a) { }
+            console.log(`[ResolveTarget] ref:${params.ref} → ${refInfo.selector} ("${refInfo.text}")`);
+            return { selector: refInfo.selector, source: 'ref', refInfo };
+        }
+        console.log(`[ResolveTarget] ref:${params.ref} não encontrado (${elementRefMap.length} refs armazenados)`);
+    }
+    // 2. Texto visível do elemento
+    if (params.elemento && params.elemento.trim()) {
+        const found = findElementByText(params.elemento);
+        if (found) {
+            console.log(`[ResolveTarget] elemento:"${params.elemento}" → ${found.selector} (${found.source})`);
+            return { selector: found.selector, source: 'elemento' };
+        }
+    }
+    // 3. CSS selector direto
+    if (params.seletor && params.seletor.trim()) {
+        return { selector: params.seletor, source: 'seletor' };
+    }
+    return null;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers de ação com iframe awareness
 // ─────────────────────────────────────────────────────────────────────────────
@@ -718,6 +909,157 @@ function clickInFrames(page, selector) {
             catch (_b) { }
         }
         throw new Error(`click: elemento não encontrado — ${selector}`);
+    });
+}
+/** Tenta type no main frame: foca o elemento e digita keystroke-by-keystroke */
+function typeInFrames(page, selector, text, options) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const delay = (_a = options === null || options === void 0 ? void 0 : options.delay) !== null && _a !== void 0 ? _a : 30;
+        try {
+            yield page.click(selector, { timeout: 3000 });
+            yield page.keyboard.type(text, { delay });
+            return;
+        }
+        catch (_b) { }
+        for (const frame of page.frames()) {
+            try {
+                yield frame.click(selector, { timeout: 3000 });
+                yield page.keyboard.type(text, { delay });
+                return;
+            }
+            catch (_c) { }
+        }
+        throw new Error(`type: elemento não encontrado — ${selector}`);
+    });
+}
+/** Tenta waitForSelector no main frame e depois em todos os iframes */
+function waitForSelectorInFrames(page, selector, options) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b;
+        const timeout = (_a = options === null || options === void 0 ? void 0 : options.timeout) !== null && _a !== void 0 ? _a : 10000;
+        const state = (_b = options === null || options === void 0 ? void 0 : options.state) !== null && _b !== void 0 ? _b : 'visible';
+        try {
+            yield page.waitForSelector(selector, { timeout, state });
+            return;
+        }
+        catch (_c) { }
+        for (const frame of page.frames()) {
+            try {
+                yield frame.waitForSelector(selector, { timeout: Math.min(timeout, 3000), state });
+                return;
+            }
+            catch (_d) { }
+        }
+        throw new Error(`wait: elemento não apareceu — ${selector} (timeout: ${timeout}ms)`);
+    });
+}
+/**
+ * Click inteligente com waterfall de estratégias:
+ * 1. Seletor CSS direto (iframe-aware)
+ * 2. Wait 500ms + retry seletor (DOM pode estar carregando)
+ * 3. Busca por texto visível do elemento (fallback text-based)
+ * 4. Localiza bounding box e clica por coordenadas
+ */
+function smartClick(page, selector, options) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b;
+        const duplo = (_a = options === null || options === void 0 ? void 0 : options.duplo) !== null && _a !== void 0 ? _a : false;
+        const timeout = (_b = options === null || options === void 0 ? void 0 : options.timeout) !== null && _b !== void 0 ? _b : 3000;
+        const doClick = (target, sel) => __awaiter(this, void 0, void 0, function* () {
+            if (duplo)
+                yield target.dblclick(sel, { timeout });
+            else
+                yield target.click(sel, { timeout });
+        });
+        // ── Strategy 1: Seletor direto (iframe-aware) ──
+        try {
+            yield doClick(page, selector);
+            return { success: true, strategy: 'selector', selector };
+        }
+        catch (_c) { }
+        for (const frame of page.frames()) {
+            if (frame === page.mainFrame())
+                continue;
+            try {
+                yield doClick(frame, selector);
+                return { success: true, strategy: 'selector', selector };
+            }
+            catch (_d) { }
+        }
+        // ── Strategy 2: Wait 500ms + retry (DOM loading) ──
+        yield page.waitForTimeout(500);
+        try {
+            yield doClick(page, selector);
+            return { success: true, strategy: 'retry', selector };
+        }
+        catch (_e) { }
+        for (const frame of page.frames()) {
+            if (frame === page.mainFrame())
+                continue;
+            try {
+                yield doClick(frame, selector);
+                return { success: true, strategy: 'retry', selector };
+            }
+            catch (_f) { }
+        }
+        // ── Strategy 3: Texto visível (extrai texto do seletor e busca) ──
+        // Se o seletor contém texto (ex: has-text, value=, etc), tenta variantes
+        const textMatch = selector.match(/has-text\("([^"]+)"\)/) ||
+            selector.match(/value[*]?="([^"]+)"/) ||
+            selector.match(/placeholder[*]?="([^"]+)"/);
+        if (textMatch) {
+            const text = textMatch[1];
+            const textSelectors = [
+                `text="${text}"`,
+                `*:has-text("${text}"):visible`,
+                `button:has-text("${text}")`,
+                `a:has-text("${text}")`,
+                `input[value*="${text}"]`,
+            ];
+            for (const textSel of textSelectors) {
+                try {
+                    yield doClick(page, textSel);
+                    return { success: true, strategy: 'text', selector: textSel };
+                }
+                catch (_g) { }
+                for (const frame of page.frames()) {
+                    if (frame === page.mainFrame())
+                        continue;
+                    try {
+                        yield doClick(frame, textSel);
+                        return { success: true, strategy: 'text', selector: textSel };
+                    }
+                    catch (_h) { }
+                }
+            }
+        }
+        // ── Strategy 4: Bounding box → coordenadas ──
+        // Tenta localizar o elemento (pode existir mas não ser clickable) e pegar centro
+        for (const target of [page, ...page.frames()]) {
+            try {
+                const el = yield target.$(selector);
+                if (!el)
+                    continue;
+                const box = yield el.boundingBox();
+                if (box && box.width > 0 && box.height > 0) {
+                    const x = Math.round(box.x + box.width / 2);
+                    const y = Math.round(box.y + box.height / 2);
+                    showCursorAt(x, y);
+                    if (duplo)
+                        yield page.mouse.dblclick(x, y);
+                    else
+                        yield page.mouse.click(x, y);
+                    return { success: true, strategy: 'coordinates', selector, coordinates: { x, y } };
+                }
+            }
+            catch (_j) { }
+        }
+        return {
+            success: false,
+            strategy: 'none',
+            error: `Todas as estratégias falharam para: ${selector}`
+        };
     });
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -892,6 +1234,7 @@ function runBrowserTask(instruction_1) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Heartbeat — mantém sessão PJe viva a cada 6h
 // ─────────────────────────────────────────────────────────────────────────────
+const HEARTBEAT_TIMEOUT = 30000; // 30s — evita travar em CDP hang
 function startHeartbeat() {
     stopHeartbeat();
     heartbeatTimer = setInterval(() => __awaiter(this, void 0, void 0, function* () {
@@ -902,15 +1245,20 @@ function startHeartbeat() {
             const url = page.url();
             if (!url.includes('.jus.br') && !url.includes('pje'))
                 return;
-            yield page.evaluate((u) => __awaiter(this, void 0, void 0, function* () {
-                try {
-                    yield fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' });
-                }
-                catch ( /* ignora */_a) { /* ignora */ }
-            }), url);
+            yield Promise.race([
+                page.evaluate((u) => __awaiter(this, void 0, void 0, function* () {
+                    try {
+                        yield fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' });
+                    }
+                    catch ( /* ignora */_a) { /* ignora */ }
+                }), url),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('heartbeat timeout')), HEARTBEAT_TIMEOUT))
+            ]);
             console.log('[Browser] Heartbeat PJe —', new Date().toLocaleTimeString('pt-BR'));
         }
-        catch ( /* ignorar */_a) { /* ignorar */ }
+        catch (err) {
+            console.warn('[Browser] Heartbeat falhou:', (err === null || err === void 0 ? void 0 : err.message) || err);
+        }
     }), 6 * 60 * 60 * 1000);
 }
 function stopHeartbeat() {
@@ -961,7 +1309,56 @@ function closeBrowser() {
             catch ( /* ignorar */_d) { /* ignorar */ }
             chromeProc = null;
         }
+        activePageIndex = 0;
         console.log('[Browser] Chromium encerrado');
+    });
+}
+/**
+ * Desconecta Playwright do CDP sem matar Chrome nem bridge.
+ * Usado pelo BrowserLock para liberar a porta CDP para browser-use.
+ */
+function disconnectPlaywright() {
+    return __awaiter(this, void 0, void 0, function* () {
+        stopHeartbeat();
+        if (cdpBrowser) {
+            try {
+                yield cdpBrowser.close();
+            }
+            catch ( /* ignorar */_a) { /* ignorar */ }
+            cdpBrowser = null;
+            context = null;
+        }
+        activePageIndex = 0;
+        console.log('[Browser] Playwright desconectado (Chrome + bridge continuam)');
+    });
+}
+/**
+ * Reconecta Playwright ao Chrome via bridge proxy-only.
+ * Reutiliza a lógica de recovery do bridgeDied.
+ * Usado pelo BrowserLock após browser-use terminar.
+ */
+function reconnectPlaywright() {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        if (cdpBrowser) {
+            console.log('[Browser] Playwright já conectado — skip reconnect');
+            return;
+        }
+        console.log('[Browser] Reconectando Playwright ao Chrome...');
+        if (isElectronProcess()) {
+            cdpBrowser = yield connectViaBridgeProxyOnly(CDP_PORT);
+        }
+        else {
+            cdpBrowser = yield connectDirectCDP(CDP_PORT);
+        }
+        const contexts = cdpBrowser.contexts();
+        context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
+        if (context.pages().length === 0)
+            yield context.newPage();
+        activePageIndex = 0;
+        setupPageListeners();
+        startHeartbeat();
+        console.log('[Browser] Playwright reconectado');
     });
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -977,8 +1374,14 @@ function killPreviousChrome(userDataDir) {
                 if (pid && !isNaN(pid)) {
                     try {
                         process.kill(pid, 0); // check if alive
-                        process.kill(pid, 'SIGKILL');
-                        console.log('[Browser] Chrome anterior encerrado (PID:', pid, ')');
+                        if (process.platform === 'win32') {
+                            const { execSync } = yield Promise.resolve().then(() => __importStar(require('child_process')));
+                            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
+                        }
+                        else {
+                            process.kill(pid, 'SIGKILL');
+                        }
+                        console.log('[Browser] Chrome anterior encerrado (PID:', pid, '+ filhos)');
                     }
                     catch ( /* already dead */_a) { /* already dead */ }
                 }
@@ -1007,21 +1410,27 @@ function killProcessOnPort(port) {
                 req.on('error', reject);
                 req.setTimeout(1000, () => { req.destroy(); reject(new Error('timeout')); });
             });
-            // Something is on this port — find PID via netstat
+            // Something is on this port — find ALL PIDs via netstat and kill entire process tree
             const { execSync } = yield Promise.resolve().then(() => __importStar(require('child_process')));
             try {
                 const out = execSync('netstat -aon', { encoding: 'utf8', timeout: 5000 });
-                const line = out.split('\n').find(l => l.includes(`:${port}`) && l.includes('LISTEN'));
-                const match = line === null || line === void 0 ? void 0 : line.match(/\s(\d+)\s*$/);
-                if (match) {
-                    const pid = parseInt(match[1]);
+                const lines = out.split('\n').filter(l => l.includes(`:${port}`) && l.includes('LISTEN'));
+                const pids = [...new Set(lines.map(l => { var _a; return (_a = l.match(/\s(\d+)\s*$/)) === null || _a === void 0 ? void 0 : _a[1]; }).filter(Boolean).map(Number))];
+                for (const pid of pids) {
                     try {
-                        process.kill(pid, 'SIGKILL');
-                        console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, ')');
-                        yield new Promise(r => setTimeout(r, 1000));
+                        // /T mata a árvore inteira (browser + GPU + helpers) — evita mutex residual no Windows
+                        if (process.platform === 'win32') {
+                            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
+                        }
+                        else {
+                            process.kill(pid, 'SIGKILL');
+                        }
+                        console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, '+ filhos)');
                     }
                     catch ( /* already dead */_a) { /* already dead */ }
                 }
+                if (pids.length > 0)
+                    yield new Promise(r => setTimeout(r, 1500));
             }
             catch ( /* netstat failed */_b) { /* netstat failed */ }
         }

@@ -1,42 +1,14 @@
 /**
  * Skill: pje_consultar
  *
- * Consulta processo no PJe via Playwright direto.
- * Navega, preenche e extrai dados de forma determinística.
+ * Consulta processo no PJe via browser-use.
+ * Navega para a tela de consulta, preenche o número e extrai os dados.
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { ensureBrowser, injectOverlay, getActivePage } from '../../browser-manager';
+import { ensureBrowser } from '../../browser-manager';
+import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
-import { agentEmitter } from '../../agent/loop';
-import { resolveSelector, confirmResolved } from '../../browser';
-
-function emitProgress(step: string): void {
-    agentEmitter.emit('agent-event', { type: 'thinking', pensamento: `🌐 ${step}`, iteracao: 0 });
-    injectOverlay(step);
-}
-
-// Seletores conhecidos do PJe JSF para o campo de número do processo
-const NUM_PROCESSO_SELECTORS = [
-    'input[id*="numeroProcesso"]',
-    'input[id*="numProcesso"]',
-    'input[id*="Processo"][type="text"]',
-    'input[name*="numeroProcesso"]',
-    'input[name*="numProcesso"]',
-    'input[placeholder*="rocesso"]',
-    'input[placeholder*="úmero"]',
-    'input[placeholder*="umero"]',
-];
-
-// Seletores para botão de pesquisa
-const PESQUISAR_SELECTORS = [
-    'input[id*="pesquisar"][type="submit"]',
-    'button[id*="pesquisar"]',
-    'input[value*="esquisa"]',
-    'input[value*="uscar"]',
-    'button[type="submit"]',
-    'input[type="submit"]',
-];
 
 export const pjeConsultar: Skill = {
     nome: 'pje_consultar',
@@ -71,132 +43,49 @@ export const pjeConsultar: Skill = {
             return { sucesso: false, erro: 'Número do processo obrigatório.', mensagem: 'Informe o número do processo.' };
         }
 
-        await ensureBrowser();
-
-        const page = getActivePage();
-        if (!page) throw new Error('Browser não disponível');
-
         const routes = resolveTribunalRoutes(tribunal);
         const consultaUrl = routes.consultaUrl;
 
         console.log(`[pje_consultar] Consultando processo ${numero} em ${consultaUrl}`);
-        emitProgress('Navegando para consulta...');
+
+        const instrucao = `
+Você está operando o PJe${tribunal ? ` do ${tribunal.toUpperCase()}` : ''} (sistema judicial eletrônico brasileiro).
+
+Passos:
+1. Navegue para: ${consultaUrl}
+2. Localize o campo de número do processo (pode estar em iframe)
+3. Preencha com: ${numero}
+4. Clique em Pesquisar ou pressione Enter
+5. Aguarde os resultados carregarem
+6. Extraia e retorne: partes (autor/réu/advogados), classe processual, assunto, vara/juízo, situação atual e as últimas 5 movimentações com data e descrição
+        `.trim();
 
         try {
-            // 1. Navega para a página de consulta
-            await page.goto(consultaUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await page.waitForTimeout(2000);
-
-            emitProgress('Procurando campo de número...');
-
-            // 2. Encontra o campo de número do processo via resolveSelector (3-tier waterfall)
-            const numResolved = await resolveSelector(
-                page, tribunal, 'campo_numero_processo',
-                NUM_PROCESSO_SELECTORS, 'Número do Processo', 'input'
-            );
-
-            let numInput: any = null;
-            if (numResolved) {
-                numInput = await page.$(numResolved.selector);
-                // Tenta iframes se não encontrou no main
-                if (!numInput) {
-                    for (const frame of page.frames()) {
-                        numInput = await frame.$(numResolved.selector);
-                        if (numInput) break;
-                    }
-                }
-            }
-
-            if (!numInput) {
-                // Fallback: qualquer input de texto visível
-                const allInputs = await page.$$('input[type="text"]:visible, input:not([type]):visible');
-                numInput = allInputs[0] ?? null;
-            }
-
-            if (!numInput) {
-                const url = page.url();
-                return {
-                    sucesso: false,
-                    erro: 'Campo de número do processo não encontrado',
-                    mensagem: `Não encontrei o campo de busca na página de consulta. URL atual: ${url}`,
-                };
-            }
-
-            // 3. Preenche o número
-            emitProgress(`Preenchendo: ${numero}`);
-            await numInput.click();
-            await page.waitForTimeout(300);
-            await numInput.fill('');
-            await numInput.type(numero, { delay: 30 });
-            await page.waitForTimeout(500);
-
-            confirmResolved(tribunal, 'campo_numero_processo', numResolved);
-
-            // 4. Clica em Pesquisar via resolveSelector
-            emitProgress('Pesquisando...');
-            const btnResolved = await resolveSelector(
-                page, tribunal, 'botao_pesquisar',
-                PESQUISAR_SELECTORS, 'Pesquisar', 'button'
-            );
-
-            let searched = false;
-            if (btnResolved) {
-                try {
-                    const btn = await page.$(btnResolved.selector);
-                    if (btn) {
-                        await btn.click();
-                        searched = true;
-                        confirmResolved(tribunal, 'botao_pesquisar', btnResolved);
-                    }
-                } catch { /* fallback Enter */ }
-            }
-            if (!searched) {
-                await page.keyboard.press('Enter');
-            }
-
-            // 5. Aguarda resultados
-            await page.waitForTimeout(3000);
-            emitProgress('Extraindo dados...');
-
-            // 6. Extrai texto da página (dados do processo)
-            const texto: string = await page.evaluate(() => {
-                // Remove scripts, styles, forms desnecessários
-                const clone = document.body.cloneNode(true) as HTMLElement;
-                clone.querySelectorAll('script, style, nav, header, footer').forEach((el: any) => el.remove());
-                return (clone.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 4000);
+            await ensureBrowser();
+            const res = await runBrowserUseTask({
+                task: instrucao,
+                tribunal,
+                context: 'pje_consultar',
+                maxSteps: 15,
             });
 
-            // 7. Tenta clicar no primeiro resultado se aparecer lista
-            try {
-                const linhaProcesso = await page.$(`a[href*="processo"], tr[onclick], td[onclick]`);
-                if (linhaProcesso) {
-                    await linhaProcesso.click();
-                    await page.waitForTimeout(2000);
-                    const textoDetalhe: string = await page.evaluate(() => {
-                        const clone = document.body.cloneNode(true) as HTMLElement;
-                        clone.querySelectorAll('script, style, nav').forEach((el: any) => el.remove());
-                        return (clone.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 5000);
-                    });
-                    injectOverlay('Processo encontrado', true);
-                    return {
-                        sucesso: true,
-                        dados: { numero, tribunal, url: page.url() },
-                        mensagem: textoDetalhe || 'Processo aberto no browser.'
-                    };
-                }
-            } catch { /* sem resultado clicável — retorna o texto da lista */ }
+            console.log(`[pje_consultar] Resultado: success=${res.success}, result="${(res.result || '').slice(0, 200)}", steps=${res.steps?.length || 0}, fallback=${(res as any).usedFallback || false}`);
 
-            injectOverlay(texto.length > 20 ? 'Dados extraídos' : 'Sem resultados', true);
+            if (!res.success) {
+                return {
+                    sucesso: false,
+                    erro: res.result || 'browser-use falhou sem mensagem',
+                    mensagem: `Falha ao consultar processo ${numero}: ${res.result || 'erro desconhecido'}`,
+                };
+            }
             return {
                 sucesso: true,
-                dados: { numero, tribunal, url: page.url() },
-                mensagem: texto || 'Consulta executada. Veja o browser para os resultados.'
+                dados: { numero, tribunal, resultado: res.result },
+                mensagem: res.result || `Consulta concluída para o processo ${numero}.`,
             };
-
         } catch (error: any) {
-            console.error('[pje_consultar] Erro:', error.message);
-            injectOverlay('Erro na consulta', true);
-            return { sucesso: false, erro: error.message, mensagem: `Erro ao consultar processo: ${error.message}` };
+            console.error(`[pje_consultar] Exception:`, error);
+            return { sucesso: false, erro: String(error?.message || error), mensagem: `Erro ao consultar processo: ${error?.message || error}` };
         }
     }
 };

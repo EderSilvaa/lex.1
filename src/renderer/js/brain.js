@@ -19,32 +19,19 @@
     let _initialized = false;
     let _searchDebounce = null;
 
-    // Node type → neon color (space/neural palette)
+    // Node type → muted colors (aligned with LEX dark theme)
     const TYPE_COLORS = {
-        processo:    '#a855f7',   // violet
-        tese:        '#22d3ee',   // cyan
-        parte:       '#38bdf8',   // sky blue
-        aprendizado: '#fbbf24',   // amber/gold
-        tribunal:    '#f472b6',   // pink/magenta
-        decisao:     '#4ade80',   // neon green
-        selector:    '#64748b',   // slate
-        prazo:       '#fb923c',   // orange
+        processo:    '#7c6dcf',   // muted violet
+        tese:        '#4a9b9b',   // muted teal
+        parte:       '#4a7aaa',   // muted blue
+        aprendizado: '#9b8a4a',   // muted gold
+        tribunal:    '#9b4a6e',   // muted rose
+        decisao:     '#4a8a5a',   // muted green
+        selector:    '#5a6378',   // slate
+        prazo:       '#9b6a4a',   // muted orange
     };
 
-    const DEFAULT_COLOR = '#6366f1';
-
-    // Glow alpha layers per type
-    const TYPE_GLOW = {
-        processo:    'rgba(168,85,247,',
-        tese:        'rgba(34,211,238,',
-        parte:       'rgba(56,189,248,',
-        aprendizado: 'rgba(251,191,36,',
-        tribunal:    'rgba(244,114,182,',
-        decisao:     'rgba(74,222,128,',
-        selector:    'rgba(100,116,139,',
-        prazo:       'rgba(251,146,60,',
-    };
-    const DEFAULT_GLOW = 'rgba(99,102,241,';
+    const DEFAULT_COLOR = '#5a5a8a';
 
     // ========================================================================
     // INIT
@@ -130,74 +117,46 @@
             .nodeLabel(n => `[${n.type}] ${n.label}`)
             .nodeCanvasObject((node, ctx, globalScale) => {
                 const color = TYPE_COLORS[node.type] || DEFAULT_COLOR;
-                const glowBase = TYPE_GLOW[node.type] || DEFAULT_GLOW;
-                const r = Math.max(3, 3 + (node.confidence || 0.5) * 6);
+                const r = Math.max(3, 2.5 + (node.confidence || 0.5) * 4);
                 const x = node.x || 0;
                 const y = node.y || 0;
 
-                // Outer glow (3 layers)
-                for (const [radius, alpha] of [[r * 3.5, 0.04], [r * 2.2, 0.10], [r * 1.5, 0.22]]) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = glowBase + alpha + ')';
-                    ctx.fill();
-                }
-
-                // Core node
+                // Solid circle
                 ctx.beginPath();
                 ctx.arc(x, y, r, 0, 2 * Math.PI);
                 ctx.fillStyle = color;
                 ctx.fill();
 
-                // Inner highlight
+                // Subtle border
                 ctx.beginPath();
-                ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.35, 0, 2 * Math.PI);
-                ctx.fillStyle = 'rgba(255,255,255,0.28)';
-                ctx.fill();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
 
-                // Label at higher zoom
-                if (globalScale >= 1.4) {
-                    const label = node.label.length > 22 ? node.label.substring(0, 22) + '…' : node.label;
-                    ctx.font = `${Math.max(4, 10 / globalScale)}px sans-serif`;
+                // Label
+                if (globalScale >= 1.2) {
+                    const label = node.label.length > 24 ? node.label.substring(0, 24) + '…' : node.label;
+                    const fontSize = Math.max(3.5, 9 / globalScale);
+                    ctx.font = `${fontSize}px sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = 'rgba(220,220,255,0.85)';
-                    ctx.fillText(label, x, y + r + 6 / globalScale);
+                    ctx.fillStyle = 'rgba(190,190,210,0.75)';
+                    ctx.fillText(label, x, y + r + (fontSize * 0.9));
                 }
             })
             .nodeCanvasObjectMode(() => 'replace')
             .linkSource('source')
             .linkTarget('target')
             .linkLabel(l => l.relation)
-            .linkColor(l => {
-                const relColors = {
-                    has_tese:     'rgba(34,211,238,0.4)',
-                    has_parte:    'rgba(56,189,248,0.35)',
-                    has_decisao:  'rgba(74,222,128,0.4)',
-                    from_tribunal:'rgba(244,114,182,0.4)',
-                    related_to:   'rgba(168,85,247,0.35)',
-                    learned_from: 'rgba(251,191,36,0.4)',
-                    selector_for: 'rgba(100,116,139,0.3)',
-                    has_prazo:    'rgba(251,146,60,0.4)',
-                };
-                return relColors[l.relation] || 'rgba(150,150,200,0.25)';
-            })
-            .linkWidth(l => Math.max(0.5, (l.weight || 1) * 0.6))
-            .linkDirectionalArrowLength(5)
+            .linkColor(() => 'rgba(160,160,180,0.15)')
+            .linkWidth(0.6)
+            .linkDirectionalArrowLength(3)
             .linkDirectionalArrowRelPos(1)
             .linkDirectionalParticles(1)
-            .linkDirectionalParticleWidth(1.5)
-            .linkDirectionalParticleColor(l => {
-                const relColors = {
-                    has_tese:     '#22d3ee',
-                    has_parte:    '#38bdf8',
-                    has_decisao:  '#4ade80',
-                    from_tribunal:'#f472b6',
-                    related_to:   '#a855f7',
-                    learned_from: '#fbbf24',
-                };
-                return relColors[l.relation] || '#818cf8';
-            })
+            .linkDirectionalParticleWidth(1.8)
+            .linkDirectionalParticleSpeed(0.004)
+            .linkDirectionalParticleColor(() => 'rgba(200,195,230,0.55)')
             .backgroundColor('transparent')
             .onNodeClick((node) => _showNodeDetail(node))
             .onBackgroundClick(() => _hideSidebar());

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
 import { closeBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
-import { initMemoryDir } from './agent/memory';
+import { initMemoryDir, getMemory } from './agent/memory';
 import { initBrain, getBrain, getBrainSafe, closeBrain } from './brain';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
 import { initSelectorMemory, flushSelectorMemory } from './browser';
@@ -415,16 +415,18 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
  * Se o valor estiver em plaintext legado, migra para criptografado imediatamente.
  */
 function loadApiKey(providerId: ProviderId): string {
-    if (!store) return '';
+    if (!store) { console.log(`[loadApiKey] Store não inicializado`); return ''; }
     const apiKeys = (store.get('apiKeys', {}) as Record<string, string>);
     const raw = String(apiKeys[providerId] || '').trim();
+    console.log(`[loadApiKey] provider=${providerId}, raw=${raw ? raw.slice(0, 20) + '...' : 'EMPTY'}, encrypted=${isEncrypted(raw)}`);
     if (!raw) return '';
     if (!isEncrypted(raw)) {
-        // Chave legada em plaintext — criptografa e persiste agora
         saveApiKey(providerId, raw);
         return raw;
     }
-    return safeDecrypt(raw);
+    const decrypted = safeDecrypt(raw);
+    console.log(`[loadApiKey] decrypted=${decrypted ? decrypted.slice(0, 8) + '...' : 'EMPTY (decrypt failed)'}`);
+    return decrypted;
 }
 
 /**
@@ -482,6 +484,7 @@ ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderI
     if (!store) return { error: 'Store not initialized' };
     store.set('aiProvider', cfg);
     const apiKey = loadApiKey(cfg.providerId);
+    console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0,8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
     await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
     reInitBrowser().catch(e => console.error('[Browser] Erro ao re-inicializar após troca de provider:', e));
     return { success: true };
@@ -498,7 +501,8 @@ ipcMain.handle('store-get-provider', async () => {
 /** Salva chave API para um provider. */
 ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { providerId: ProviderId; key: string }) => {
     if (!store) return { error: 'Store not initialized' };
-    const normalizedKey = String(key || '').trim();
+    // Remove zero-width chars, BOM, e qualquer non-ASCII que colar junto
+    const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
     saveApiKey(providerId, normalizedKey);
 
     // Se é o provider ativo, re-sincroniza imediatamente
@@ -1699,9 +1703,22 @@ ipcMain.handle('check-pje', async () => {
         const page = getActivePage();
         const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
-        return { connected: !!url, isPje, url };
+
+        // Detecta tribunal pela URL (ex: pje.tjpa.jus.br → TJPA, pje.trt8.jus.br → TRT8)
+        let tribunalAtivo: string | null = null;
+        if (isPje && url) {
+            const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
+            if (match?.[1]) tribunalAtivo = match[1].toUpperCase();
+        }
+
+        // Tribunal preferido salvo na memória do usuário
+        const mem = getMemory();
+        const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
+        const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
+
+        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
     } catch {
-        return { connected: false, isPje: false, url: null };
+        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
     }
 });
 
@@ -2179,9 +2196,15 @@ ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessi
         return { success: false, error: 'trial_expired' };
     }
 
-    const objetivoFinal = injectDisambiguationIfNeeded(objetivo);
+    // Normaliza números CNJ sem pontuação (20 dígitos → NNNNNNN-NN.NNNN.N.NN.NNNN)
+    const objetivoNorm = objetivo.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(
+        /\b(\d{20})\b/g, (_: string, d: string) =>
+            `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d.slice(13,14)}.${d.slice(14,16)}.${d.slice(16,20)}`
+    );
+    console.log('[Agent] CNJ normalize:', objetivo, '->', objetivoNorm);
+    const objetivoFinal = injectDisambiguationIfNeeded(objetivoNorm);
     const maxIter = Math.min(Math.max(Number(config?.maxIterations) || 5, 1), 10);
-    const timeoutMs = Math.min(Math.max(Number(config?.timeoutMs) || 60000, 10000), 120000);
+    const timeoutMs = Math.min(Math.max(Number(config?.timeoutMs) || 300000, 10000), 600000);
 
     // Tenta via backend (processo separado)
     if (isBackendAlive()) {

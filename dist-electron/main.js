@@ -60,7 +60,9 @@ const crypto_1 = require("crypto");
 const tribunal_urls_1 = require("./pje/tribunal-urls");
 const browser_manager_1 = require("./browser-manager");
 const memory_1 = require("./agent/memory");
+const brain_1 = require("./brain");
 const route_memory_1 = require("./pje/route-memory");
+const browser_1 = require("./browser");
 const backend_client_1 = require("./backend-client");
 const crypto_store_1 = require("./crypto-store");
 const doc_index_1 = require("./agent/doc-index");
@@ -83,6 +85,8 @@ electron_1.app.commandLine.appendSwitch('disable-gpu-sandbox');
 // Agent module loaded dynamically after app ready
 let agentModule = null;
 const AGENT_SESSION_ID = (0, crypto_1.randomUUID)();
+let _activeOrchestratorState = null;
+let _activeOrchestratorRef = null;
 // Enable Hot Reload in Development
 // electron-reload removido: bypassava o launch-electron.js (sem deletar ELECTRON_RUN_AS_NODE)
 // causando Electron a subir em modo Node.js e congelar o renderer ao detectar mudanças em dist-electron/
@@ -376,11 +380,30 @@ OBS: Se o usuário pedir para pesquisar algo (ex: "busque decisões sobre X"), a
     return instrucoes[tipo] || instrucoes['conversa_geral'] || '';
 }
 function criarPromptJuridico(contexto, pergunta) {
+    var _a;
     const tipoConversa = detectarTipoConversa(pergunta);
-    const promptBase = obterPromptBase(tipoConversa);
-    // Simple context formatting
-    const contextStr = JSON.stringify(contexto, null, 2);
-    return `${promptBase}\n\nCONTEXTO DO PROCESSO:\n${contextStr}\n\nPERGUNTA: ${pergunta}\n\n${obterInstrucoesEspecificas(tipoConversa)}`;
+    // Usa o prompt-layer para personalidade e comportamento (mesmo sistema do agent loop)
+    let systemPrompt;
+    try {
+        const tenantConfig = (_a = agentModule === null || agentModule === void 0 ? void 0 : agentModule.getDefaultTenantConfig) === null || _a === void 0 ? void 0 : _a.call(agentModule);
+        if (tenantConfig) {
+            const { buildPromptLayerSystem } = require('./agent/prompt-layer');
+            systemPrompt = buildPromptLayerSystem(tenantConfig);
+        }
+        else {
+            systemPrompt = obterPromptBase(tipoConversa);
+        }
+    }
+    catch (_b) {
+        systemPrompt = obterPromptBase(tipoConversa);
+    }
+    // Contexto do processo (se houver)
+    const contextStr = contexto && Object.keys(contexto).length > 0
+        ? `\n\nCONTEXTO DO PROCESSO:\n${JSON.stringify(contexto, null, 2)}`
+        : '';
+    // Instruções específicas do tipo (mantém para automação)
+    const instrucoes = tipoConversa === 'automacao' ? `\n\n${obterInstrucoesEspecificas(tipoConversa)}` : '';
+    return `${systemPrompt}${contextStr}${instrucoes}`;
 }
 /**
  * Sincroniza o provider ativo no runtime (ai-handler + env vars).
@@ -407,18 +430,22 @@ function syncProvider(providerId, apiKey, agentModel, visionModel) {
  * Se o valor estiver em plaintext legado, migra para criptografado imediatamente.
  */
 function loadApiKey(providerId) {
-    if (!store)
+    if (!store) {
+        console.log(`[loadApiKey] Store não inicializado`);
         return '';
+    }
     const apiKeys = store.get('apiKeys', {});
     const raw = String(apiKeys[providerId] || '').trim();
+    console.log(`[loadApiKey] provider=${providerId}, raw=${raw ? raw.slice(0, 20) + '...' : 'EMPTY'}, encrypted=${(0, crypto_store_1.isEncrypted)(raw)}`);
     if (!raw)
         return '';
     if (!(0, crypto_store_1.isEncrypted)(raw)) {
-        // Chave legada em plaintext — criptografa e persiste agora
         saveApiKey(providerId, raw);
         return raw;
     }
-    return (0, crypto_store_1.safeDecrypt)(raw);
+    const decrypted = (0, crypto_store_1.safeDecrypt)(raw);
+    console.log(`[loadApiKey] decrypted=${decrypted ? decrypted.slice(0, 8) + '...' : 'EMPTY (decrypt failed)'}`);
+    return decrypted;
 }
 /**
  * Persiste chave encriptada no store para um provider.
@@ -468,6 +495,7 @@ electron_1.ipcMain.handle('store-set-provider', (_event, cfg) => __awaiter(void 
         return { error: 'Store not initialized' };
     store.set('aiProvider', cfg);
     const apiKey = loadApiKey(cfg.providerId);
+    console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0, 8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
     yield syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
     (0, browser_manager_1.reInitBrowser)().catch(e => console.error('[Browser] Erro ao re-inicializar após troca de provider:', e));
     return { success: true };
@@ -483,7 +511,8 @@ electron_1.ipcMain.handle('store-get-provider', () => __awaiter(void 0, void 0, 
 electron_1.ipcMain.handle('store-set-api-key', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { providerId, key }) {
     if (!store)
         return { error: 'Store not initialized' };
-    const normalizedKey = String(key || '').trim();
+    // Remove zero-width chars, BOM, e qualquer non-ASCII que colar junto
+    const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
     saveApiKey(providerId, normalizedKey);
     // Se é o provider ativo, re-sincroniza imediatamente
     const current = (0, provider_config_1.getActiveConfig)();
@@ -534,6 +563,27 @@ electron_1.ipcMain.handle('privacy-get-effective-level', (_event, providerId) =>
 electron_1.ipcMain.handle('privacy-get-audit-summary', (_event, days) => {
     return (0, privacy_1.getAuditSummary)(days !== null && days !== void 0 ? days : 7);
 });
+// ── Training (PJe-Model dataset) ──────────────────────────────────────────
+electron_1.ipcMain.handle('training-stats', () => {
+    try {
+        const { getStats } = require('./agent/training-collector');
+        return getStats();
+    }
+    catch (_a) {
+        return { total: 0, today: 0, bySistema: {}, byTribunal: {}, bySkill: {}, oldestDate: '', newestDate: '' };
+    }
+});
+electron_1.ipcMain.handle('training-export', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = electron_1.app.getPath('userData');
+        const trainingDir = require('path').join(userData, 'training');
+        const { exportForFineTune } = require('./agent/training-exporter');
+        return yield exportForFineTune(trainingDir, options !== null && options !== void 0 ? options : {});
+    }
+    catch (err) {
+        return { success: false, outputPath: '', stats: {}, error: err.message };
+    }
+}));
 // ── Ollama (Modelo Local) ──────────────────────────────────────────────────
 electron_1.ipcMain.handle('ollama-status', () => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -747,16 +797,7 @@ electron_1.ipcMain.handle('ai-chat-send', (_event_1, _a) => __awaiter(void 0, [_
     }
 }));
 function createTray() {
-    // Tenta ícone da build, cai para empty se não existir
-    const candidates = [
-        path.join(__dirname, '../build-assets/icon.ico'),
-        path.join(__dirname, '../build-assets/icon.png'),
-        path.join(process.cwd(), 'build-assets/icon.ico'),
-        path.join(process.cwd(), 'build-assets/icon.png'),
-    ];
-    const iconPath = candidates.find(p => fs.existsSync(p));
-    const icon = iconPath ? electron_1.nativeImage.createFromPath(iconPath) : electron_1.nativeImage.createEmpty();
-    tray = new electron_1.Tray(icon);
+    tray = new electron_1.Tray(getAppIcon());
     tray.setToolTip('LEX — Assistente Jurídico (24/7)');
     refreshTrayMenu();
     tray.on('double-click', () => {
@@ -800,10 +841,21 @@ function refreshTrayMenu() {
     ]);
     tray.setContextMenu(contextMenu);
 }
+function getAppIcon() {
+    const candidates = [
+        path.join(__dirname, '../build-assets/icon.ico'),
+        path.join(__dirname, '../build-assets/icon.png'),
+        path.join(process.cwd(), 'build-assets/icon.ico'),
+        path.join(process.cwd(), 'build-assets/icon.png'),
+    ];
+    const iconPath = candidates.find(p => fs.existsSync(p));
+    return iconPath ? electron_1.nativeImage.createFromPath(iconPath) : electron_1.nativeImage.createEmpty();
+}
 function createWindow() {
     mainWindow = new electron_1.BrowserWindow({
         width: 1400, // Wider for split view
         height: 900,
+        icon: getAppIcon(),
         titleBarStyle: 'hidden', // Look "modern"
         titleBarOverlay: {
             color: '#1e1e1e',
@@ -918,6 +970,16 @@ electron_1.ipcMain.handle('files-read', (_event, filePath) => __awaiter(void 0, 
         console.error('[Files] Erro ao ler arquivo:', e);
         return { success: false, error: e.message };
     }
+}));
+// Retorna file:// URL para preview de arquivos (PDF, imagens)
+electron_1.ipcMain.handle('files-get-url', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+    const normalizedFilePath = normalizeFsPath(filePath);
+    if (!isPathApprovedForRead(normalizedFilePath)) {
+        return null;
+    }
+    // Converte caminho Windows para file:// URL
+    const fileUrl = `file:///${normalizedFilePath.replace(/\\/g, '/').replace(/^\//, '')}`;
+    return fileUrl;
 }));
 // Seleciona arquivo (dialog)
 electron_1.ipcMain.handle('files-select-file', (_event, filters) => __awaiter(void 0, void 0, void 0, function* () {
@@ -1076,6 +1138,21 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     createWindow();
     (0, crawler_1.registerCrawlerHandlers)();
     (0, route_memory_1.initRouteMemory)(userData);
+    (0, browser_1.initSelectorMemory)(userData);
+    // Brain (SQLite FTS5 + grafo de conhecimento)
+    try {
+        (0, brain_1.initBrain)(userData);
+        console.log('[Main] Brain inicializado');
+    }
+    catch (err) {
+        console.error('[Main] Falha ao iniciar Brain:', err.message);
+    }
+    // Training collector — coleta dados de treino para PJe-model
+    try {
+        const { initTrainingCollector } = require('./agent/training-collector');
+        initTrainingCollector(userData);
+    }
+    catch ( /* módulo não disponível */_a) { /* módulo não disponível */ }
     // Inicia backend Node.js separado (agent + browser + skills)
     try {
         yield (0, backend_client_1.startBackend)(userData);
@@ -1102,6 +1179,134 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     initTelegramBotIfConfigured().catch(e => {
         console.error('[Telegram] Falha ao auto-iniciar:', e);
     }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
+    // Phase 3 AIOS: Inicializa plugins ANTES do scheduler
+    // (scheduler pode executar goals que usam skills de plugins)
+    try {
+        const { initPlugins } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+        yield initPlugins();
+        if (mainWindow)
+            mainWindow.webContents.send('plugins-ready');
+    }
+    catch (err) {
+        console.error('[Plugins] Falha ao inicializar:', err.message);
+    }
+    // Phase 2 AIOS: Inicializa scheduler + notifications
+    try {
+        const { initScheduler, setJobRunnerWindow } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const { setNotificationWindow, setTelegramUserId } = yield Promise.resolve().then(() => __importStar(require('./notifications')));
+        setNotificationWindow(mainWindow);
+        setJobRunnerWindow(mainWindow);
+        const telegramUserId = store === null || store === void 0 ? void 0 : store.get('telegramUserId', 0);
+        if (telegramUserId)
+            setTelegramUserId(telegramUserId);
+        yield initScheduler();
+    }
+    catch (err) {
+        console.error('[Scheduler] Falha ao inicializar:', err.message);
+    }
+    // Terminal embutido (xterm.js + node-pty)
+    try {
+        const { initTerminal, getPtyManager } = yield Promise.resolve().then(() => __importStar(require('./terminal')));
+        initTerminal();
+        const ptyMgr = getPtyManager();
+        electron_1.ipcMain.handle('terminal-create', (_, opts) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                yield ptyMgr.createSession(opts.sessionId, opts);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        }));
+        electron_1.ipcMain.handle('terminal-write', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { sessionId, data }) {
+            try {
+                ptyMgr.write(sessionId, data);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        }));
+        electron_1.ipcMain.handle('terminal-resize', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { sessionId, cols, rows }) {
+            try {
+                ptyMgr.resize(sessionId, cols, rows);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        }));
+        electron_1.ipcMain.handle('terminal-kill', (_, sessionId) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                ptyMgr.killSession(sessionId);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        }));
+        electron_1.ipcMain.handle('terminal-list-sessions', () => __awaiter(void 0, void 0, void 0, function* () {
+            return { success: true, data: ptyMgr.listSessions() };
+        }));
+        // Forward PTY events para renderer
+        ptyMgr.on('data', (sessionId, data) => {
+            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('terminal-data', { sessionId, data });
+        });
+        ptyMgr.on('exit', (sessionId, exitCode) => {
+            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('terminal-exit', { sessionId, exitCode });
+        });
+        // Cleanup no quit
+        electron_1.app.on('before-quit', () => ptyMgr.killAll());
+        console.log('[Terminal] IPC handlers registrados');
+    }
+    catch (err) {
+        console.error('[Terminal] Falha ao inicializar:', err.message);
+    }
+    // Legal Store — base jurídica dinâmica (seed no primeiro uso)
+    try {
+        const { initLegalStore } = yield Promise.resolve().then(() => __importStar(require('./legal/legal-store')));
+        initLegalStore();
+    }
+    catch (err) {
+        console.warn('[LegalStore] Falha ao inicializar:', err.message);
+    }
+    // DataJud Pipeline — data pipeline jurídica (async, não bloqueia boot)
+    try {
+        const { initDataPipeline } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+        yield initDataPipeline();
+    }
+    catch (err) {
+        console.warn('[DataPipeline] Falha ao inicializar:', err.message);
+    }
+    // Knowledge Base de Documentos — schemas + exemplos + seed pipeline
+    try {
+        const { initDocSchemaRegistry } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+        const { initDocExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+        const { seedIfEmpty } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-seed-pipeline')));
+        initDocSchemaRegistry();
+        initDocExamples();
+        const seedResult = seedIfEmpty();
+        if (seedResult) {
+            console.log(`[KnowledgeBase] Seed: ${seedResult.imported} exemplos importados`);
+        }
+    }
+    catch (err) {
+        console.warn('[KnowledgeBase] Falha ao inicializar:', err.message);
+    }
+    // Python embedded — setup async em background (não bloqueia boot)
+    try {
+        const { initPythonEnv, getPythonEnv } = yield Promise.resolve().then(() => __importStar(require('./python')));
+        initPythonEnv();
+        getPythonEnv().setup()
+            .then(() => {
+            // Instala browser-use em background após Python estar pronto
+            Promise.resolve().then(() => __importStar(require('./browser/browser-use-setup'))).then(({ ensureBrowserUseInstalled }) => ensureBrowserUseInstalled().catch((err) => console.warn('[BrowserUse] Instalação falhou:', err.message))).catch(() => { });
+        })
+            .catch((err) => console.warn('[Python] Setup falhou:', err.message));
+    }
+    catch (err) {
+        console.error('[Python] Falha ao inicializar módulo:', err.message);
+    }
     // Sync de legislação em background (não bloqueia boot)
     initLegislacaoSync();
     // Inicia watchers nos workspaces para auto re-indexar RAG
@@ -1182,6 +1387,12 @@ electron_1.app.on('window-all-closed', function () {
         (0, analytics_1.getAnalytics)().endSession();
         // Flush audit log de privacidade
         yield (0, privacy_1.flushAuditLog)();
+        // Phase 2 AIOS: Para scheduler (limpa timers/watchers)
+        try {
+            const { stopScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+            stopScheduler();
+        }
+        catch ( /* ignore */_a) { /* ignore */ }
         // No modo 24/7 com tray ativo, não encerra o processo
         if (trayModeActive)
             return;
@@ -1189,6 +1400,12 @@ electron_1.app.on('window-all-closed', function () {
         yield (0, backend_client_1.stopBackend)();
         // Fallback local caso backend não estivesse rodando
         (0, route_memory_1.flush)();
+        (0, browser_1.flushSelectorMemory)();
+        try {
+            require('./agent/training-collector').flush();
+        }
+        catch ( /* ok */_b) { /* ok */ }
+        (0, brain_1.closeBrain)();
         yield (0, browser_manager_1.closeBrowser)();
         try {
             if (agentModule) {
@@ -1398,15 +1615,26 @@ electron_1.ipcMain.handle('rag-legislacao-stats', () => __awaiter(void 0, void 0
 }));
 // Check PJe status via browser
 electron_1.ipcMain.handle('check-pje', () => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _a, _b;
     try {
         const page = (0, browser_manager_1.getActivePage)();
         const url = (_a = page === null || page === void 0 ? void 0 : page.url()) !== null && _a !== void 0 ? _a : null;
         const isPje = typeof url === 'string' && url.includes('pje.');
-        return { connected: !!url, isPje, url };
+        // Detecta tribunal pela URL (ex: pje.tjpa.jus.br → TJPA, pje.trt8.jus.br → TRT8)
+        let tribunalAtivo = null;
+        if (isPje && url) {
+            const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
+            if (match === null || match === void 0 ? void 0 : match[1])
+                tribunalAtivo = match[1].toUpperCase();
+        }
+        // Tribunal preferido salvo na memória do usuário
+        const mem = (0, memory_1.getMemory)();
+        const [memoriaData, usuario] = yield Promise.all([mem.carregar(), mem.getUsuario()]);
+        const pref = ((_b = memoriaData.preferencias) === null || _b === void 0 ? void 0 : _b['tribunal_preferido']) || usuario.tribunal_preferido || null;
+        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
     }
-    catch (_b) {
-        return { connected: false, isPje: false, url: null };
+    catch (_c) {
+        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
     }
 }));
 // ============================================================================
@@ -1430,8 +1658,7 @@ function ensureAgentInitialized() {
         if (!agentInitialized) {
             yield agent.initializeAgent();
             // Injeta dialog nativo do Electron para confirmação de ações perigosas
-            const { setConfirmDialog } = yield Promise.resolve().then(() => __importStar(require('./skills/os/sistema')));
-            setConfirmDialog((titulo, detalhe) => __awaiter(this, void 0, void 0, function* () {
+            const confirmFn = (titulo, detalhe) => __awaiter(this, void 0, void 0, function* () {
                 const { response } = yield electron_1.dialog.showMessageBox({
                     type: 'warning',
                     buttons: ['Cancelar', 'Executar'],
@@ -1443,16 +1670,23 @@ function ensureAgentInitialized() {
                     noLink: true
                 });
                 return response === 1;
-            }));
+            });
+            const { setConfirmDialog } = yield Promise.resolve().then(() => __importStar(require('./skills/os/sistema')));
+            setConfirmDialog(confirmFn);
             agentInitialized = true;
         }
         return agent;
     });
 }
-// Forward agent events to renderer
+// Forward agent events to renderer (com guard contra listeners duplicados)
+let agentEventForwardingActive = false;
 function setupAgentEventForwarding() {
     return __awaiter(this, void 0, void 0, function* () {
+        if (agentEventForwardingActive)
+            return;
+        agentEventForwardingActive = true;
         const agent = yield loadAgentModule();
+        agent.agentEmitter.removeAllListeners('agent-event');
         agent.agentEmitter.on('agent-event', (event) => {
             console.log('[Agent Event]', event.type);
             if (mainWindow) {
@@ -1761,7 +1995,12 @@ function runAgentForTelegram(text, sessionId) {
         const agent = yield ensureAgentInitialized();
         const tenantConfig = agent.getDefaultTenantConfig();
         const objetivoFinal = injectDisambiguationIfNeeded(text);
-        return yield agent.runAgentLoop(objetivoFinal, { maxIterations: 8, timeoutMs: 120000 }, tenantConfig, sessionId);
+        return yield agent.runAgentLoop({
+            objetivo: objetivoFinal,
+            config: { maxIterations: 8, timeoutMs: 120000 },
+            tenantConfig,
+            sessionId,
+        });
     });
 }
 /** Retorna config do Telegram (sem o token completo) */
@@ -1832,9 +2071,12 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
     if (license.status === 'trial_expired') {
         return { success: false, error: 'trial_expired' };
     }
-    const objetivoFinal = injectDisambiguationIfNeeded(objetivo);
+    // Normaliza números CNJ sem pontuação (20 dígitos → NNNNNNN-NN.NNNN.N.NN.NNNN)
+    const objetivoNorm = objetivo.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/\b(\d{20})\b/g, (_, d) => `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16, 20)}`);
+    console.log('[Agent] CNJ normalize:', objetivo, '->', objetivoNorm);
+    const objetivoFinal = injectDisambiguationIfNeeded(objetivoNorm);
     const maxIter = Math.min(Math.max(Number(config === null || config === void 0 ? void 0 : config.maxIterations) || 5, 1), 10);
-    const timeoutMs = Math.min(Math.max(Number(config === null || config === void 0 ? void 0 : config.timeoutMs) || 60000, 10000), 120000);
+    const timeoutMs = Math.min(Math.max(Number(config === null || config === void 0 ? void 0 : config.timeoutMs) || 300000, 10000), 600000);
     // Tenta via backend (processo separado)
     if ((0, backend_client_1.isBackendAlive)()) {
         try {
@@ -1854,10 +2096,12 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
     try {
         const agent = yield ensureAgentInitialized();
         const tenantConfig = agent.getDefaultTenantConfig();
-        const resposta = yield agent.runAgentLoop(objetivoFinal, {
-            maxIterations: maxIter,
-            timeoutMs
-        }, tenantConfig, sessionId || AGENT_SESSION_ID);
+        const resposta = yield agent.runAgentLoop({
+            objetivo: objetivoFinal,
+            config: { maxIterations: maxIter, timeoutMs },
+            tenantConfig,
+            sessionId: sessionId || AGENT_SESSION_ID,
+        });
         return { success: true, resposta };
     }
     catch (error) {
@@ -1879,6 +2123,746 @@ electron_1.ipcMain.handle('agent-cancel', () => __awaiter(void 0, void 0, void 0
     return { success: true };
 }));
 // ============================================================================
+// IPC: Plan & Orchestrator (Phase 1 AIOS)
+// ============================================================================
+electron_1.ipcMain.handle('ai-plan-execute', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { goal, sessionId }) {
+    const license = yield (0, license_1.checkLicense)();
+    if (license.status === 'not_authenticated') {
+        return { success: false, error: 'not_authenticated' };
+    }
+    if (license.status === 'trial_expired') {
+        return { success: false, error: 'trial_expired' };
+    }
+    try {
+        yield ensureAgentInitialized();
+        const { Orchestrator } = yield Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
+        const orchestrator = new Orchestrator();
+        _activeOrchestratorRef = orchestrator;
+        _activeOrchestratorState = null;
+        // Rastreia estado + forward de eventos para o renderer
+        orchestrator.on('event', (evt) => {
+            // Atualiza snapshot local
+            if (evt.type === 'plan_created') {
+                _activeOrchestratorState = {
+                    planId: evt.plan.id,
+                    goal: evt.plan.goal,
+                    planStatus: 'executing',
+                    subtasks: evt.plan.subtasks.map((t) => ({
+                        id: t.id, description: t.description,
+                        agentType: t.agentType, status: t.status,
+                    })),
+                };
+            }
+            else if (evt.type === 'plan_state_snapshot') {
+                _activeOrchestratorState = evt.state;
+            }
+            else if (evt.type === 'subtask_started' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
+                if (st) {
+                    st.status = 'running';
+                    st.startedAt = Date.now();
+                }
+            }
+            else if (evt.type === 'subtask_completed' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
+                if (st)
+                    st.status = 'completed';
+            }
+            else if (evt.type === 'subtask_failed' && _activeOrchestratorState) {
+                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
+                if (st) {
+                    st.status = 'failed';
+                    st.error = evt.error;
+                }
+            }
+            else if (evt.type === 'plan_completed' || evt.type === 'plan_failed') {
+                if (_activeOrchestratorState) {
+                    _activeOrchestratorState.planStatus = evt.type === 'plan_completed' ? 'completed' : 'failed';
+                }
+                _activeOrchestratorRef = null;
+            }
+            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('agent-event', { type: 'orchestrator', data: evt });
+        });
+        const result = yield orchestrator.execute(goal, sessionId || AGENT_SESSION_ID);
+        return { success: true, result };
+    }
+    catch (error) {
+        _activeOrchestratorRef = null;
+        console.error('[Orchestrator] Erro:', error.message);
+        return { success: false, error: error.message };
+    }
+}));
+// ============================================================================
+// IPC: Orchestrator — estado em tempo real + cancel
+// ============================================================================
+electron_1.ipcMain.handle('orchestrator-get-state', () => _activeOrchestratorState);
+electron_1.ipcMain.handle('orchestrator-cancel', () => __awaiter(void 0, void 0, void 0, function* () {
+    if (!_activeOrchestratorRef)
+        return { success: false, error: 'Nenhuma execução ativa' };
+    yield _activeOrchestratorRef.cancel();
+    _activeOrchestratorRef = null;
+    return { success: true };
+}));
+electron_1.ipcMain.handle('orchestrator-pause', () => {
+    if (!_activeOrchestratorRef)
+        return { success: false, error: 'Nenhuma execução ativa' };
+    _activeOrchestratorRef.pause();
+    return { success: true };
+});
+electron_1.ipcMain.handle('orchestrator-resume', () => {
+    if (!_activeOrchestratorRef)
+        return { success: false, error: 'Nenhuma execução ativa' };
+    _activeOrchestratorRef.resume();
+    return { success: true };
+});
+electron_1.ipcMain.handle('orchestrator-is-paused', () => {
+    var _a;
+    return { paused: (_a = _activeOrchestratorRef === null || _activeOrchestratorRef === void 0 ? void 0 : _activeOrchestratorRef.isPaused) !== null && _a !== void 0 ? _a : false };
+});
+// ============================================================================
+// IPC: Checkpoints (P3a AIOS — retomada de planos interrompidos)
+// ============================================================================
+electron_1.ipcMain.handle('checkpoint-list-pending', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { listPendingCheckpoints } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+    return listPendingCheckpoints();
+}));
+electron_1.ipcMain.handle('checkpoint-resume', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { planId }) {
+    try {
+        const { loadCheckpoint, restorePlanFromCheckpoint } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+        const checkpoint = loadCheckpoint(planId);
+        if (!checkpoint)
+            return { success: false, error: 'Checkpoint não encontrado' };
+        yield ensureAgentInitialized();
+        const { Orchestrator } = yield Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
+        const orchestrator = new Orchestrator();
+        orchestrator.on('event', (evt) => {
+            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('agent-event', {
+                type: 'orchestrator',
+                data: evt,
+            });
+        });
+        const result = yield orchestrator.execute(checkpoint.goal, AGENT_SESSION_ID);
+        return { success: true, result };
+    }
+    catch (error) {
+        console.error('[Checkpoint] Erro ao retomar:', error.message);
+        return { success: false, error: error.message };
+    }
+}));
+electron_1.ipcMain.handle('checkpoint-remove', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { planId }) {
+    const { removeCheckpoint } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+    removeCheckpoint(planId);
+    return { success: true };
+}));
+// ============================================================================
+// IPC: Scheduler (Phase 2 AIOS — Autonomia)
+// ============================================================================
+electron_1.ipcMain.handle('scheduler-list-goals', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getGoalStore } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    return getGoalStore().getAllGoals();
+}));
+electron_1.ipcMain.handle('scheduler-add-goal', (_event, goalInput) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const goal = yield getGoalStore().addGoal(goalInput);
+        getScheduler().scheduleGoal(goal);
+        return { success: true, goal };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('scheduler-update-goal', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { id, updates }) {
+    try {
+        const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const goal = yield getGoalStore().updateGoal(id, updates);
+        if (goal)
+            yield getScheduler().rescheduleGoal(id);
+        return { success: true, goal };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('scheduler-remove-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    getScheduler().unscheduleGoal(id);
+    const removed = yield getGoalStore().removeGoal(id);
+    return { success: removed };
+}));
+electron_1.ipcMain.handle('scheduler-pause-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    yield getGoalStore().setStatus(id, 'paused');
+    getScheduler().unscheduleGoal(id);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('scheduler-resume-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    const goal = yield getGoalStore().updateGoal(id, { status: 'active' });
+    if (goal)
+        getScheduler().scheduleGoal(goal);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('scheduler-run-now', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+        yield getScheduler().runNow(id);
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('scheduler-get-runs', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { goalId, limit }) {
+    const { getGoalStore } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    return getGoalStore().getRunsForGoal(goalId, limit || 10);
+}));
+electron_1.ipcMain.handle('scheduler-get-status', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getScheduler, getRunningCount } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+    const status = getScheduler().getStatus();
+    return Object.assign(Object.assign({}, status), { runningJobs: getRunningCount() });
+}));
+electron_1.ipcMain.handle('scheduler-set-auto-launch', (_event, enabled) => __awaiter(void 0, void 0, void 0, function* () {
+    electron_1.app.setLoginItemSettings({
+        openAtLogin: enabled,
+        args: enabled ? ['--background'] : [],
+    });
+    return { success: true, enabled };
+}));
+electron_1.ipcMain.handle('scheduler-get-auto-launch', () => __awaiter(void 0, void 0, void 0, function* () {
+    const settings = electron_1.app.getLoginItemSettings();
+    return { enabled: settings.openAtLogin };
+}));
+// ============================================================================
+// IPC: Brain (SQLite FTS5 + Knowledge Graph)
+// ============================================================================
+electron_1.ipcMain.handle('brain-get-graph', () => __awaiter(void 0, void 0, void 0, function* () {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { nodes: [], edges: [] };
+    return brain.getFullGraph();
+}));
+electron_1.ipcMain.handle('brain-get-subgraph', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { nodeId, depth }) {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { nodes: [], edges: [] };
+    return brain.getSubgraph(nodeId, depth !== null && depth !== void 0 ? depth : 1);
+}));
+electron_1.ipcMain.handle('brain-search', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { query, types, limit }) {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return [];
+    return brain.search(query, { types: types, limit });
+}));
+electron_1.ipcMain.handle('brain-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { nodeCount: 0, edgeCount: 0, byType: {} };
+    return brain.getStats();
+}));
+electron_1.ipcMain.handle('brain-get-node', (_event, nodeId) => __awaiter(void 0, void 0, void 0, function* () {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return null;
+    return brain.getNode(nodeId);
+}));
+electron_1.ipcMain.handle('brain-run-dream', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { runDream } = yield Promise.resolve().then(() => __importStar(require('./brain/dream')));
+        const brain = (0, brain_1.getBrain)();
+        return yield runDream(brain);
+    }
+    catch (err) {
+        console.error('[Brain] Dream falhou:', err);
+        return { error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('brain-export', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { exportBrain } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const brain = (0, brain_1.getBrain)();
+        return yield exportBrain(brain);
+    }
+    catch (err) {
+        console.error('[Brain] Export falhou:', err);
+        return { error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('brain-import', (_event, zipPath) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { importBrain } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const brain = (0, brain_1.getBrain)();
+        return yield importBrain(brain, zipPath);
+    }
+    catch (err) {
+        console.error('[Brain] Import falhou:', err);
+        return { error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('brain-render-markdown', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { renderBrainMarkdown } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-renderer')));
+        const brain = (0, brain_1.getBrain)();
+        return yield renderBrainMarkdown(brain);
+    }
+    catch (err) {
+        console.error('[Brain] Render falhou:', err);
+        return { error: err.message };
+    }
+}));
+// ============================================================================
+// IPC: DataJud Pipeline
+// ============================================================================
+electron_1.ipcMain.handle('datajud-get-profile', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getProfile } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    return getProfile();
+}));
+electron_1.ipcMain.handle('datajud-save-profile', (_event, profile) => __awaiter(void 0, void 0, void 0, function* () {
+    const { saveProfile } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    yield saveProfile(profile);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('datajud-set-api-key', (_event, key) => __awaiter(void 0, void 0, void 0, function* () {
+    const { setDataJudApiKey, getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    yield setDataJudApiKey(key);
+    // Reinicia sync engine com a nova key
+    const engine = getSyncEngine();
+    if (engine)
+        yield engine.restart();
+    return { success: true };
+}));
+electron_1.ipcMain.handle('datajud-has-api-key', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { hasDataJudApiKey } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    return hasDataJudApiKey();
+}));
+electron_1.ipcMain.handle('datajud-add-processo', (_event, processo) => __awaiter(void 0, void 0, void 0, function* () {
+    const { addMonitoredProcesso } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    yield addMonitoredProcesso(processo);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('datajud-remove-processo', (_event, numero) => __awaiter(void 0, void 0, void 0, function* () {
+    const { removeMonitoredProcesso } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    yield removeMonitoredProcesso(numero);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('datajud-list-processos', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getMonitoredProcessos } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    return getMonitoredProcessos();
+}));
+electron_1.ipcMain.handle('datajud-search', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { numero, tribunal }) {
+    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    const engine = getSyncEngine();
+    if (!engine)
+        return { error: 'Pipeline não inicializado' };
+    const result = yield engine.queryCold(numero, tribunal);
+    return result || { error: 'Processo não encontrado' };
+}));
+electron_1.ipcMain.handle('datajud-trigger-hot', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    const engine = getSyncEngine();
+    if (!engine)
+        return { error: 'Pipeline não inicializado' };
+    return engine.runHotSync();
+}));
+electron_1.ipcMain.handle('datajud-trigger-warm', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    const engine = getSyncEngine();
+    if (!engine)
+        return { error: 'Pipeline não inicializado' };
+    return engine.runWarmSync();
+}));
+electron_1.ipcMain.handle('datajud-get-sync-state', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    const engine = getSyncEngine();
+    if (!engine)
+        return null;
+    return engine.getState();
+}));
+electron_1.ipcMain.handle('datajud-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getProfile, hasDataJudApiKey, getProcessoStoreStats, getJurisprudenciaStats, getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+    const profile = yield getProfile();
+    const hasKey = yield hasDataJudApiKey();
+    const processoStats = getProcessoStoreStats();
+    const jurispStats = getJurisprudenciaStats();
+    const engine = getSyncEngine();
+    const state = engine === null || engine === void 0 ? void 0 : engine.getState();
+    return {
+        profileConfigured: profile.tribunais.length > 0 || profile.areasAtuacao.length > 0,
+        hasApiKey: hasKey,
+        processosMonitorados: profile.processosMonitorados.length,
+        processosAtivos: profile.processosMonitorados.filter(p => p.ativo).length,
+        decisoesArmazenadas: jurispStats.total,
+        processosArmazenados: processoStats.total,
+        lastHotSync: (state === null || state === void 0 ? void 0 : state.lastHotSync) || null,
+        lastWarmSync: (state === null || state === void 0 ? void 0 : state.lastWarmSync) || null,
+        consecutiveErrors: (state === null || state === void 0 ? void 0 : state.consecutiveErrors) || 0,
+    };
+}));
+// ============================================================================
+// IPC: Knowledge Base de Documentos (Fase 3.5.3)
+// ============================================================================
+// Schemas
+electron_1.ipcMain.handle('doc-kb-list-schemas', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getAllSchemas } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return getAllSchemas();
+}));
+electron_1.ipcMain.handle('doc-kb-get-schema', (_, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getSchema } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return getSchema(id);
+}));
+electron_1.ipcMain.handle('doc-kb-search-schemas', (_, query) => __awaiter(void 0, void 0, void 0, function* () {
+    const { searchSchemas } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return searchSchemas(query);
+}));
+electron_1.ipcMain.handle('doc-kb-get-categories', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { listCategories } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return listCategories();
+}));
+electron_1.ipcMain.handle('doc-kb-schemas-by-category', (_, cat) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getSchemasByCategory } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return getSchemasByCategory(cat);
+}));
+// Examples
+electron_1.ipcMain.handle('doc-kb-get-examples', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { schemaId, limit }) {
+    const { getExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+    return getExamples(schemaId, limit);
+}));
+electron_1.ipcMain.handle('doc-kb-search-examples', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { query, limit }) {
+    const { searchExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+    return searchExamples(query, limit);
+}));
+electron_1.ipcMain.handle('doc-kb-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getExampleStats } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+    const { getSchemaStats } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+    return {
+        schemas: getSchemaStats(),
+        examples: getExampleStats(),
+    };
+}));
+// Import
+electron_1.ipcMain.handle('doc-kb-import-folder', (_, folderPath) => __awaiter(void 0, void 0, void 0, function* () {
+    const { importFolder } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+    return importFolder(folderPath, (msg) => {
+        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('doc-kb-import-progress', msg);
+    });
+}));
+electron_1.ipcMain.handle('doc-kb-import-file', (_, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+    const { importFile } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+    return importFile(filePath);
+}));
+electron_1.ipcMain.handle('doc-kb-select-and-import', () => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield electron_1.dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Selecionar pasta com documentos jurídicos',
+    });
+    if (result.canceled || !result.filePaths[0])
+        return { imported: 0, skipped: 0, errors: [] };
+    const { importFolder } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+    return importFolder(result.filePaths[0], (msg) => {
+        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('doc-kb-import-progress', msg);
+    });
+}));
+// ============================================================================
+// IPC: Batch Petitioning (Produção em Lote)
+// ============================================================================
+electron_1.ipcMain.handle('batch-list-lotes', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getLoteStore } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    return getLoteStore().getAllLotes();
+}));
+electron_1.ipcMain.handle('batch-get-lote', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getLoteStore } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    return getLoteStore().getLote(id);
+}));
+electron_1.ipcMain.handle('batch-remove-lote', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getLoteStore, unregisterPipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    unregisterPipeline(id);
+    return getLoteStore().removeLote(id);
+}));
+electron_1.ipcMain.handle('batch-create-lote', (_event, params) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        yield ensureAgentInitialized(); // Skills precisam estar registradas
+        const { createBatchLote, registerPipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+        // Ler conteúdo dos documentos anexados e adicionar ao contexto
+        if (params.attachedDocs && params.attachedDocs.length > 0) {
+            const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+            const path = yield Promise.resolve().then(() => __importStar(require('path')));
+            const docContents = [];
+            for (const docPath of params.attachedDocs) {
+                try {
+                    const ext = path.extname(docPath).toLowerCase();
+                    let text = '';
+                    if (ext === '.txt' || ext === '.md') {
+                        text = fs.readFileSync(docPath, 'utf-8');
+                    }
+                    else if (ext === '.docx') {
+                        const mammoth = yield Promise.resolve().then(() => __importStar(require('mammoth')));
+                        const result = yield mammoth.extractRawText({ path: docPath });
+                        text = result.value;
+                    }
+                    else if (ext === '.pdf') {
+                        const pdfParseModule = yield Promise.resolve().then(() => __importStar(require('pdf-parse')));
+                        const buf = fs.readFileSync(docPath);
+                        const pdfParseFn = (_a = pdfParseModule === null || pdfParseModule === void 0 ? void 0 : pdfParseModule.default) !== null && _a !== void 0 ? _a : pdfParseModule;
+                        if (typeof pdfParseFn === 'function') {
+                            const data = yield pdfParseFn(buf);
+                            text = data.text;
+                        }
+                    }
+                    if (text && text.length > 50) {
+                        const name = path.basename(docPath);
+                        docContents.push(`--- [${name}] ---\n${text.substring(0, 8000)}`);
+                        console.log(`[Batch] Documento anexado: ${name} (${text.length} chars)`);
+                    }
+                }
+                catch (e) {
+                    console.warn(`[Batch] Erro ao ler doc anexado ${docPath}: ${e.message}`);
+                }
+            }
+            if (docContents.length > 0) {
+                const docContext = '\n\n## DOCUMENTOS DE REFERÊNCIA (anexados pelo advogado)\n\n' + docContents.join('\n\n');
+                params.tese = (params.tese || '') + docContext;
+            }
+        }
+        const { lote, pipeline } = yield createBatchLote(params);
+        // Forward pipeline events to renderer
+        pipeline.on('event', (event) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('batch-event', event);
+            }
+        });
+        registerPipeline(lote.id, pipeline);
+        // Start pipeline (async — não espera)
+        pipeline.run().catch((err) => {
+            console.error('[Batch] Pipeline error:', err.message);
+        });
+        return { success: true, loteId: lote.id, strategy: lote.strategy };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+}));
+electron_1.ipcMain.handle('batch-approve-strategy', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.approveStrategy('app');
+    return { success: true };
+}));
+electron_1.ipcMain.handle('batch-approve-wave', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { loteId, waveIndex, redraftIds }) {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.approveWave(waveIndex, 'app', redraftIds);
+    return { success: true };
+}));
+electron_1.ipcMain.handle('batch-approve-protocol', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.approveProtocol('app');
+    return { success: true };
+}));
+electron_1.ipcMain.handle('batch-pause', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.pause();
+    return { success: true };
+}));
+electron_1.ipcMain.handle('batch-resume', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.resume();
+    return { success: true };
+}));
+electron_1.ipcMain.handle('batch-cancel', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+    const pipeline = getActivePipeline(loteId);
+    if (!pipeline)
+        return { success: false, error: 'Pipeline não encontrado' };
+    yield pipeline.cancel();
+    return { success: true };
+}));
+// ─── Batch: Leitura/Escrita de petição (editor) ──────────────────
+electron_1.ipcMain.handle('batch-read-peticao', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        if (!fs.existsSync(filePath))
+            return { success: false, error: 'Arquivo não encontrado' };
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, content };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+}));
+electron_1.ipcMain.handle('batch-save-peticao', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { filePath, content }) {
+    try {
+        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+}));
+electron_1.ipcMain.handle('batch-open-folder', (_event, folderPath) => __awaiter(void 0, void 0, void 0, function* () {
+    const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+    shell.openPath(folderPath);
+    return { success: true };
+}));
+// ─── Batch: Export DOCX ──────────────────────────────────────────
+electron_1.ipcMain.handle('batch-export-docx', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        if (!fs.existsSync(filePath))
+            return { success: false, error: 'Arquivo não encontrado' };
+        const htmlContent = fs.readFileSync(filePath, 'utf-8');
+        const outputPath = filePath.replace(/\.html?$/i, '.doc');
+        // HTML-as-DOC: Word/LibreOffice open this natively
+        const docContent = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40">
+${htmlContent.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '')}
+</html>`;
+        fs.writeFileSync(outputPath, docContent, 'utf-8');
+        const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        shell.showItemInFolder(outputPath);
+        return { success: true, path: outputPath };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+}));
+// ─── Batch: Export PDF (via Chromium printToPDF) ─────────────────
+electron_1.ipcMain.handle('batch-export-pdf', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        const pathModule = yield Promise.resolve().then(() => __importStar(require('path')));
+        if (!fs.existsSync(filePath))
+            return { success: false, error: 'Arquivo não encontrado' };
+        const htmlContent = fs.readFileSync(filePath, 'utf-8');
+        const outputPath = filePath.replace(/\.html?$/i, '.pdf');
+        // Use a hidden BrowserWindow to render HTML and print to PDF
+        const { BrowserWindow: BW } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        const pdfWin = new BW({ show: false, width: 794, height: 1123 });
+        // Load HTML content
+        const tempPath = pathModule.join(pathModule.dirname(filePath), '_temp_pdf.html');
+        fs.writeFileSync(tempPath, htmlContent, 'utf-8');
+        yield pdfWin.loadFile(tempPath);
+        const pdfBuffer = yield pdfWin.webContents.printToPDF({
+            pageSize: 'A4',
+            margins: { marginType: 'default' },
+            printBackground: true,
+        });
+        fs.writeFileSync(outputPath, pdfBuffer);
+        pdfWin.close();
+        // Cleanup temp
+        try {
+            fs.unlinkSync(tempPath);
+        }
+        catch (_a) { }
+        const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        shell.showItemInFolder(outputPath);
+        return { success: true, path: outputPath };
+    }
+    catch (error) {
+        return { success: false, error: error.message };
+    }
+}));
+// ============================================================================
+// IPC: Plugins (Phase 3 AIOS — Integrações Externas)
+// ============================================================================
+electron_1.ipcMain.handle('plugins-list', () => __awaiter(void 0, void 0, void 0, function* () {
+    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+    return getPluginManager().listPlugins();
+}));
+electron_1.ipcMain.handle('plugins-get-status', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+    return getPluginManager().getPluginStatus(pluginId);
+}));
+electron_1.ipcMain.handle('plugins-get-auth-config', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
+    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+    return getPluginManager().getPluginAuthConfig(pluginId);
+}));
+electron_1.ipcMain.handle('plugins-start-oauth', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { pluginId, apiKey }) {
+    try {
+        const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+        const pm = getPluginManager();
+        const plugin = pm.getPlugin(pluginId);
+        if (!plugin)
+            return { success: false, error: 'Plugin não encontrado' };
+        const auth = plugin.manifest.auth;
+        // Desktop plugins sem auth — ativar direto
+        if (!auth) {
+            try {
+                yield pm.connectPlugin(pluginId, { accessToken: 'local' });
+                return { success: true };
+            }
+            catch (e) {
+                return { success: false, error: `Erro ao ativar plugin local: ${e.message}` };
+            }
+        }
+        // API Key auth — apiKey contém a chave
+        if (auth.type === 'api_key') {
+            if (!apiKey)
+                return { success: false, error: 'API key obrigatória' };
+            yield pm.connectPlugin(pluginId, { accessToken: apiKey });
+            return { success: true };
+        }
+        // OAuth2 — usa credenciais embarcadas do providerGroup
+        if (!auth.oauth2)
+            return { success: false, error: 'Plugin não suporta OAuth' };
+        const { getEmbeddedCredentials } = yield Promise.resolve().then(() => __importStar(require('./plugins/credentials')));
+        const group = plugin.manifest.providerGroup;
+        const embedded = group ? getEmbeddedCredentials(group) : null;
+        const clientId = (embedded === null || embedded === void 0 ? void 0 : embedded.clientId) || auth.oauth2.clientId || '';
+        const clientSecret = embedded === null || embedded === void 0 ? void 0 : embedded.clientSecret;
+        if (!clientId) {
+            return { success: false, error: `Credenciais não configuradas para o provedor "${group || pluginId}". Contate o desenvolvedor.` };
+        }
+        const { runOAuthFlow } = yield Promise.resolve().then(() => __importStar(require('./plugins/oauth-flow')));
+        const oauthOpts = {
+            authorizationUrl: auth.oauth2.authorizationUrl,
+            tokenUrl: auth.oauth2.tokenUrl,
+            clientId,
+            scopes: auth.oauth2.scopes,
+        };
+        if (clientSecret)
+            oauthOpts.clientSecret = clientSecret;
+        if (auth.oauth2.pkce != null)
+            oauthOpts.pkce = auth.oauth2.pkce;
+        if (auth.oauth2.additionalParams)
+            oauthOpts.additionalParams = auth.oauth2.additionalParams;
+        const result = yield runOAuthFlow(oauthOpts);
+        if (!result.success || !result.tokens) {
+            return { success: false, error: result.error || 'OAuth falhou' };
+        }
+        yield pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}));
+electron_1.ipcMain.handle('plugins-disconnect', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+        yield getPluginManager().disconnectPlugin(pluginId);
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}));
+// ============================================================================
 // IPC: Auth / Licença
 // ============================================================================
 electron_1.ipcMain.handle('auth-sign-in', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { email, password }) {
@@ -1891,12 +2875,111 @@ electron_1.ipcMain.handle('auth-sign-out', () => __awaiter(void 0, void 0, void 
     yield (0, license_1.authSignOut)();
     return { ok: true };
 }));
+electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const http = yield Promise.resolve().then(() => __importStar(require('http')));
+        // Cria servidor local para capturar o callback
+        const { port, tokenPromise, server } = yield new Promise((resolve, reject) => {
+            let resolveToken;
+            const tokenPromise = new Promise(r => { resolveToken = r; });
+            const server = http.createServer((req, res) => {
+                const url = new URL(req.url || '/', 'http://localhost');
+                if (url.pathname === '/auth/callback') {
+                    // Supabase retorna tokens no hash fragment, mas o server não recebe fragments.
+                    // Servimos um HTML que lê o fragment e envia de volta via query string.
+                    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                    res.end(`<html><body><script>
+                        const hash = window.location.hash.substring(1);
+                        if (hash) {
+                            fetch('/auth/tokens?' + hash).then(() => {
+                                document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
+                            });
+                        } else {
+                            document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Erro no login. Tente novamente.</h2>';
+                        }
+                    </script></body></html>`);
+                }
+                else if (url.pathname === '/auth/tokens') {
+                    const accessToken = url.searchParams.get('access_token');
+                    const refreshToken = url.searchParams.get('refresh_token');
+                    res.writeHead(200);
+                    res.end('ok');
+                    if (accessToken) {
+                        resolveToken(`access_token=${accessToken}&refresh_token=${refreshToken || ''}`);
+                    }
+                    else {
+                        resolveToken(null);
+                    }
+                }
+                else {
+                    res.writeHead(404);
+                    res.end('Not found');
+                }
+            });
+            server.listen(0, '127.0.0.1', () => {
+                const addr = server.address();
+                const port = typeof addr === 'object' && addr ? addr.port : 0;
+                resolve({ port, tokenPromise, server });
+            });
+            server.on('error', reject);
+        });
+        const redirectTo = `http://localhost:${port}/auth/callback`;
+        // Gera URL OAuth via Supabase com redirect para nosso server local
+        const { getSupabase } = yield Promise.resolve().then(() => __importStar(require('./auth/supabase-client')));
+        const sb = getSupabase();
+        const { data, error } = yield sb.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo,
+                skipBrowserRedirect: true,
+            },
+        });
+        if (error || !(data === null || data === void 0 ? void 0 : data.url)) {
+            server.close();
+            return { ok: false, error: (error === null || error === void 0 ? void 0 : error.message) || 'Falha ao gerar URL de login' };
+        }
+        // Abre no navegador do sistema (Chrome, Edge, etc.) onde o usuário já está logado
+        electron_1.shell.openExternal(data.url);
+        // Timeout de 5 minutos
+        const timeout = setTimeout(() => { server.close(); }, 5 * 60 * 1000);
+        const tokenString = yield tokenPromise;
+        clearTimeout(timeout);
+        server.close();
+        if (!tokenString) {
+            return { ok: false, error: 'Login cancelado ou falhou' };
+        }
+        // Seta sessão no Supabase
+        const params = new URLSearchParams(tokenString);
+        const accessToken = params.get('access_token') || '';
+        const refreshToken = params.get('refresh_token') || '';
+        const { error: sessionError } = yield sb.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+        });
+        if (sessionError) {
+            return { ok: false, error: sessionError.message };
+        }
+        // Garante perfil no banco
+        const { data: { user } } = yield sb.auth.getUser();
+        if (user) {
+            yield sb.from('profiles').upsert({ id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' }, { onConflict: 'id', ignoreDuplicates: true });
+        }
+        return { ok: true };
+    }
+    catch (err) {
+        console.error('[Auth] Google OAuth error:', err);
+        return { ok: false, error: err.message };
+    }
+}));
 electron_1.ipcMain.handle('auth-check-license', () => __awaiter(void 0, void 0, void 0, function* () {
     return (0, license_1.checkLicense)();
 }));
 electron_1.ipcMain.handle('auth-refresh-license', () => __awaiter(void 0, void 0, void 0, function* () {
     (0, license_1.refreshLicense)();
     return (0, license_1.checkLicense)();
+}));
+electron_1.ipcMain.handle('auth-get-profile', () => __awaiter(void 0, void 0, void 0, function* () {
+    return (0, license_1.getProfile)();
 }));
 electron_1.ipcMain.handle('update-install-now', () => {
     electron_updater_1.autoUpdater.quitAndInstall();

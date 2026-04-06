@@ -576,9 +576,27 @@ if (sendBtn) {
             if (!content) return `[Documento: ${f.name}]\n(Este documento e uma imagem digitalizada sem texto extraivel. O conteudo nao pode ser lido automaticamente.)`;
             return `[Documento: ${f.name}]\n${content.slice(0, 6000)}`;
         };
+        // Normaliza números CNJ: 20 dígitos puros → NNNNNNN-NN.NNNN.N.NN.NNNN
+        function normalizeCnj(str) {
+            // Caso 1: 20 dígitos sem pontuação
+            str = str.replace(/\b(\d{20})\b/g, function(_, d) {
+                return d.slice(0,7)+'-'+d.slice(7,9)+'.'+d.slice(9,13)+'.'+d.slice(13,14)+'.'+d.slice(14,16)+'.'+d.slice(16,20);
+            });
+            // Caso 2: dígitos com pontuação parcial (ex: 0020430-882014814030​1)
+            str = str.replace(/\b(\d[\d.\-\s]{19,30}\d)\b/g, function(match) {
+                var digits = match.replace(/\D/g, '');
+                if (digits.length === 20) {
+                    return digits.slice(0,7)+'-'+digits.slice(7,9)+'.'+digits.slice(9,13)+'.'+digits.slice(13,14)+'.'+digits.slice(14,16)+'.'+digits.slice(16,20);
+                }
+                return match;
+            });
+            return str;
+        }
+        const normalizedText = normalizeCnj(text);
+        console.log('[App] normalizeCnj:', text, '->', normalizedText);
         const textForAI = filesContext
-            ? filesContext.map(formatFileForAI).join('\n\n---\n\n') + `\n\n${text.trim() || 'Analise estes documentos.'}`
-            : text;
+            ? filesContext.map(formatFileForAI).join('\n\n---\n\n') + `\n\n${normalizeCnj(text.trim()) || 'Analise estes documentos.'}`
+            : normalizedText;
 
         chatInput.value = '';
         sendBtn.setAttribute('disabled', 'true');
@@ -1155,15 +1173,19 @@ async function updatePjeStatus() {
     try {
         const status = await window.lexApi.checkPje();
         const label = pill.querySelector('.pje-label');
+        // Guarda tribunal preferido no pill para uso no click handler
+        if (status.tribunalPreferido) pill.dataset.tribunalPreferido = status.tribunalPreferido;
         if (status.isPje) {
             pill.className = 'pje-status-pill connected';
-            if (label) label.textContent = 'TRT8 conectado';
+            const nome = status.tribunalAtivo || 'PJe';
+            if (label) label.textContent = `${nome} conectado`;
         } else if (status.connected) {
             pill.className = 'pje-status-pill active';
             if (label) label.textContent = 'Navegador ativo';
         } else {
             pill.className = 'pje-status-pill disconnected';
-            if (label) label.textContent = 'PJe desconectado';
+            const pref = status.tribunalPreferido ? `Abrir ${status.tribunalPreferido}` : 'PJe desconectado';
+            if (label) label.textContent = pref;
         }
     } catch {
         const pill = document.getElementById('pje-status-pill');
@@ -1482,7 +1504,7 @@ async function loadProviderSettings() {
             providerSelect.value = current.providerId;
         }
 
-        populateModelSelects(current?.providerId || 'anthropic');
+        populateModelSelects(current?.providerId || 'anthropic', true);
 
         const agentSelect = document.getElementById('ai-agent-model');
         const visionSelect = document.getElementById('ai-vision-model');
@@ -1501,7 +1523,7 @@ async function loadProviderSettings() {
     } catch (_) {}
 }
 
-function populateModelSelects(providerId) {
+function populateModelSelects(providerId, keepCurrent) {
     if (!_providerPresets || !_providerPresets[providerId]) return;
     const preset = _providerPresets[providerId];
     const models = preset.models || [];
@@ -1537,11 +1559,18 @@ function populateModelSelects(providerId) {
     }
 
     if (agentSelect) {
-        agentSelect.innerHTML = buildOptions(models);
+        // Agente (texto): modelos sem vision primeiro, depois todos como fallback
+        const textModels = models.filter(m => !m.vision);
+        const agentList = textModels.length > 0 ? textModels : models;
+        agentSelect.innerHTML = buildOptions(agentList);
+        // Auto-seleciona default se não for manter o atual
+        if (!keepCurrent && preset.defaultAgentModel) agentSelect.value = preset.defaultAgentModel;
     }
     if (visionSelect) {
+        // Browser (vision): apenas modelos com vision
         const visionModels = models.filter(m => m.vision);
         visionSelect.innerHTML = buildOptions(visionModels.length > 0 ? visionModels : models);
+        if (!keepCurrent && preset.defaultVisionModel) visionSelect.value = preset.defaultVisionModel;
     }
 }
 
@@ -2240,8 +2269,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const pill = document.getElementById('pje-status-pill');
     if (pill) {
         pill.addEventListener('click', () => {
-            if (pill.classList.contains('connected') || pill.classList.contains('active')) {
-                sendPrompt('Abrir o PJe do TRT8');
+            if (pill.classList.contains('disconnected')) {
+                const tribunal = pill.dataset.tribunalPreferido || 'TJPA';
+                sendPrompt(`Abrir o PJe do ${tribunal}`);
+            } else if (pill.classList.contains('connected') || pill.classList.contains('active')) {
+                const tribunal = pill.dataset.tribunalPreferido || 'PJe';
+                sendPrompt(`Abrir o PJe do ${tribunal}`);
             }
         });
     }

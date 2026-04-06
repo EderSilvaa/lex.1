@@ -17,8 +17,8 @@ import { detectCaptcha, solveCaptchaWithVision } from '../browser/captcha';
 // ============================================================================
 
 const CATEGORY_TIMEOUTS: Record<string, number> = {
-    pje: 120_000,
-    browser: 120_000,
+    pje: 600_000,     // 10 min — browser-use tasks PJe são lentas
+    browser: 600_000, // 10 min
     pesquisa: 90_000,
     documentos: 60_000,
     os: 60_000,
@@ -26,7 +26,7 @@ const CATEGORY_TIMEOUTS: Record<string, number> = {
 };
 
 const VISION_SKILLS = new Set(['browser_auto_task', 'pje_agir']);
-const VISION_TIMEOUT = 180_000;
+const VISION_TIMEOUT = 600_000;
 const DEFAULT_TIMEOUT = 60_000;
 
 function getSkillTimeout(skill: Skill): number {

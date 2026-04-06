@@ -243,16 +243,18 @@ async function startCdpBridge(chromePath: string, userDataDir: string, cdpPort: 
   })
 }
 
-/** Spawna Chrome + proxy via bridge Node.js e conecta Playwright */
+/** Spawna Chrome via bridge Node.js e conecta Playwright direto no CDP do Chrome.
+ *  Bridge só serve para spawnar Chrome fora do Job Object do Electron.
+ *  Playwright conecta direto na porta do Chrome — sem passar pelo proxy. */
 async function connectViaBridge(chromePath: string, userDataDir: string, cdpPort: number): Promise<Browser> {
-  const port = await startCdpBridge(chromePath, userDataDir, cdpPort)
-  return chromium.connectOverCDP(`http://127.0.0.1:${port}`)
+  await startCdpBridge(chromePath, userDataDir, cdpPort)
+  // Conecta direto ao Chrome — bridge proxy não é necessário para Playwright
+  return chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`)
 }
 
-/** Proxy-only bridge (Chrome já está rodando) */
+/** Chrome já está rodando — conecta Playwright direto no CDP */
 async function connectViaBridgeProxyOnly(cdpPort: number): Promise<Browser> {
-  const port = await startCdpBridge('PROXY_ONLY', '', cdpPort)
-  return chromium.connectOverCDP(`http://127.0.0.1:${port}`)
+  return chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`)
 }
 
 /** Launch direto: spawna Chrome sem bridge (para backend Node.js puro — sem env vars do Electron) */
@@ -349,9 +351,32 @@ export async function reInitBrowser(): Promise<void> {
   await initBrowser()
 }
 
+/** Remove pastas de cache/migração que causam downgrade detection e crashes no Windows */
+function cleanProfileCaches(userDataDir: string): void {
+  const toDelete = [
+    'GPUPersistentCache', 'GrShaderCache', 'ShaderCache',
+    'Snapshots', 'Crashpad', 'DawnGraphiteCache', 'DawnWebGPUCache',
+  ]
+  for (const dir of toDelete) {
+    try { fs.rmSync(path.join(userDataDir, dir), { recursive: true, force: true }) } catch { /* ok */ }
+  }
+  // Remove qualquer pasta CHROME_DELETE residual de tentativas anteriores
+  try {
+    for (const entry of fs.readdirSync(userDataDir)) {
+      if (entry.includes('CHROME_DELETE')) {
+        try { fs.rmSync(path.join(userDataDir, entry), { recursive: true, force: true }) } catch { /* ok */ }
+      }
+    }
+  } catch { /* ok */ }
+  console.log('[Browser] Profile caches limpos')
+}
+
 async function _doInit(): Promise<void> {
   const userDataDir = path.join(getUserDataDir(), 'chrome-profile')
   fs.mkdirSync(userDataDir, { recursive: true })
+
+  // Limpa caches que causam downgrade detection e crashes
+  cleanProfileCaches(userDataDir)
 
   const useDirectLaunch = !isElectronProcess()
 
@@ -1236,8 +1261,13 @@ async function killPreviousChrome(userDataDir: string): Promise<void> {
       if (pid && !isNaN(pid)) {
         try {
           process.kill(pid, 0) // check if alive
-          process.kill(pid, 'SIGKILL')
-          console.log('[Browser] Chrome anterior encerrado (PID:', pid, ')')
+          if (process.platform === 'win32') {
+            const { execSync } = await import('child_process')
+            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 })
+          } else {
+            process.kill(pid, 'SIGKILL')
+          }
+          console.log('[Browser] Chrome anterior encerrado (PID:', pid, '+ filhos)')
         } catch { /* already dead */ }
       }
       try { fs.unlinkSync(pidFile) } catch { /* ok */ }
@@ -1263,20 +1293,24 @@ async function killProcessOnPort(port: number): Promise<void> {
       req.setTimeout(1000, () => { req.destroy(); reject(new Error('timeout')) })
     })
 
-    // Something is on this port — find PID via netstat
+    // Something is on this port — find ALL PIDs via netstat and kill entire process tree
     const { execSync } = await import('child_process')
     try {
       const out = execSync('netstat -aon', { encoding: 'utf8', timeout: 5000 })
-      const line = out.split('\n').find(l => l.includes(`:${port}`) && l.includes('LISTEN'))
-      const match = line?.match(/\s(\d+)\s*$/)
-      if (match) {
-        const pid = parseInt(match[1]!)
+      const lines = out.split('\n').filter(l => l.includes(`:${port}`) && l.includes('LISTEN'))
+      const pids = [...new Set(lines.map(l => l.match(/\s(\d+)\s*$/)?.[1]).filter(Boolean).map(Number))]
+      for (const pid of pids) {
         try {
-          process.kill(pid, 'SIGKILL')
-          console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, ')')
-          await new Promise(r => setTimeout(r, 1000))
+          // /T mata a árvore inteira (browser + GPU + helpers) — evita mutex residual no Windows
+          if (process.platform === 'win32') {
+            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 })
+          } else {
+            process.kill(pid, 'SIGKILL')
+          }
+          console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, '+ filhos)')
         } catch { /* already dead */ }
       }
+      if (pids.length > 0) await new Promise(r => setTimeout(r, 1500))
     } catch { /* netstat failed */ }
   } catch {
     // Nothing on port — good

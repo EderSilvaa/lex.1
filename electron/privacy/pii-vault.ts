@@ -49,8 +49,9 @@ const PII_PATTERNS: Array<{ category: PIICategory; pattern: RegExp }> = [
     // OAB: OAB 12345/SP, OAB/SP 12345, OAB-SP 12345
     { category: 'oab', pattern: /OAB\s*[\/\-]?\s*\d{3,6}\s*[\/\-]?\s*[A-Z]{2}/gi },
 
-    // Número de processo CNJ: 0000000-00.0000.0.00.0000
-    { category: 'processo_cnj', pattern: /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g },
+    // Número de processo CNJ: NÃO mascarar — o LLM precisa ver o número
+    // para executar pje_consultar corretamente.
+    // { category: 'processo_cnj', pattern: /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g },
 
     // Email
     { category: 'email', pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
@@ -77,7 +78,7 @@ export function createVault(): PIIVault {
     const categories: PIICategory[] = [
         'parte_autora', 'parte_re', 'magistrado', 'advogado',
         'cpf', 'cnpj', 'oab', 'email', 'telefone',
-        'valor', 'endereco', 'rg', 'processo_cnj'
+        'valor', 'endereco', 'rg'
     ];
 
     const counters = {} as Record<PIICategory, number>;

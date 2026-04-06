@@ -6,7 +6,7 @@
  */
 
 import { AgentState, AgentStep, ThinkDecision, AgentConfig, AgentSpec } from './types';
-import { getSkillsForPrompt } from './executor';
+import { getSkillsForPrompt, listSkills } from './executor';
 import { buildPromptLayerSystem, getDefaultTenantConfig } from './prompt-layer';
 import { getContextBudget } from './context-budget';
 import { mask } from '../privacy/pii-vault';
@@ -217,6 +217,7 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 ### Quando Perguntar
 - Quando o objetivo for ambíguo
 - Quando precisar de confirmação antes de ação importante
+- **NUNCA pergunte** quando o objetivo contiver um número no formato CNJ (\`NNNNNNN-NN.NNNN.N.NN.NNNN\`). O número é REAL — execute \`pje_consultar\` imediatamente. NUNCA diga que é placeholder, incompleto ou inválido.
 
 ## Estratégias de Skills
 
@@ -225,6 +226,8 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 - \`pje_consultar\`: consulta processo por número → analise dados → use pje_movimentacoes/pje_documentos se preciso
 - \`pje_navegar\`: navegar menus do PJe
 - \`pje_preencher\`: preencher campos no PJe
+
+**REGRA CRÍTICA — Número de processo CNJ:** Qualquer string no formato \`NNNNNNN-NN.NNNN.N.NN.NNNN\` (ex: \`0020430-88.2014.8.14.0301\`) presente na mensagem do usuário é SEMPRE um número real de processo — NUNCA um placeholder. Chame \`pje_consultar\` imediatamente sem pedir confirmação e sem pedir o número novamente. Tribunal: use o especificado na mensagem; se ausente, use o Tribunal Preferido do contexto; se não houver, use TJPA como padrão. PROIBIDO perguntar o número ou o tribunal quando o número CNJ já estiver na mensagem.
 
 ### Browser (preferir skills atômicas)
 1. \`browser_get_state\` → ver refs numerados na página
@@ -730,23 +733,28 @@ function extractTag(text: string, tagName: string): string | undefined {
  * Aceita tanto formato de tags (novo) quanto JSON (fallback para compatibilidade).
  */
 function parseThinkResponse(response: string): ThinkDecision {
+    // ── Limpa tags <think>/<\/think> mas MANTÉM o conteúdo dentro delas ──
+    // Qwen3/DeepSeek R1 colocam todo o raciocínio + resposta dentro de <think>
+    let cleaned = response.replace(/<\/?think>/gi, '').trim();
+
     try {
+
         // ── Tenta parse por tags (formato primário) ──
-        const tipo = extractTag(response, 'tipo') as ThinkDecision['tipo'] | undefined;
+        const tipo = extractTag(cleaned, 'tipo') as ThinkDecision['tipo'] | undefined;
 
         if (tipo) {
-            const pensamento = extractTag(response, 'pensamento') || 'Processando...';
+            const pensamento = extractTag(cleaned, 'pensamento') || 'Processando...';
 
             switch (tipo) {
                 case 'resposta': {
-                    const resposta = extractTag(response, 'resposta');
+                    const resposta = extractTag(cleaned, 'resposta');
                     if (!resposta) throw new Error('Tag <resposta> ausente para tipo=resposta');
                     return { tipo, pensamento, resposta };
                 }
                 case 'skill': {
-                    const skill = extractTag(response, 'skill');
+                    const skill = extractTag(cleaned, 'skill');
                     if (!skill) throw new Error('Tag <skill> ausente para tipo=skill');
-                    const paramsRaw = extractTag(response, 'parametros');
+                    const paramsRaw = extractTag(cleaned, 'parametros');
                     let parametros: Record<string, any> = {};
                     if (paramsRaw) {
                         try {
@@ -760,9 +768,9 @@ function parseThinkResponse(response: string): ThinkDecision {
                     return { tipo, pensamento, skill: skill.trim(), parametros };
                 }
                 case 'pergunta': {
-                    const pergunta = extractTag(response, 'pergunta');
+                    const pergunta = extractTag(cleaned, 'pergunta');
                     if (!pergunta) throw new Error('Tag <pergunta> ausente para tipo=pergunta');
-                    const opcoesRaw = extractTag(response, 'opcoes');
+                    const opcoesRaw = extractTag(cleaned, 'opcoes');
                     let opcoes: string[] | undefined;
                     if (opcoesRaw) {
                         try { opcoes = JSON.parse(opcoesRaw); } catch { /* ignora */ }
@@ -775,9 +783,9 @@ function parseThinkResponse(response: string): ThinkDecision {
         }
 
         // ── Fallback: tenta JSON (compatibilidade com modelos que ignoram instruções) ──
-        const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/)
-            || response.match(/```\s*([\s\S]*?)\s*```/)
-            || response.match(/\{[\s\S]*\}/);
+        const jsonMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/)
+            || cleaned.match(/```\s*([\s\S]*?)\s*```/)
+            || cleaned.match(/\{[\s\S]*\}/);
 
         if (jsonMatch) {
             const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -802,17 +810,57 @@ function parseThinkResponse(response: string): ThinkDecision {
             return decisao;
         }
 
-        throw new Error('Resposta não contém tags XML nem JSON válido');
+        // ── Fallback: tenta detectar skill call em texto puro ──
+        // Modelos open-source frequentemente ignoram instruções de formato XML/JSON
+        if (cleaned.length > 20) {
+            const skillNames = listSkills();
+            const foundSkill = skillNames.find(s => cleaned.includes(s));
+            if (foundSkill) {
+                console.warn(`[Think] Texto puro contém skill "${foundSkill}" — extraindo call`);
+                const parametros: Record<string, any> = {};
+
+                // Tenta extrair número de processo CNJ
+                const cnjMatch = cleaned.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/);
+                if (cnjMatch) parametros['numero'] = cnjMatch[0];
+
+                // Tenta extrair tribunal
+                const tribunalMatch = cleaned.match(/\b(TJ[A-Z]{2}|TRT\d{1,2}|TRF\d)\b/i);
+                if (tribunalMatch) parametros['tribunal'] = tribunalMatch[0].toUpperCase();
+
+                // Para skills genéricas (pje_agir, browser_auto_task), usa o texto como objetivo
+                if (['pje_agir', 'browser_auto_task'].includes(foundSkill)) {
+                    parametros['objetivo'] = cleaned.slice(0, 300);
+                }
+
+                return {
+                    tipo: 'skill',
+                    pensamento: `Modelo retornou texto livre mencionando skill ${foundSkill}. Extraindo parâmetros.`,
+                    skill: foundSkill,
+                    parametros,
+                };
+            }
+
+            // Nenhuma skill detectada → trata como resposta direta
+            console.warn('[Think] Texto puro sem skill detectada — usando como resposta');
+            return {
+                tipo: 'resposta',
+                pensamento: 'Modelo retornou texto livre (sem tags XML). Usando como resposta.',
+                resposta: cleaned,
+            };
+        }
+
+        throw new Error('Resposta não contém tags XML, JSON, nem texto suficiente');
 
     } catch (error: any) {
-        console.error('[Think] Erro ao parsear resposta:', error);
-        console.error('[Think] Resposta raw:', response.substring(0, 500));
+        console.error('[Think] Erro ao parsear resposta:', error.message);
+        console.error('[Think] Resposta raw (500 chars):', response.substring(0, 500));
+        console.error('[Think] Cleaned (500 chars):', cleaned.substring(0, 500));
 
-        // Fallback: tenta responder algo útil
+        // Fallback último recurso
         return {
             tipo: 'pergunta',
             pensamento: 'Erro ao processar raciocínio, solicitando clarificação',
-            pergunta: 'Desculpe, não entendi completamente. Pode reformular sua solicitação?'
+            pergunta: 'Desculpe, tive dificuldade em processar. Pode tentar novamente?'
         };
     }
 }

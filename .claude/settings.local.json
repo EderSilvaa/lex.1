@@ -6,7 +6,11 @@
       "WebFetch(domain:docs.browser-use.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs.stagehand.dev)",
-      "Bash(npx tsc --noEmit)"
+      "Bash(npx tsc --noEmit)",
+      "WebSearch",
+      "WebFetch(domain:diegocastroadvogado.com.br)",
+      "Bash(curl -sL https://drive.google.com/drive/folders/1ZEkKmi3yDoJfCDokduNLKku6L_2hxiMX)",
+      "Bash(npm run:*)"
     ],
     "deny": [],
     "ask": []
