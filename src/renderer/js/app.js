@@ -24,6 +24,8 @@ let routingLoadingId = null;    // Loading bubble shown while routing/starting a
 let browserAutoExpandInFlight = false;
 let browserAutoExpandLastAt = 0;
 const BROWSER_AUTO_EXPAND_COOLDOWN_MS = 5000;
+let backendStatusUiLastAt = 0;
+let backendErrorUiLastAt = 0;
 
 function requestBrowserAutoExpand(source, force = false) {
     if (!window.lexApi?.focusBrowser) return;
@@ -48,6 +50,62 @@ function requestBrowserAutoExpand(source, force = false) {
             // Atualiza o pill após tentativa de foco para refletir URL/estado atual.
             updatePjeStatus().catch(() => {});
         });
+}
+
+function setupBackendDiagnostics() {
+    if (!window.lexApi) return;
+
+    try {
+        window.lexApi.offBackendLog?.();
+        window.lexApi.offBackendStatus?.();
+    } catch (_err) {
+        // ignore
+    }
+
+    if (window.lexApi.onBackendStatus) {
+        window.lexApi.onBackendStatus((status) => {
+            const st = String(status?.status || '').trim();
+            if (!st) return;
+
+            console.log('[BackendStatus]', st, status);
+
+            const now = Date.now();
+            if ((st === 'connected' || st === 'restarted') && (now - backendStatusUiLastAt) > 30000) {
+                backendStatusUiLastAt = now;
+                addMessageToUI('Backend de automação conectado.', 'system');
+                return;
+            }
+
+            if (st === 'restart_scheduled') {
+                const delaySec = Math.ceil(Number(status?.delayMs || 0) / 1000) || 0;
+                addMessageToUI(`Backend desconectou. Nova tentativa em ${delaySec}s...`, 'system');
+                return;
+            }
+
+            if (st === 'restart_failed' || st === 'exited' || st === 'disconnected') {
+                const err = status?.error ? ` (${String(status.error).slice(0, 180)})` : '';
+                addMessageToUI(`Backend instável: ${st}${err}`, 'system');
+            }
+        });
+    }
+
+    if (window.lexApi.onBackendLog) {
+        window.lexApi.onBackendLog((entry) => {
+            const level = String(entry?.level || 'info').toLowerCase();
+            const message = String(entry?.message || '').trim();
+            if (!message) return;
+
+            const important = /browseruse|browser-use|cdp bridge|chromium saiu|rpc timeout|erro|error|timeout/i.test(message);
+            if (!important) return;
+
+            const now = Date.now();
+            if (level === 'error' && (now - backendErrorUiLastAt) > 10000) {
+                backendErrorUiLastAt = now;
+                addMessageToUI(`[backend] ${message.slice(0, 220)}`, 'system');
+            }
+            console.log('[BackendLog]', level, message);
+        });
+    }
 }
 
 function showStopBtn() {
@@ -528,6 +586,7 @@ function renderMarkdownSafe(markdownText) {
 
 // Initialize agent events immediately (preload exposes lexApi before DOM is ready)
 setupAgentEvents();
+setupBackendDiagnostics();
 
 
 // --- Chat Logic ---

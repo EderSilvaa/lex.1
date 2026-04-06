@@ -49,6 +49,18 @@ contextBridge.exposeInMainWorld('lexApi', {
     offAgentEvent: () => {
         ipcRenderer.removeAllListeners('agent-event');
     },
+    onBackendLog: (cb: (entry: any) => void) => {
+        ipcRenderer.on('backend-log', (_, entry) => cb(entry));
+    },
+    offBackendLog: () => {
+        ipcRenderer.removeAllListeners('backend-log');
+    },
+    onBackendStatus: (cb: (status: any) => void) => {
+        ipcRenderer.on('backend-status', (_, status) => cb(status));
+    },
+    offBackendStatus: () => {
+        ipcRenderer.removeAllListeners('backend-status');
+    },
 
     // Vision AI debug stream (reservado para uso futuro)
     onVisionDebug: (cb: (data: any) => void) => ipcRenderer.on('vision-debug', (_, val) => cb(val)),

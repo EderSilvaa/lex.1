@@ -71,6 +71,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayModeActive = false;
 let store: any;
+let backendEventWiringReady = false;
 const approvedWorkspaceSelections = new Set<string>();
 const approvedFileSelections = new Set<string>();
 
@@ -411,6 +412,25 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
 }
 
 /**
+ * Reaplica estado do browser após alteração de provider/chave.
+ * Se backend está vivo, reinit ocorre no processo backend (fonte da verdade do browser).
+ * Fallback local mantém compatibilidade quando backend não está disponível.
+ */
+async function refreshBrowserRuntime(reason: string): Promise<void> {
+    if (isBackendAlive()) {
+        try {
+            await rpcCall('browser-reinit');
+            console.log(`[Browser] Reinit no backend concluído (${reason})`);
+            return;
+        } catch (err: any) {
+            console.warn(`[Browser] Falha ao reinit no backend (${reason}), usando fallback local:`, err?.message || err);
+        }
+    }
+
+    reInitBrowser().catch(e => console.error(`[Browser] Erro ao re-inicializar localmente (${reason}):`, e));
+}
+
+/**
  * Carrega chave do store para um provider.
  * Se o valor estiver em plaintext legado, migra para criptografado imediatamente.
  */
@@ -479,14 +499,14 @@ async function initStore() {
 // IPC — Configuração de Provider/API Keys
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Define provider ativo + modelos. Re-inicia browser em background. */
+/** Define provider ativo + modelos. Re-inicia browser no backend quando disponível. */
 ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderId; agentModel: string; visionModel: string }) => {
     if (!store) return { error: 'Store not initialized' };
     store.set('aiProvider', cfg);
     const apiKey = loadApiKey(cfg.providerId);
     console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0,8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
     await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
-    reInitBrowser().catch(e => console.error('[Browser] Erro ao re-inicializar após troca de provider:', e));
+    await refreshBrowserRuntime('troca de provider');
     return { success: true };
 });
 
@@ -509,7 +529,7 @@ ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { provid
     const current = getActiveConfig();
     if (current.providerId === providerId) {
         await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        reInitBrowser().catch(e => console.error('[Browser] Erro ao re-inicializar após nova chave:', e));
+        await refreshBrowserRuntime('nova chave API');
     }
     return { success: true, configured: normalizedKey.length > 0 };
 });
@@ -1203,16 +1223,45 @@ app.whenReady().then(async () => {
         initTrainingCollector(userData);
     } catch { /* módulo não disponível */ }
 
-    // Inicia backend Node.js separado (agent + browser + skills)
-    try {
-        await startBackend(userData);
-        // Forward de eventos do backend → renderer
+    // Forward de eventos do backend → renderer (inicializa uma vez)
+    if (!backendEventWiringReady) {
+        backendEventWiringReady = true;
+
         backendEvents.on('agent-event', (event: any) => {
             console.log('[Agent Event via Backend]', event.type);
             if (mainWindow) {
                 mainWindow.webContents.send('agent-event', event);
             }
         });
+
+        backendEvents.on('backend-log', (entry: any) => {
+            if (mainWindow) {
+                mainWindow.webContents.send('backend-log', entry);
+            }
+        });
+
+        backendEvents.on('backend-status', async (status: any) => {
+            const st = String(status?.status || '');
+            console.log('[Backend Status]', st, status);
+            if (mainWindow) {
+                mainWindow.webContents.send('backend-status', status);
+            }
+
+            // Sempre que backend reconecta/reinicia, reaplica config ativa.
+            if (st === 'connected' || st === 'restarted') {
+                try {
+                    await syncConfigToBackend(getActiveConfig());
+                } catch (err: any) {
+                    console.warn('[Main] Falha ao re-sincronizar config após reconexão do backend:', err?.message || err);
+                }
+            }
+        });
+    }
+
+    // Inicia backend Node.js separado (agent + browser + skills)
+    try {
+        await startBackend(userData);
+
         // Sincroniza config de provider/API key com o backend (já foi carregada no initStore)
         const cfg = getActiveConfig();
         await syncConfigToBackend(cfg);
@@ -2304,13 +2353,62 @@ ipcMain.handle('agent-cancel', async () => {
 // IPC: Plan & Orchestrator (Phase 1 AIOS)
 // ============================================================================
 
-ipcMain.handle('ai-plan-execute', async (_event, { goal, sessionId }: { goal: string; sessionId?: string }) => {
+ipcMain.handle('ai-plan-execute', async (_event, payload: any) => {
     const license = await checkLicense();
     if (license.status === 'not_authenticated') {
         return { success: false, error: 'not_authenticated' };
     }
     if (license.status === 'trial_expired') {
         return { success: false, error: 'trial_expired' };
+    }
+
+    const raw = payload ?? {};
+    const sessionId = raw?.sessionId || AGENT_SESSION_ID;
+    const isLegacyPlan = Array.isArray(raw?.steps);
+    const inferredGoal = String(
+        raw?.goal
+        || raw?.intent?.description
+        || raw?.intent?.objective
+        || raw?.description
+        || ''
+    ).trim();
+
+    // Legacy executePlan(sendChat.plan): executar no backend para evitar cair no browser/local do main.
+    if (isLegacyPlan && inferredGoal) {
+        const objetivoFinal = injectDisambiguationIfNeeded(inferredGoal);
+        const fallbackCfg = { maxIterations: 8, timeoutMs: 300000 };
+
+        if (isBackendAlive()) {
+            try {
+                const resposta = await rpcCall('agent-run', {
+                    objetivo: objetivoFinal,
+                    config: fallbackCfg,
+                    sessionId,
+                }, { timeoutMs: 360_000 });
+                return { success: true, result: resposta, mode: 'backend-agent' };
+            } catch (error: any) {
+                console.warn('[ai-plan-execute] Falha no backend para plano legado, usando fallback local:', error?.message || error);
+            }
+        }
+
+        try {
+            const agent = await ensureAgentInitialized();
+            const tenantConfig = agent.getDefaultTenantConfig();
+            const resposta = await agent.runAgentLoop({
+                objetivo: objetivoFinal,
+                config: fallbackCfg,
+                tenantConfig,
+                sessionId,
+            });
+            return { success: true, result: resposta, mode: 'local-agent' };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    }
+
+    const goal = String(raw?.goal || '').trim();
+    if (!goal) {
+        return { success: false, error: 'goal ausente no payload' };
     }
 
     try {
@@ -2354,7 +2452,7 @@ ipcMain.handle('ai-plan-execute', async (_event, { goal, sessionId }: { goal: st
             mainWindow?.webContents.send('agent-event', { type: 'orchestrator', data: evt });
         });
 
-        const result = await orchestrator.execute(goal, sessionId || AGENT_SESSION_ID);
+        const result = await orchestrator.execute(goal, sessionId);
         return { success: true, result };
     } catch (error: any) {
         _activeOrchestratorRef = null;
