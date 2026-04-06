@@ -16,6 +16,7 @@ import { initMemoryDir } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
 import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
 import { EventEmitter } from 'events';
+import { initPythonEnv, ensurePythonEnvSetup, getPythonEnv } from '../python';
 
 // ── Config via env vars (passadas pelo Electron main ao spawnar) ──
 const PORT = parseInt(process.env['LEX_BACKEND_PORT'] || '19876', 10);
@@ -32,6 +33,44 @@ initMemoryDir(USER_DATA_DIR);
 initRouteMemory(USER_DATA_DIR);
 
 console.log('[Backend] Módulos inicializados. userData:', USER_DATA_DIR);
+
+// ── Python + BrowserUse bootstrap (backend também precisa disso) ──
+let pythonBootstrapPromise: Promise<void> | null = null;
+
+async function bootstrapPythonForBrowserUse(): Promise<void> {
+    if (pythonBootstrapPromise) return pythonBootstrapPromise;
+
+    pythonBootstrapPromise = (async () => {
+        try {
+            initPythonEnv();
+            await ensurePythonEnvSetup();
+        } catch (err: any) {
+            console.warn('[Backend] Setup Python falhou:', err?.message || err);
+        }
+
+        const pyEnv = getPythonEnv();
+        if (!pyEnv.isReady()) {
+            console.warn('[Backend] Python indisponível — BrowserUse ficará em fallback.');
+            return;
+        }
+
+        try {
+            const { ensureBrowserUseInstalled } = await import('../browser/browser-use-setup');
+            const ok = await ensureBrowserUseInstalled();
+            console.log(ok
+                ? '[Backend] BrowserUse pronto no backend.'
+                : '[Backend] BrowserUse indisponível no backend (fallback ativo).'
+            );
+        } catch (err: any) {
+            console.warn('[Backend] Falha ao preparar BrowserUse:', err?.message || err);
+        }
+    })();
+
+    return pythonBootstrapPromise;
+}
+
+// Warm-up em background para reduzir fallback na primeira chamada do agente
+void bootstrapPythonForBrowserUse();
 
 // ── Agent module (lazy load) ──
 let agentModule: any = null;
@@ -119,6 +158,8 @@ async function handleRPC(method: string, params: any): Promise<any> {
     switch (method) {
         // ── Agent ──
         case 'agent-run': {
+            // Garante Python + browser-use também no processo backend.
+            await bootstrapPythonForBrowserUse();
             const agent = await ensureAgent();
             await setupEventForwarding();
             const { objetivo, config, tenantConfig, sessionId } = params;
