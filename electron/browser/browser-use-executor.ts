@@ -167,11 +167,20 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
 
         let lastResult = '';
         let captchaDetected = false;
+        let timedOut = false;
+        let settled = false;
+
+        const finalize = (result: BrowserUseResult): void => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(result);
+        };
 
         const timer = setTimeout(() => {
-            console.warn('[BrowserUse] Timeout — matando processo');
+            timedOut = true;
+            console.warn('[BrowserUse] Timeout - aguardando encerramento do processo');
             try { proc.kill(); } catch { /* ignorar */ }
-            resolve({ success: false, result: 'Timeout: tarefa excedeu o limite de tempo.', steps, captcha: captchaDetected });
         }, timeout);
 
         proc.stdout?.on('data', (data: Buffer) => {
@@ -196,20 +205,37 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
         });
 
         proc.on('close', (code: number | null) => {
-            clearTimeout(timer);
-            console.log(`[BrowserUse] Processo encerrou com código ${code}, lastResult="${(lastResult || '').slice(0, 100)}", steps=${steps.length}`);
-            resolve({
+            console.log(`[BrowserUse] Processo encerrou com codigo ${code}, lastResult="${(lastResult || '').slice(0, 100)}", steps=${steps.length}`);
+            if (timedOut) {
+                finalize({
+                    success: false,
+                    result: 'Timeout: tarefa excedeu o limite de tempo.',
+                    steps,
+                    captcha: captchaDetected,
+                });
+                return;
+            }
+
+            finalize({
                 success: code === 0,
-                result: lastResult || (code === 0 ? 'Tarefa concluída.' : `browser-use encerrou com código ${code}`),
+                result: lastResult || (code === 0 ? 'Tarefa concluida.' : `browser-use encerrou com codigo ${code}`),
                 steps,
                 captcha: captchaDetected,
             });
         });
 
         proc.on('error', (err: Error) => {
-            clearTimeout(timer);
             console.error('[BrowserUse] Erro ao iniciar:', err.message);
-            resolve({ success: false, result: `Erro ao iniciar browser-use: ${err.message}`, steps });
+            if (timedOut) {
+                finalize({
+                    success: false,
+                    result: 'Timeout: tarefa excedeu o limite de tempo.',
+                    steps,
+                    captcha: captchaDetected,
+                });
+                return;
+            }
+            finalize({ success: false, result: `Erro ao iniciar browser-use: ${err.message}`, steps });
         });
     });
 
