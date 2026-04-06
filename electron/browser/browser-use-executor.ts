@@ -7,6 +7,7 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { getPythonEnv } from '../python';
 import { getActiveConfig } from '../provider-config';
@@ -78,6 +79,34 @@ function buildTaskWithHints(task: string, tribunal?: string, context?: string): 
 
 // ── Main executor ────────────────────────────────────────────────────────────
 
+function resolveRunnerScriptPath(): string | null {
+    const candidates = new Set<string>();
+    const resourcesPath = (process as any).resourcesPath as string | undefined;
+
+    // Build output colocates runner near compiled executor.
+    candidates.add(path.resolve(__dirname, 'browser-use-runner.py'));
+
+    // Dev fallback from source tree.
+    candidates.add(path.resolve(__dirname, '../../electron/browser/browser-use-runner.py'));
+
+    // In packaged apps, Python cannot read files inside app.asar directly.
+    if (__dirname.includes('app.asar')) {
+        candidates.add(path.resolve(__dirname.replace('app.asar', 'app.asar.unpacked'), 'browser-use-runner.py'));
+    }
+
+    if (resourcesPath) {
+        candidates.add(path.join(resourcesPath, 'app.asar.unpacked', 'dist-electron', 'browser', 'browser-use-runner.py'));
+        candidates.add(path.join(resourcesPath, 'dist-electron', 'browser', 'browser-use-runner.py'));
+    }
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) return candidate;
+    }
+
+    console.error('[BrowserUse] Runner script nao encontrado. Caminhos tentados:', Array.from(candidates));
+    return null;
+}
+
 export async function runBrowserUseTask(options: BrowserUseOptions): Promise<BrowserUseResult> {
     const {
         task,
@@ -110,8 +139,12 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
     const { provider, model, apiKey } = mapModelForBrowserUse();
     const steps: BrowserUseStep[] = [];
 
-    // __dirname em runtime = dist-electron/browser/ → sobe 2 níveis para raiz do projeto
-    const runnerScript = path.join(__dirname, '../../electron/browser/browser-use-runner.py');
+    // Resolve runner path for dev and packaged builds.
+    const runnerScript = resolveRunnerScriptPath();
+    if (!runnerScript) {
+        console.log('[BrowserUse] Runner script indisponivel - usando fallback');
+        return runFallback(task, maxSteps, onStep);
+    }
     console.log(`[BrowserUse] Iniciando: "${task.slice(0, 80)}..." (runner: ${runnerScript})`);
     console.log(`[BrowserUse] provider=${provider}, model=${model}, apiKey=${apiKey ? apiKey.slice(0,8) + '...' : 'MISSING'}`);
 
@@ -230,3 +263,4 @@ async function runFallback(
         return { success: false, result: err.message || 'Fallback falhou', steps: [], usedFallback: true };
     }
 }
+

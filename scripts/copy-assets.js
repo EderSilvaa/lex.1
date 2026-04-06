@@ -43,6 +43,12 @@ function copyFile(src, dest) {
     console.log(`[Build] Copiado: ${path.basename(src)}`);
 }
 
+// Runner Python do browser-use (usado em runtime pelo backend)
+copyFile(
+    path.join('electron', 'browser', 'browser-use-runner.py'),
+    path.join('dist-electron', 'browser', 'browser-use-runner.py')
+);
+
 // CSS do xterm
 copyFile(
     path.join('node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),
