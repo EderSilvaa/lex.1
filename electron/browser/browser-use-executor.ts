@@ -12,6 +12,7 @@ import path from 'path';
 import { getPythonEnv } from '../python';
 import { getActiveConfig } from '../provider-config';
 import { isBrowserUseAvailable } from './browser-use-setup';
+import { withExternalLock } from './browser-lock';
 import { lookupSelectors, recordSuccess } from './selector-memory';
 import { agentEmitter } from '../agent/loop';
 import { ensureBrowser, runBrowserTask } from '../browser-manager';
@@ -148,7 +149,7 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
     console.log(`[BrowserUse] Iniciando: "${task.slice(0, 80)}..." (runner: ${runnerScript})`);
     console.log(`[BrowserUse] provider=${provider}, model=${model}, apiKey=${apiKey ? apiKey.slice(0,8) + '...' : 'MISSING'}`);
 
-    return new Promise<BrowserUseResult>((resolve) => {
+    const executeBrowserUse = (): Promise<BrowserUseResult> => new Promise<BrowserUseResult>((resolve) => {
         const args = [
             runnerScript,
             '--cdp-url', `http://localhost:${CDP_PORT}`,
@@ -211,6 +212,14 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
             resolve({ success: false, result: `Erro ao iniciar browser-use: ${err.message}`, steps });
         });
     });
+
+    const lockOwner = `browser-use:${process.pid}:${Date.now()}`;
+    try {
+        return await withExternalLock(lockOwner, executeBrowserUse);
+    } catch (err: any) {
+        console.warn('[BrowserUse] Falha ao gerenciar lock externo:', err?.message || err);
+        return runFallback(task, maxSteps, onStep);
+    }
 }
 
 // ── Stdout message handler ───────────────────────────────────────────────────
