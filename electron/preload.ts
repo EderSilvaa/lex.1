@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('lexApi', {
     setAnthropicKey: (key: string) => ipcRenderer.invoke('store-set-anthropic-key', key),
     getAnthropicKeyStatus: () => ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => ipcRenderer.invoke('check-pje'),
+    focusBrowser: () => ipcRenderer.invoke('browser-focus'),
     executePlan: (plan: any) => ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query: string) => ipcRenderer.invoke('crawler-search', query),
 

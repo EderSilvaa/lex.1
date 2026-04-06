@@ -73,7 +73,8 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
             // ── Gratuitos — Vision ──
             { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B VL (grátis, vision)', vision: true },
             { id: 'meta-llama/llama-4-maverick:free', name: 'Llama 4 Maverick (grátis, vision)', vision: true },
-            { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B (grátis, vision)', vision: true },
+            { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B (gratis, vision)', vision: true },
+            { id: 'google/gemma-4-27b-it:free', name: 'Gemma 4 27B (gratis, texto)', vision: false },
             { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 (grátis, vision)', vision: true },
             { id: 'microsoft/phi-4-multimodal-instruct:free', name: 'Phi-4 Multimodal (grátis, vision)', vision: true },
             // ── Gratuitos — Texto ──
@@ -127,6 +128,7 @@ export const PROVIDER_PRESETS: Record<ProviderId, ProviderPreset> = {
             { id: 'llama3.1:8b', name: 'Llama 3.1 8B (leve)', vision: false },
             { id: 'qwen2.5:14b', name: 'Qwen 2.5 14B', vision: false },
             { id: 'deepseek-r1:14b', name: 'DeepSeek R1 14B', vision: false },
+            { id: 'gemma4:27b', name: 'Gemma 4 27B', vision: false },
             { id: 'llama3.1:70b', name: 'Llama 3.1 70B (pesado)', vision: false },
             { id: 'llava:13b', name: 'LLaVA 13B (vision)', vision: true },
             { id: 'llava:34b', name: 'LLaVA 34B (vision)', vision: true },
@@ -217,4 +219,3 @@ export function getActiveVisionModel(): LanguageModel {
             return createAnthropic({ apiKey: cfg.apiKey })(name);
     }
 }
-

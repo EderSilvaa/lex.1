@@ -75,6 +75,14 @@ def build_llm(provider: str, model: str, api_key: str):
             base_url='https://openrouter.ai/api/v1',
         )
 
+    if provider == 'ollama':
+        from browser_use.llm import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            api_key=api_key or 'ollama',
+            base_url='http://localhost:11434/v1',
+        )
+
     if provider == 'google':
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI

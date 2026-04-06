@@ -21,6 +21,34 @@ let streamingRawText = '';      // Acumula texto cru durante streaming
 let streamingRafId = null;      // requestAnimationFrame para render incremental
 let streamingDirty = false;     // Flag: há tokens novos para renderizar
 let routingLoadingId = null;    // Loading bubble shown while routing/starting agent
+let browserAutoExpandInFlight = false;
+let browserAutoExpandLastAt = 0;
+const BROWSER_AUTO_EXPAND_COOLDOWN_MS = 5000;
+
+function requestBrowserAutoExpand(source, force = false) {
+    if (!window.lexApi?.focusBrowser) return;
+    const now = Date.now();
+    if (!force && browserAutoExpandInFlight) return;
+    if (!force && (now - browserAutoExpandLastAt) < BROWSER_AUTO_EXPAND_COOLDOWN_MS) return;
+
+    browserAutoExpandInFlight = true;
+    browserAutoExpandLastAt = now;
+
+    Promise.resolve(window.lexApi.focusBrowser())
+        .then((res) => {
+            if (!res?.ok) {
+                console.warn('[UI] Falha ao auto-expand browser:', source, res?.error || 'unknown_error');
+            }
+        })
+        .catch((err) => {
+            console.warn('[UI] Erro ao auto-expand browser:', source, err?.message || err);
+        })
+        .finally(() => {
+            browserAutoExpandInFlight = false;
+            // Atualiza o pill após tentativa de foco para refletir URL/estado atual.
+            updatePjeStatus().catch(() => {});
+        });
+}
 
 function showStopBtn() {
     if (stopBtn) stopBtn.style.display = 'flex';
@@ -78,6 +106,7 @@ function setupAgentEvents() {
                 updateAgentObservation(event.resultado);
                 // Auto-expand browser when a PJe skill completes successfully
                 if (event.skill && event.skill.startsWith('pje_') && event.resultado?.sucesso) {
+                    requestBrowserAutoExpand('tool_result');
                 }
                 break;
 
@@ -679,6 +708,7 @@ if (sendBtn) {
                             const cardId = addAutomationCardToUI();
 
                             // Auto-Show Widget for now
+                            requestBrowserAutoExpand('legacy_plan');
 
                             try {
                                 const execResult = await window.lexApi.executePlan(response.plan);
@@ -815,6 +845,7 @@ function legacyAddAutomationCardToUIBase() {
 
     const openPjeBtn = msgDiv.querySelector('.open-pje-btn');
     if (openPjeBtn) {
+        openPjeBtn.addEventListener('click', () => requestBrowserAutoExpand('legacy_card_button', true));
     }
 
     messageList.appendChild(msgDiv);
@@ -1020,6 +1051,7 @@ function stripEmojiCharacters(rawText) {
 function addAgentActionToUI(data) {
     // Abre widget do browser independente do estado do thinking element
     if (data && typeof data.skill === 'string' && data.skill.startsWith('pje_')) {
+        requestBrowserAutoExpand('acting');
     }
 
     if (!agentThinkingElement) return;
@@ -2461,6 +2493,7 @@ function addAutomationCardToUI() {
 
     const openPjeBtn = msgDiv.querySelector('.open-pje-btn');
     if (openPjeBtn) {
+        openPjeBtn.addEventListener('click', () => requestBrowserAutoExpand('card_button', true));
     }
 
     messageList.appendChild(msgDiv);

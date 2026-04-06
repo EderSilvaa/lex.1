@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { getKnownPJeHosts } from './pje/tribunal-urls';
-import { closeBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
+import { closeBrowser, ensureBrowser, getActivePage, reInitBrowser, setUserDataDir } from './browser-manager';
 import { initMemoryDir, getMemory } from './agent/memory';
 import { initBrain, getBrain, getBrainSafe, closeBrain } from './brain';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
@@ -1699,6 +1699,15 @@ ipcMain.handle('rag-legislacao-stats', async () => {
 
 // Check PJe status via browser
 ipcMain.handle('check-pje', async () => {
+    if (isBackendAlive()) {
+        try {
+            const backendStatus = await rpcCall('browser-check-pje');
+            return backendStatus;
+        } catch (err: any) {
+            console.warn('[check-pje] Falha ao consultar backend, usando fallback local:', err?.message || err);
+        }
+    }
+
     try {
         const page = getActivePage();
         const url = page?.url() ?? null;
@@ -1719,6 +1728,46 @@ ipcMain.handle('check-pje', async () => {
         return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
     } catch {
         return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+    }
+});
+
+// Tenta trazer a aba de automação do browser para frente.
+ipcMain.handle('browser-focus', async () => {
+    if (isBackendAlive()) {
+        try {
+            return await rpcCall('browser-focus');
+        } catch (err: any) {
+            console.warn('[browser-focus] Falha ao focar via backend, usando fallback local:', err?.message || err);
+        }
+    }
+
+    try {
+        await ensureBrowser();
+        const page = getActivePage();
+        if (page) {
+            try {
+                await page.bringToFront();
+            } catch (err: any) {
+                console.warn('[browser-focus] bringToFront falhou (fallback local):', err?.message || err);
+            }
+        }
+        const status = await (async () => {
+            const active = getActivePage();
+            const url = active?.url() ?? null;
+            const isPje = typeof url === 'string' && url.includes('pje.');
+            let tribunalAtivo: string | null = null;
+            if (isPje && url) {
+                const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
+                if (match?.[1]) tribunalAtivo = match[1].toUpperCase();
+            }
+            const mem = getMemory();
+            const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
+            const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
+            return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+        })();
+        return { ok: !!page, status };
+    } catch (err: any) {
+        return { ok: false, error: err?.message || String(err) };
     }
 });
 

@@ -88,6 +88,15 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
         quality: 'bom'
     },
     {
+        id: 'gemma4:27b',
+        name: 'Gemma 4 27B',
+        size: '16 GB',
+        description: 'Open source forte para texto e tarefas complexas locais',
+        vision: false,
+        minRam: '24 GB',
+        quality: 'otimo'
+    },
+    {
         id: 'llama3.1:70b',
         name: 'Llama 3.1 70B',
         size: '39 GB',

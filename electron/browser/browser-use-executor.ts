@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { getPythonEnv } from '../python';
 import { getActiveConfig } from '../provider-config';
-import { isBrowserUseAvailable } from './browser-use-setup';
+import { isBrowserUseAvailable, ensureBrowserUseProviderDeps } from './browser-use-setup';
 import { withExternalLock } from './browser-lock';
 import { lookupSelectors, recordSuccess } from './selector-memory';
 import { agentEmitter } from '../agent/loop';
@@ -51,20 +51,23 @@ export interface BrowserUseResult {
 
 function mapModelForBrowserUse(): { provider: string; model: string; apiKey: string } {
     const cfg = getActiveConfig();
+    const apiKey = cfg.providerId === 'ollama' ? (cfg.apiKey || 'ollama') : cfg.apiKey;
 
     switch (cfg.providerId) {
         case 'anthropic':
-            return { provider: 'anthropic', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'anthropic', model: cfg.visionModel, apiKey };
         case 'openai':
-            return { provider: 'openai', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'openai', model: cfg.visionModel, apiKey };
         case 'openrouter':
-            return { provider: 'openrouter', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'openrouter', model: cfg.visionModel, apiKey };
         case 'google':
-            return { provider: 'google', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'google', model: cfg.visionModel, apiKey };
         case 'groq':
-            return { provider: 'groq', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'groq', model: cfg.visionModel, apiKey };
+        case 'ollama':
+            return { provider: 'ollama', model: cfg.visionModel, apiKey };
         default:
-            return { provider: 'anthropic', model: cfg.visionModel, apiKey: cfg.apiKey };
+            return { provider: 'anthropic', model: cfg.visionModel, apiKey };
     }
 }
 
@@ -139,6 +142,12 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
     const enrichedTask = buildTaskWithHints(task, tribunal, taskContext);
     const { provider, model, apiKey } = mapModelForBrowserUse();
     const steps: BrowserUseStep[] = [];
+
+    const depsReady = await ensureBrowserUseProviderDeps(provider);
+    if (!depsReady) {
+        console.log(`[BrowserUse] Dependências Python para provider ${provider} indisponíveis — usando fallback`);
+        return runFallback(task, maxSteps, onStep);
+    }
 
     // Resolve runner path for dev and packaged builds.
     const runnerScript = resolveRunnerScriptPath();

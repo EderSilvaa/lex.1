@@ -1070,7 +1070,7 @@ export async function runBrowserTask(
         imageBase64: base64,
         mediaType: 'image/jpeg',
         maxTokens: 400,
-        model: getActiveConfig().agentModel,
+        model: getActiveConfig().visionModel,
       })
     } catch (e: any) {
       throw new Error(`Vision LLM falhou: ${e.message}`)

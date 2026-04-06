@@ -11,8 +11,8 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { setUserDataDir } from '../browser-manager';
-import { initMemoryDir } from '../agent/memory';
+import { setUserDataDir, getActivePage, ensureBrowser } from '../browser-manager';
+import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
 import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
 import { EventEmitter } from 'events';
@@ -152,6 +152,34 @@ async function setupEventForwarding(): Promise<void> {
     });
     eventForwardingSetup = true;
 }
+function detectTribunalFromUrl(url: string | null): string | null {
+    if (!url || !url.includes('pje.')) return null;
+    const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
+    return match?.[1] ? match[1].toUpperCase() : null;
+}
+
+async function buildPjeStatus(): Promise<{
+    connected: boolean;
+    isPje: boolean;
+    url: string | null;
+    tribunalAtivo: string | null;
+    tribunalPreferido: string | null;
+}> {
+    try {
+        const page = getActivePage();
+        const url = page?.url() ?? null;
+        const isPje = typeof url === 'string' && url.includes('pje.');
+        const tribunalAtivo = isPje ? detectTribunalFromUrl(url) : null;
+
+        const mem = getMemory();
+        const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
+        const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
+
+        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+    } catch {
+        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+    }
+}
 
 // ── RPC Handlers ──
 async function handleRPC(method: string, params: any): Promise<any> {
@@ -225,6 +253,24 @@ async function handleRPC(method: string, params: any): Promise<any> {
             return { ok: true };
         }
 
+        case 'browser-check-pje': {
+            return buildPjeStatus();
+        }
+
+        case 'browser-focus': {
+            await ensureBrowser();
+            const page = getActivePage();
+            if (!page) {
+                return { ok: false, error: 'no_active_page', status: await buildPjeStatus() };
+            }
+            try {
+                await page.bringToFront();
+            } catch (err: any) {
+                console.warn('[Backend] Falha ao focar aba do browser:', err?.message || err);
+            }
+            return { ok: true, status: await buildPjeStatus() };
+        }
+
         // ── Memory ──
         case 'memory-flush': {
             const { getMemory } = await import('../agent/memory');
@@ -283,3 +329,5 @@ process.on('disconnect', shutdown);
 
 // Sinaliza que está pronto
 console.log(`[Backend] READY on port ${PORT}`);
+
+

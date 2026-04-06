@@ -88,18 +88,37 @@ Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto
 
         try {
             const res = await runBrowserUseTask({ task: instrucao, maxSteps: 8 });
-            const resultado = res.result;
+            const resultado = res.result || '';
+
+            if (!res.success) {
+                return {
+                    sucesso: false,
+                    erro: resultado || 'Falha na navegação via browser-use.',
+                    dados: { destino, tribunal, resultado, modo: 'agent', fallback: !!res.usedFallback },
+                    mensagem: `Falha ao navegar para ${destino}: ${resultado || 'erro desconhecido'}`,
+                };
+            }
+
+            let finalUrl: string = '';
             // Salva a URL onde o agent chegou — aprende para a próxima vez
             try {
-                const finalUrl: string = getActivePage()?.url() ?? '';
+                finalUrl = getActivePage()?.url() ?? '';
+                if (finalUrl.includes('login') || finalUrl.includes('Login')) {
+                    return {
+                        sucesso: false,
+                        erro: 'Redirecionado para login',
+                        dados: { destino, tribunal, resultado, modo: 'agent', url: finalUrl },
+                        mensagem: `Você precisa fazer login no PJe antes de navegar para ${destino}.`
+                    };
+                }
                 if (finalUrl && !finalUrl.includes('login')) {
                     saveRoute(tribunal, destino, finalUrl);
                 }
             } catch { /* best effort */ }
             return {
                 sucesso: true,
-                dados: { destino, tribunal, resultado, modo: 'agent' },
-                mensagem: resultado
+                dados: { destino, tribunal, resultado, modo: 'agent', url: finalUrl, fallback: !!res.usedFallback },
+                mensagem: resultado || `Navegação concluída para ${destino}.`
             };
         } catch (error: any) {
             console.error('[pje_navegar] Erro:', error.message);
