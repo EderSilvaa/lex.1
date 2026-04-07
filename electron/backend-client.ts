@@ -8,7 +8,7 @@
  *   Event:    { event, data }
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import path from 'path';
 import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
@@ -19,8 +19,9 @@ const BACKEND_READY_TIMEOUT = 15000;
 const DEFAULT_RPC_TIMEOUT = 120000;
 const AGENT_RUN_RPC_TIMEOUT = 12 * 60 * 1000;
 const PLAN_EXEC_RPC_TIMEOUT = 12 * 60 * 1000;
-const BACKEND_RESTART_BASE_DELAY_MS = 1500;
+const BACKEND_RESTART_BASE_DELAY_MS = 2000;
 const BACKEND_RESTART_MAX_DELAY_MS = 30000;
+const BACKEND_MAX_RESTART_ATTEMPTS = 10;
 
 let backendProc: ChildProcess | null = null;
 let ws: WebSocket | null = null;
@@ -30,6 +31,10 @@ let restartTimer: NodeJS.Timeout | null = null;
 let restartAttempts = 0;
 let lastUserDataDir: string | null = null;
 let stopping = false;
+let lastExitTimestamp = 0; // Para suprimir 'disconnected' duplicado após 'exited'
+// Quando true, este processo (Electron ou CLI) é dono do backend e pode matá-lo no shutdown.
+// Quando false, attachamos a um backend já em execução (de outro processo) e só devemos fechar o WS.
+let weOwnBackendProc = false;
 
 interface PendingRpcCall {
     resolve: (v: any) => void;
@@ -46,6 +51,27 @@ const pending = new Map<string, PendingRpcCall>();
 
 // Event emitter para forward de eventos do backend → renderer
 export const backendEvents = new EventEmitter();
+
+function killProcessOnPort(port: number): void {
+    if (process.platform !== 'win32') return;
+    try {
+        const out = execSync(
+            `netstat -ano | findstr "LISTENING" | findstr ":${port}"`,
+            { encoding: 'utf8', timeout: 3000 }
+        ).trim();
+        const lines = out.split(/\r?\n/).filter(Boolean);
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[parts.length - 1] ?? '', 10);
+            if (pid && pid !== process.pid) {
+                console.warn(`[BackendClient] Matando processo anterior na porta ${port}: PID ${pid}`);
+                try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch { /* ignore */ }
+            }
+        }
+    } catch {
+        // Porta provavelmente livre
+    }
+}
 
 function emitBackendStatus(status: string, extra?: Record<string, any>): void {
     backendEvents.emit('backend-status', {
@@ -82,6 +108,13 @@ function scheduleBackendRestart(): void {
     if (restartTimer) return;
 
     const attempt = restartAttempts + 1;
+
+    if (attempt > BACKEND_MAX_RESTART_ATTEMPTS) {
+        emitBackendStatus('gave_up', { attempts: restartAttempts });
+        console.error(`[BackendClient] Desistindo após ${restartAttempts} tentativas de restart`);
+        return;
+    }
+
     const delayMs = getRestartDelayMs(attempt);
     restartAttempts = attempt;
 
@@ -104,6 +137,75 @@ function scheduleBackendRestart(): void {
 }
 
 /** Spawna o backend Node.js e conecta via WebSocket */
+/**
+ * Tenta attachar a um backend já em execução na porta padrão.
+ * Usado tanto pelo Electron quanto pelo CLI para coexistência:
+ * o segundo cliente reusa o backend do primeiro em vez de matar e respawnar.
+ *
+ * Retorna true se conseguiu attachar (com handshake ping confirmado).
+ */
+async function tryAttachExisting(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+        let settled = false;
+        const finish = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+        };
+
+        let socket: WebSocket;
+        try {
+            socket = new WebSocket(`ws://127.0.0.1:${BACKEND_PORT}`);
+        } catch {
+            return finish(false);
+        }
+
+        const giveUp = setTimeout(() => {
+            try { socket.terminate(); } catch { /* ignore */ }
+            finish(false);
+        }, 1500);
+
+        socket.on('open', () => {
+            // Handshake: manda um ping e espera resposta — confirma que é um backend Lex válido.
+            const pingId = randomUUID();
+            const pingTimer = setTimeout(() => {
+                try { socket.terminate(); } catch { /* ignore */ }
+                clearTimeout(giveUp);
+                finish(false);
+            }, 1000);
+
+            socket.once('message', (raw) => {
+                clearTimeout(pingTimer);
+                clearTimeout(giveUp);
+                let msg: any;
+                try { msg = JSON.parse(raw.toString()); } catch { msg = null; }
+                if (!msg || msg.id !== pingId || msg.error) {
+                    try { socket.terminate(); } catch { /* ignore */ }
+                    return finish(false);
+                }
+                // Sucesso: adota este socket como o ws ativo do client.
+                if (ws && ws !== socket) {
+                    try { ws.removeAllListeners(); } catch { /* ignore */ }
+                    try { ws.close(); } catch { /* ignore */ }
+                }
+                ws = socket;
+                connected = true;
+                weOwnBackendProc = false;
+                setupWsHandlers(socket);
+                finish(true);
+            });
+
+            socket.send(JSON.stringify({ id: pingId, method: 'ping', params: {} }));
+        });
+
+        socket.on('error', () => {
+            clearTimeout(giveUp);
+            try { socket.terminate(); } catch { /* ignore */ }
+            finish(false);
+        });
+    });
+}
+
 export async function startBackend(userDataDir: string): Promise<void> {
     if (startPromise) return startPromise;
     startPromise = (async () => {
@@ -131,7 +233,24 @@ export async function startBackend(userDataDir: string): Promise<void> {
             }
         }
 
+        // Tenta attachar a um backend já rodando (de outro processo Lex —
+        // ex: Electron rodando, CLI sobe depois e usa o mesmo backend).
         try {
+            const attached = await tryAttachExisting();
+            if (attached) {
+                restartAttempts = 0;
+                emitBackendStatus('connected', { attachedExternal: true });
+                console.log('[BackendClient] Attachado a backend externo já em execução');
+                return;
+            }
+        } catch (err: any) {
+            console.warn('[BackendClient] tryAttachExisting falhou:', err?.message || err);
+        }
+
+        try {
+            // Mata processo anterior que pode estar segurando a porta
+            killProcessOnPort(BACKEND_PORT);
+
             // Caminho do script compilado do backend
             const serverPath = path.join(__dirname, 'backend', 'server.js');
 
@@ -155,6 +274,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
                 env,
                 detached: false,
             });
+            weOwnBackendProc = true;
 
             backendProc.stdout?.on('data', (d: Buffer) => {
                 for (const rawLine of d.toString().split(/\r?\n/g)) {
@@ -179,6 +299,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
                 connected = false;
                 ws = null;
                 backendProc = null;
+                lastExitTimestamp = Date.now();
                 rejectPendingCalls('Backend process exited');
                 emitBackendStatus(stopping ? 'stopped' : 'exited', { code: code ?? null });
                 if (!stopping) scheduleBackendRestart();
@@ -206,6 +327,8 @@ async function waitForBackend(): Promise<void> {
     const deadline = Date.now() + BACKEND_READY_TIMEOUT;
 
     return new Promise<void>((resolve, reject) => {
+        let settled = false;
+
         const tryConnect = () => {
             if (Date.now() > deadline) {
                 return reject(new Error('Backend timeout — não ficou pronto em 15s'));
@@ -214,6 +337,16 @@ async function waitForBackend(): Promise<void> {
             const socket = new WebSocket(`ws://127.0.0.1:${BACKEND_PORT}`);
 
             socket.on('open', () => {
+                if (settled) {
+                    try { socket.close(); } catch { /* ignore */ }
+                    return;
+                }
+                settled = true;
+                // Mantém apenas um socket ativo.
+                if (ws && ws !== socket) {
+                    try { ws.removeAllListeners(); } catch { /* ignore */ }
+                    try { ws.close(); } catch { /* ignore */ }
+                }
                 ws = socket;
                 connected = true;
                 setupWsHandlers(socket);
@@ -233,6 +366,7 @@ async function waitForBackend(): Promise<void> {
 
 function setupWsHandlers(socket: WebSocket): void {
     socket.on('message', (raw) => {
+        if (socket !== ws) return;
         let msg: any;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
@@ -255,15 +389,23 @@ function setupWsHandlers(socket: WebSocket): void {
     });
 
     socket.on('close', () => {
+        // Ignora fechamento de sockets obsoletos.
+        if (socket !== ws) return;
         connected = false;
         ws = null;
         console.warn('[BackendClient] WebSocket fechado');
         rejectPendingCalls('Backend websocket closed');
+
+        // Se o processo já emitiu 'exited' recentemente, não duplicar com 'disconnected'
+        const msSinceExit = Date.now() - lastExitTimestamp;
+        if (msSinceExit < 3000) return;
+
         emitBackendStatus(stopping ? 'stopped' : 'disconnected');
         if (!stopping) scheduleBackendRestart();
     });
 
     socket.on('error', (err) => {
+        if (socket !== ws) return;
         console.error('[BackendClient] WS error:', err.message);
     });
 }
@@ -317,21 +459,28 @@ export async function stopBackend(): Promise<void> {
         restartTimer = null;
     }
     restartAttempts = 0;
+    const isOwner = weOwnBackendProc;
     if (ws && ws.readyState === WebSocket.OPEN) {
-        try {
-            await rpcCall('memory-flush');
-            await rpcCall('route-memory-flush');
-            await rpcCall('session-flush');
-            await rpcCall('browser-close');
-        } catch { /* ok — backend pode já ter saído */ }
+        // Só executa flush+close de recursos compartilhados se este processo for o dono.
+        // Quando estamos attachados (CLI usando backend de Electron, p.ex.), não tocamos
+        // memory/sessions/browser do outro processo — apenas desconectamos o socket.
+        if (isOwner) {
+            try {
+                await rpcCall('memory-flush');
+                await rpcCall('route-memory-flush');
+                await rpcCall('session-flush');
+                await rpcCall('browser-close');
+            } catch { /* ok — backend pode já ter saído */ }
+        }
         ws.close();
     }
-    if (backendProc && !backendProc.killed) {
+    if (isOwner && backendProc && !backendProc.killed) {
         backendProc.kill();
     }
     connected = false;
     ws = null;
     backendProc = null;
+    weOwnBackendProc = false;
     emitBackendStatus('stopped');
 }
 

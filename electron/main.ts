@@ -74,6 +74,22 @@ let store: any;
 let backendEventWiringReady = false;
 const approvedWorkspaceSelections = new Set<string>();
 const approvedFileSelections = new Set<string>();
+const singleInstanceLock = app.requestSingleInstanceLock();
+
+if (!singleInstanceLock) {
+    console.warn('[Main] Outra instancia detectada. Encerrando esta instancia.');
+    app.quit();
+}
+
+app.on('second-instance', () => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        return;
+    }
+    createWindow();
+});
 
 function normalizeFsPath(targetPath: string): string {
     return path.resolve(String(targetPath || ''));
@@ -485,14 +501,35 @@ async function initStore() {
     const apiKey = loadApiKey(providerId);
     const preset = PROVIDER_PRESETS[providerId];
 
-    // Migra visionModel: Claude 4.x pode causar problemas em browser automation
-    // agentModel não é migrado — Claude 4.x funciona fine com generateText no SDK principal
+    // Migra modelos removidos/legacy para defaults atuais
     const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
-    const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
-    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
-        ? preset.defaultVisionModel : savedVision;
+    const REMOVED_OPENROUTER_MODELS = [
+        'mistralai/mistral-small-3.1-24b-instruct:free',
+        'meta-llama/llama-4-maverick:free',
+        'microsoft/phi-4-multimodal-instruct:free',
+        'google/gemma-4-27b-it:free',
+        'deepseek/deepseek-v3-0324:free',
+        'deepseek/deepseek-r1-0528:free',
+    ];
 
-    await syncProvider(providerId, apiKey, savedProvider?.agentModel ?? preset.defaultAgentModel, visionModel);
+    const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
+    const savedAgent = savedProvider?.agentModel ?? preset.defaultAgentModel;
+
+    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
+        ? preset.defaultVisionModel
+        : REMOVED_OPENROUTER_MODELS.includes(savedVision)
+            ? preset.defaultVisionModel
+            : savedVision;
+
+    const agentModel = REMOVED_OPENROUTER_MODELS.includes(savedAgent)
+        ? preset.defaultAgentModel
+        : savedAgent;
+
+    if (visionModel !== savedVision || agentModel !== savedAgent) {
+        console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
+    }
+
+    await syncProvider(providerId, apiKey, agentModel, visionModel);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1190,6 +1227,8 @@ import { registerCrawlerHandlers } from './crawler';
 // ... (existing code)
 
 app.whenReady().then(async () => {
+    if (!singleInstanceLock) return;
+
     // Configura userDataDir para módulos desacoplados do Electron
     const userData = app.getPath('userData');
     setUserDataDir(userData);

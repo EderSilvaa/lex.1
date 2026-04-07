@@ -16,6 +16,7 @@ import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
 import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
 import { EventEmitter } from 'events';
+import { execSync } from 'child_process';
 import { initPythonEnv, ensurePythonEnvSetup, getPythonEnv } from '../python';
 
 // ── Config via env vars (passadas pelo Electron main ao spawnar) ──
@@ -33,6 +34,36 @@ initMemoryDir(USER_DATA_DIR);
 initRouteMemory(USER_DATA_DIR);
 
 console.log('[Backend] Módulos inicializados. userData:', USER_DATA_DIR);
+
+// ── Kill processo anterior que pode estar segurando a porta ──
+function killProcessOnPort(port: number): void {
+    try {
+        const out = execSync(
+            `netstat -ano | findstr "LISTENING" | findstr ":${port}"`,
+            { encoding: 'utf8', timeout: 3000 }
+        ).trim();
+        const lines = out.split(/\r?\n/).filter(Boolean);
+        const pids = new Set<number>();
+        for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[parts.length - 1] ?? '', 10);
+            if (pid && pid !== process.pid) pids.add(pid);
+        }
+        for (const pid of pids) {
+            console.warn(`[Backend] Matando processo anterior na porta ${port}: PID ${pid}`);
+            try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch { /* ignore */ }
+        }
+        if (pids.size > 0) {
+            // Espera breve para a porta ser liberada
+            const waitUntil = Date.now() + 2000;
+            while (Date.now() < waitUntil) { /* busy wait */ }
+        }
+    } catch {
+        // netstat/findstr não encontrou nada — porta provavelmente livre
+    }
+}
+
+killProcessOnPort(PORT);
 
 // ── Python + BrowserUse bootstrap (backend também precisa disso) ──
 let pythonBootstrapPromise: Promise<void> | null = null;
@@ -91,6 +122,15 @@ async function ensureAgent() {
 // ── WebSocket Server ──
 const wss = new WebSocketServer({ port: PORT, host: '127.0.0.1' });
 let activeClient: WebSocket | null = null;
+
+// Handler de erro no WSS — previne crash por EADDRINUSE e outros erros de rede
+wss.on('error', (err: NodeJS.ErrnoException) => {
+    console.error(`[Backend] WSS error: ${err.code || err.message}`);
+    if (err.code === 'EADDRINUSE') {
+        console.error(`[Backend] Porta ${PORT} em uso — encerrando processo`);
+        process.exit(1);
+    }
+});
 
 console.log(`[Backend] WebSocket server escutando em ws://127.0.0.1:${PORT}`);
 

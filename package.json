@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Assistente jurídico inteligente para o sistema PJe",
   "main": "dist-electron/main.js",
+  "bin": {
+    "lex": "bin/lex.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.electron.json && npm run copy-assets",
     "copy-assets": "node scripts/copy-assets.js",
@@ -14,9 +17,21 @@
     "lint": "eslint electron/**/*.ts",
     "clean": "rimraf dist-electron",
     "python:setup": "node scripts/download-python-embedded.js",
+    "cli:dev": "npm run build && node bin/lex.js",
+    "postinstall": "node scripts/register-url-scheme.js",
+    "preuninstall": "node scripts/unregister-url-scheme.js",
     "dist:win": "npm run python:setup && npm run electron:build && electron-builder --win --publish never",
     "dist:win:publish": "npm run python:setup && npm run electron:build && electron-builder --win --publish always"
   },
+  "files": [
+    "bin/",
+    "dist-electron/",
+    "src/renderer/",
+    "electron/overlay.css",
+    "electron/overlay.js",
+    "scripts/register-url-scheme.js",
+    "scripts/unregister-url-scheme.js"
+  ],
   "build": {
     "appId": "com.lex.juridico",
     "productName": "LEX Juridico",

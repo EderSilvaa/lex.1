@@ -270,6 +270,28 @@ Quando observar resultado de pje_consultar com 'ultima_movimentacao':
  * (vs comando operacional ou pergunta simples).
  * Usado para reforçar instruções de profundidade em modelos menores.
  */
+/**
+ * Detecta se o objetivo é uma ação operacional (abrir, consultar, navegar, etc.)
+ * Modelos fracos tendem a responder com texto em vez de usar skills — esse detector
+ * permite reforçar a instrução no user prompt.
+ */
+function detectActionIntent(objetivo: string): boolean {
+    const lower = objetivo.toLowerCase();
+    // Verbos de ação + contexto PJe/browser/sistema
+    if (/\b(abr[aieou]|consult[aeiou]|naveg[aeiou]|entr[aeiou]|acesse?|log[aeiou]n|fa[çz][ae]r? login|cliq|preenche?|digit[aeiou]|execut[aeiou]|rod[aeiou]|cri[aeiou]|gere?|envie?|busq?u|pesquis)/i.test(lower)) {
+        return true;
+    }
+    // Comandos diretos: "vai pro PJe", "abre o Chrome", etc.
+    if (/\b(vai|vá|v[aá] pro?|entre? n[ao]|acessar?|abrir?)\b/i.test(lower)) {
+        return true;
+    }
+    // Menção explícita a tribunal/PJe com qualquer verbo
+    if (/\b(pje|tribunal|tjpa|tjsp|tjrj|trt|trf)\b/i.test(lower) && objetivo.length < 150) {
+        return true;
+    }
+    return false;
+}
+
 function detectAnalysisIntent(objetivo: string): boolean {
     const lower = objetivo.toLowerCase();
     const len = objetivo.length;
@@ -569,15 +591,26 @@ function buildUserPrompt(state: AgentState): string {
         parts.push('## Histórico\nPrimeira iteração - nenhum passo executado ainda.');
     }
 
-    // Instrução final (reforço dinâmico para análise de caso)
+    // Instrução final (reforço dinâmico dependendo do tipo de objetivo)
     const isAnalysis = detectAnalysisIntent(state.objetivo);
-    const analysisBoost = isAnalysis
-        ? `\n\nIMPORTANTE: Este é um caso para análise profunda. Aplique as regras de "Análise de caso/processo" da Profundidade Adaptativa. Use <pensamento> para raciocinar por eixos antes de responder.`
-        : '';
+    const isAction = detectActionIntent(state.objetivo);
+
+    let boost = '';
+    if (isAnalysis) {
+        boost = `\n\nIMPORTANTE: Este é um caso para análise profunda. Aplique as regras de "Análise de caso/processo" da Profundidade Adaptativa. Use <pensamento> para raciocinar por eixos antes de responder.`;
+    } else if (isAction && state.iteracao === 0) {
+        boost = `\n\nIMPORTANTE: O usuário quer executar uma AÇÃO. Você DEVE usar tipo=skill com uma das skills disponíveis. NÃO responda com instruções textuais — EXECUTE a ação usando a skill apropriada.
+
+Exemplo de resposta correta:
+<pensamento>O usuário quer abrir o PJe. Vou usar a skill pje_abrir.</pensamento>
+<tipo>skill</tipo>
+<skill>pje_abrir</skill>
+<parametros>{"tribunal": "TJPA"}</parametros>`;
+    }
 
     parts.push(`## Sua Tarefa
 
-Analise o objetivo e o contexto. Decida o próximo passo usando o formato de tags XML definido no system prompt.${analysisBoost}`);
+Analise o objetivo e o contexto. Decida o próximo passo usando o formato de tags XML definido no system prompt.${boost}`);
 
     let prompt = parts.join('\n\n');
 
@@ -737,9 +770,8 @@ function parseThinkResponse(response: string): ThinkDecision {
     // Qwen3/DeepSeek R1 colocam todo o raciocínio + resposta dentro de <think>
     let cleaned = response.replace(/<\/?think>/gi, '').trim();
 
+    // ── 1. Tenta parse por tags XML (formato primário) ──
     try {
-
-        // ── Tenta parse por tags (formato primário) ──
         const tipo = extractTag(cleaned, 'tipo') as ThinkDecision['tipo'] | undefined;
 
         if (tipo) {
@@ -748,28 +780,27 @@ function parseThinkResponse(response: string): ThinkDecision {
             switch (tipo) {
                 case 'resposta': {
                     const resposta = extractTag(cleaned, 'resposta');
-                    if (!resposta) throw new Error('Tag <resposta> ausente para tipo=resposta');
+                    if (!resposta) break; // cai pro próximo fallback
                     return { tipo, pensamento, resposta };
                 }
                 case 'skill': {
                     const skill = extractTag(cleaned, 'skill');
-                    if (!skill) throw new Error('Tag <skill> ausente para tipo=skill');
+                    if (!skill) break;
                     const paramsRaw = extractTag(cleaned, 'parametros');
                     let parametros: Record<string, any> = {};
                     if (paramsRaw) {
                         try {
                             parametros = JSON.parse(paramsRaw);
                         } catch {
-                            // Tenta extrair JSON de dentro de backticks
                             const jsonInner = paramsRaw.match(/\{[\s\S]*\}/);
-                            if (jsonInner) parametros = JSON.parse(jsonInner[0]);
+                            if (jsonInner) try { parametros = JSON.parse(jsonInner[0]); } catch { /* ignore */ }
                         }
                     }
                     return { tipo, pensamento, skill: skill.trim(), parametros };
                 }
                 case 'pergunta': {
                     const pergunta = extractTag(cleaned, 'pergunta');
-                    if (!pergunta) throw new Error('Tag <pergunta> ausente para tipo=pergunta');
+                    if (!pergunta) break;
                     const opcoesRaw = extractTag(cleaned, 'opcoes');
                     let opcoes: string[] | undefined;
                     if (opcoesRaw) {
@@ -777,90 +808,99 @@ function parseThinkResponse(response: string): ThinkDecision {
                     }
                     return { tipo, pensamento, pergunta, ...(opcoes ? { opcoes } : {}) };
                 }
-                default:
-                    throw new Error(`Tipo inválido: ${tipo}`);
             }
         }
+    } catch (xmlErr: any) {
+        console.warn('[Think] Parse XML falhou:', xmlErr.message);
+    }
 
-        // ── Fallback: tenta JSON (compatibilidade com modelos que ignoram instruções) ──
+    // ── 2. Fallback: tenta JSON completo (modelos que ignoram instruções XML) ──
+    try {
         const jsonMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/)
-            || cleaned.match(/```\s*([\s\S]*?)\s*```/)
-            || cleaned.match(/\{[\s\S]*\}/);
+            || cleaned.match(/```\s*([\s\S]*?)\s*```/);
 
-        if (jsonMatch) {
-            const jsonStr = jsonMatch[1] || jsonMatch[0];
+        // Apenas aceita JSON em code blocks ou objetos que contenham "tipo"
+        // Regex \{[\s\S]*\} é greedy demais — captura JSON de dentro de <parametros> etc.
+        const rawJsonMatch = !jsonMatch ? cleaned.match(/\{[\s\S]*"tipo"\s*:\s*"[\s\S]*\}/) : null;
+        const finalMatch = jsonMatch || rawJsonMatch;
+
+        if (finalMatch) {
+            const jsonStr = finalMatch[1] || finalMatch[0];
             const decisao: ThinkDecision = JSON.parse(jsonStr);
 
-            if (!decisao.tipo) throw new Error('Campo "tipo" ausente no JSON');
-            if (!decisao.pensamento) decisao.pensamento = 'Processando...';
+            if (decisao.tipo) {
+                if (!decisao.pensamento) decisao.pensamento = 'Processando...';
 
-            switch (decisao.tipo) {
-                case 'skill':
-                    if (!decisao.skill) throw new Error('Campo "skill" ausente');
-                    break;
-                case 'resposta':
-                    if (!decisao.resposta) throw new Error('Campo "resposta" ausente');
-                    break;
-                case 'pergunta':
-                    if (!decisao.pergunta) throw new Error('Campo "pergunta" ausente');
-                    break;
-                default:
-                    throw new Error(`Tipo inválido: ${(decisao as any).tipo}`);
-            }
-            return decisao;
-        }
-
-        // ── Fallback: tenta detectar skill call em texto puro ──
-        // Modelos open-source frequentemente ignoram instruções de formato XML/JSON
-        if (cleaned.length > 20) {
-            const skillNames = listSkills();
-            const foundSkill = skillNames.find(s => cleaned.includes(s));
-            if (foundSkill) {
-                console.warn(`[Think] Texto puro contém skill "${foundSkill}" — extraindo call`);
-                const parametros: Record<string, any> = {};
-
-                // Tenta extrair número de processo CNJ
-                const cnjMatch = cleaned.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/);
-                if (cnjMatch) parametros['numero'] = cnjMatch[0];
-
-                // Tenta extrair tribunal
-                const tribunalMatch = cleaned.match(/\b(TJ[A-Z]{2}|TRT\d{1,2}|TRF\d)\b/i);
-                if (tribunalMatch) parametros['tribunal'] = tribunalMatch[0].toUpperCase();
-
-                // Para skills genéricas (pje_agir, browser_auto_task), usa o texto como objetivo
-                if (['pje_agir', 'browser_auto_task'].includes(foundSkill)) {
-                    parametros['objetivo'] = cleaned.slice(0, 300);
+                switch (decisao.tipo) {
+                    case 'skill':
+                        if (decisao.skill) return decisao;
+                        break;
+                    case 'resposta':
+                        if (decisao.resposta) return decisao;
+                        break;
+                    case 'pergunta':
+                        if (decisao.pergunta) return decisao;
+                        break;
                 }
+            }
 
+            // JSON tem "skill" mas não tem "tipo" — infere tipo=skill
+            if (!decisao.tipo && decisao.skill) {
+                console.warn('[Think] JSON sem "tipo" mas com "skill" — inferindo tipo=skill');
                 return {
                     tipo: 'skill',
-                    pensamento: `Modelo retornou texto livre mencionando skill ${foundSkill}. Extraindo parâmetros.`,
-                    skill: foundSkill,
-                    parametros,
+                    pensamento: decisao.pensamento || 'Processando...',
+                    skill: decisao.skill,
+                    parametros: decisao.parametros || {},
                 };
             }
+        }
+    } catch (jsonErr: any) {
+        console.warn('[Think] Parse JSON falhou:', jsonErr.message);
+    }
 
-            // Nenhuma skill detectada → trata como resposta direta
-            console.warn('[Think] Texto puro sem skill detectada — usando como resposta');
+    // ── 3. Fallback: detecta skill call em texto puro ──
+    if (cleaned.length > 20) {
+        const skillNames = listSkills();
+        const foundSkill = skillNames.find(s => cleaned.includes(s));
+        if (foundSkill) {
+            console.warn(`[Think] Texto puro contém skill "${foundSkill}" — extraindo call`);
+            const parametros: Record<string, any> = {};
+
+            const cnjMatch = cleaned.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/);
+            if (cnjMatch) parametros['numero'] = cnjMatch[0];
+
+            const tribunalMatch = cleaned.match(/\b(TJ[A-Z]{2}|TRT\d{1,2}|TRF\d)\b/i);
+            if (tribunalMatch) parametros['tribunal'] = tribunalMatch[0].toUpperCase();
+
+            if (['pje_agir', 'browser_auto_task'].includes(foundSkill)) {
+                parametros['objetivo'] = cleaned.slice(0, 300);
+            }
+
             return {
-                tipo: 'resposta',
-                pensamento: 'Modelo retornou texto livre (sem tags XML). Usando como resposta.',
-                resposta: cleaned,
+                tipo: 'skill',
+                pensamento: `Modelo retornou texto livre mencionando skill ${foundSkill}. Extraindo parâmetros.`,
+                skill: foundSkill,
+                parametros,
             };
         }
 
-        throw new Error('Resposta não contém tags XML, JSON, nem texto suficiente');
-
-    } catch (error: any) {
-        console.error('[Think] Erro ao parsear resposta:', error.message);
-        console.error('[Think] Resposta raw (500 chars):', response.substring(0, 500));
-        console.error('[Think] Cleaned (500 chars):', cleaned.substring(0, 500));
-
-        // Fallback último recurso
+        // Nenhuma skill detectada → trata como resposta direta
+        console.warn('[Think] Texto puro sem skill detectada — usando como resposta');
         return {
-            tipo: 'pergunta',
-            pensamento: 'Erro ao processar raciocínio, solicitando clarificação',
-            pergunta: 'Desculpe, tive dificuldade em processar. Pode tentar novamente?'
+            tipo: 'resposta',
+            pensamento: 'Modelo retornou texto livre (sem tags XML). Usando como resposta.',
+            resposta: cleaned,
         };
     }
+
+    // ── 4. Último recurso — nenhum parser funcionou ──
+    console.error('[Think] Nenhum parser funcionou');
+    console.error('[Think] Resposta raw (500 chars):', response.substring(0, 500));
+    console.error('[Think] Cleaned (500 chars):', cleaned.substring(0, 500));
+    return {
+        tipo: 'pergunta',
+        pensamento: 'Erro ao processar raciocínio, solicitando clarificação',
+        pergunta: 'Desculpe, tive dificuldade em processar. Pode tentar novamente?'
+    };
 }
