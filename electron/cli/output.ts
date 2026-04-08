@@ -2,13 +2,11 @@
  * CLI — Renderer dos eventos do agente
  *
  * Estilo Claude Code:
- *   > \user input          ← re-echo do input (feito pelo repl.ts)
+ *   > \user input          ← re-echo (feito pelo repl.ts)
  *
- *   • resposta aqui        ← bullet prefix na resposta
+ *   • resposta aqui        ← bullet prefix
  *
  *   ───────────────────    ← separador após cada troca
- *
- *   > |                    ← próximo prompt
  */
 
 import type { AgentEvent } from '../agent/types';
@@ -40,38 +38,29 @@ function writeln(text: string) { process.stdout.write(text + '\n'); }
 
 function cleanLLMOutput(text: string): string {
     if (!text) return '';
-
-    // Extrai conteúdo de <resposta> se presente
     const m = text.match(/<resposta>([\s\S]*?)<\/resposta>/i);
     if (m) return (m[1] ?? '').trim();
-
-    // Remove blocos de pensamento
-    let clean = text
+    return text
         .replace(/<pensamento>[\s\S]*?<\/pensamento>/gi, '')
         .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-        .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, '');
-
-    // Remove tags XML soltas
-    clean = clean.replace(/<\/?[a-z_]+>/gi, '');
-    return clean.trim();
+        .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, '')
+        .replace(/<\/?[a-z_]+>/gi, '')
+        .trim();
 }
 
 // ── Estado ────────────────────────────────────────────────────────────────────
 
-let streaming = false;
+let streaming   = false;   // true enquanto tokens chegando
+let bulletDone  = false;   // true após o • ter sido impresso
 
 export function resetStreamingState(): void {
-    streaming = false;
+    streaming  = false;
+    bulletDone = false;
 }
 
-// ── Re-echo do input do usuário ───────────────────────────────────────────────
+// ── Re-echo do input ──────────────────────────────────────────────────────────
 
-/**
- * Chamado pelo repl.ts logo após o usuário apertar Enter.
- * Mostra a mensagem estilizada como o Claude Code faz.
- */
 export function renderUserInput(line: string): void {
-    writeln('');
     writeln(c('bold', `> \\${line}`));
     writeln('');
 }
@@ -81,17 +70,16 @@ export function renderUserInput(line: string): void {
 export function renderEvent(event: AgentEvent): void {
     switch (event.type) {
 
+        // ── Silenciados ────────────────────────────────────────────────────────
         case 'started':
         case 'thinking':
         case 'criticizing':
         case 'observing':
         case 'privacy_stats':
-            // Silenciados — spinner cuida do feedback visual
             break;
 
-        // Tool use: ● skill(params)
+        // ── Tool use ───────────────────────────────────────────────────────────
         case 'acting': {
-            if (streaming) { writeln(''); streaming = false; }
             const paramStr = formatParams(event.parametros);
             writeln(
                 c('cyan', '●') + ' ' +
@@ -101,64 +89,64 @@ export function renderEvent(event: AgentEvent): void {
             break;
         }
 
-        // Resultado: ⎿ preview
         case 'tool_result': {
-            const ok = event.resultado?.sucesso !== false;
-            const preview = formatResult(event.resultado);
+            const ok  = event.resultado?.sucesso !== false;
+            const msg = formatResult(event.resultado);
             if (ok) {
-                if (preview) writeln(c('gray', `  ⎿  ${preview}`));
+                if (msg) writeln(c('gray', `  ⎿  ${msg}`));
             } else {
                 writeln(c('gray', '  ⎿  ') + c('red', event.resultado?.erro || 'falhou'));
             }
             break;
         }
 
+        // ── Streaming ──────────────────────────────────────────────────────────
         case 'streaming_start':
-            streaming = true;
-            // Não imprime nada — tokens vêm na sequência
+            streaming  = true;
+            bulletDone = false;
             break;
 
         case 'token':
-            if (event.token) {
-                // Primeiro token: imprime bullet prefix antes de começar
-                if (!streaming) {
-                    write(c('white', '• '));
-                    streaming = true;
-                }
-                write(event.token);
+            if (!event.token) break;
+            if (!bulletDone) {
+                // Primeiro token — imprime o bullet antes de começar
+                write('\n' + c('white', '• '));
+                bulletDone = true;
             }
+            write(event.token);
             break;
 
+        // ── Resposta final ─────────────────────────────────────────────────────
         case 'completed': {
             if (streaming) {
+                // Tokens já foram impressos com bullet — só fecha a linha
                 writeln('');
-                streaming = false;
+                streaming  = false;
+                bulletDone = false;
             } else {
-                // Resposta sem streaming — imprime com bullet
+                // Resposta sem streaming (sem tokens) — imprime com bullet
                 const clean = cleanLLMOutput(event.resposta || '');
                 if (clean) {
-                    writeln('');
-                    // Adiciona bullet na primeira linha e indenta as demais
-                    const lines = clean.split('\n');
-                    writeln(c('white', '• ') + (lines[0] ?? ''));
+                    const lines = clean.split('\n').filter(l => l.trim());
+                    write('\n' + c('white', '• '));
+                    writeln(lines[0] ?? '');
                     for (let i = 1; i < lines.length; i++) {
-                        writeln('  ' + (lines[i] ?? ''));
+                        writeln('  ' + lines[i]);
                     }
                 }
             }
-            // Separador entre trocas
             writeln('');
             writeln(SEPARATOR);
             writeln('');
             break;
         }
 
+        // ── Erros e estados ────────────────────────────────────────────────────
         case 'error': {
-            if (streaming) { writeln(''); streaming = false; }
+            if (streaming) { writeln(''); streaming = false; bulletDone = false; }
             const msg = (event.erro || 'erro desconhecido')
-                .replace(/\n[\s\S]*/m, '')
-                .slice(0, 200);
-            writeln(c('red', `✗ ${msg}`));
+                .replace(/\n[\s\S]*/m, '').slice(0, 200);
+            writeln('\n' + c('red', `✗ ${msg}`));
             writeln('');
             writeln(SEPARATOR);
             writeln('');
@@ -166,7 +154,7 @@ export function renderEvent(event: AgentEvent): void {
         }
 
         case 'cancelled':
-            if (streaming) { writeln(''); streaming = false; }
+            if (streaming) { writeln(''); streaming = false; bulletDone = false; }
             writeln(c('yellow', '⊘ cancelado'));
             writeln('');
             writeln(SEPARATOR);
@@ -174,7 +162,7 @@ export function renderEvent(event: AgentEvent): void {
             break;
 
         case 'timeout':
-            if (streaming) { writeln(''); streaming = false; }
+            if (streaming) { writeln(''); streaming = false; bulletDone = false; }
             writeln(c('yellow', '⊘ timeout'));
             writeln('');
             writeln(SEPARATOR);
@@ -197,28 +185,23 @@ export function renderEvent(event: AgentEvent): void {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatParams(params: Record<string, any> | undefined): string {
-    if (!params || Object.keys(params).length === 0) return '';
-    return Object.entries(params)
-        .slice(0, 2)
-        .map(([k, v]) => {
-            const val = typeof v === 'string'
-                ? (v.length > 50 ? v.slice(0, 50) + '…' : v)
-                : JSON.stringify(v).slice(0, 50);
-            return `${k}: "${val}"`;
-        })
-        .join(', ');
+    if (!params || !Object.keys(params).length) return '';
+    return Object.entries(params).slice(0, 2).map(([k, v]) => {
+        const val = typeof v === 'string'
+            ? (v.length > 50 ? v.slice(0, 50) + '…' : v)
+            : JSON.stringify(v).slice(0, 50);
+        return `${k}: "${val}"`;
+    }).join(', ');
 }
 
 function formatResult(result: any): string {
     if (!result) return '';
     const data = result.dados ?? result.mensagem ?? result.erro ?? '';
     if (!data) return '';
-    const str = typeof data === 'string' ? data : JSON.stringify(data);
-    const first = str.split('\n').find((l: string) => l.trim()) ?? '';
-    return first.length > 100 ? first.slice(0, 100) + '…' : first;
+    const str  = typeof data === 'string' ? data : JSON.stringify(data);
+    const line = str.split('\n').find((l: string) => l.trim()) ?? '';
+    return line.length > 100 ? line.slice(0, 100) + '…' : line;
 }
-
-// ── Utilitários ───────────────────────────────────────────────────────────────
 
 export function renderInfo(text: string): void {
     writeln(c('gray', text));

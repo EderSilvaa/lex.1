@@ -272,8 +272,15 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             return;
         }
 
-        // É um objetivo para o agente — re-echo estilizado + spinner
+        // Sobrescreve o echo automático do readline com versão estilizada.
+        // Quando o usuário pressiona Enter, readline já escreveu "> linha\n"
+        // e moveu o cursor para a próxima linha. Subimos uma linha, limpamos
+        // e reescrevemos no estilo Claude Code ("> \linha").
+        if (process.stdout.isTTY) {
+            process.stdout.write('\x1b[1A\x1b[2K\r'); // sobe 1 linha e limpa
+        }
         renderUserInput(line);
+
         running = true;
         startSpinner('pensando');
 
