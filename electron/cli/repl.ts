@@ -12,7 +12,6 @@
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import {
     startBackend,
@@ -90,23 +89,26 @@ function appendHistory(userDataDir: string, line: string): void {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-function printHeader(sessionId: string): void {
-    let provider = '?';
+function printHeader(userDataDir: string): void {
+    // Lê config local para mostrar provider/modelo no header
+    let providerLine = '';
     try {
-        // Leitura rápida de config local sem await — provider é exibido assincronamente
-        rpcCall('get-config', {}).then((cfg: any) => {
-            if (cfg?.providerId) {
-                process.stdout.write(
-                    `\r${GRAY}provider: ${cfg.providerId} • modelo: ${cfg.agentModel}${RESET}\n`,
-                );
-            }
-        }).catch(() => { /* silencioso */ });
-    } catch { /* silencioso */ }
+        const cfgPath = require('path').join(userDataDir, 'cli-config.json');
+        const raw = require('fs').readFileSync(cfgPath, 'utf8');
+        const cfg = JSON.parse(raw);
+        if (cfg?.providerId) {
+            const model = cfg.agentModel ?? '';
+            providerLine = `${cfg.providerId}${model ? `/${model.split('/').pop()}` : ''}`;
+        }
+    } catch { /* sem config ainda */ }
 
     process.stdout.write('\n');
-    process.stdout.write(`${BOLD}${CYAN}LEX Jurídico${RESET}\n`);
-    process.stdout.write(`${GRAY}sessão ${sessionId.slice(0, 8)} • /help para comandos${RESET}\n`);
-    process.stdout.write(`${GRAY}${'─'.repeat(48)}${RESET}\n\n`);
+    process.stdout.write(
+        `${BOLD}${CYAN}LEX${RESET}` +
+        (providerLine ? `  ${GRAY}${providerLine}${RESET}` : '') +
+        '\n'
+    );
+    process.stdout.write(`${GRAY}/help para lista de comandos${RESET}\n\n`);
 }
 
 // ── REPL principal ────────────────────────────────────────────────────────────
@@ -124,7 +126,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     let running = false;       // agent-run em andamento
     let ctrlCCount = 0;        // primeiro cancela, segundo sai
 
-    printHeader(sessionId);
+    printHeader(opts.userDataDir);
 
     const rl = readline.createInterface({
         input: process.stdin,
@@ -135,16 +137,31 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         terminal: true,
     });
 
-    // Evento de agent que atualiza o spinner e renderiza
+    // Evento de agent — spinner + renderização
     const onEvent = (event: AgentEvent) => {
         switch (event.type) {
             case 'thinking':
-                startSpinner(`pensando (iteração ${event.iteracao})`);
+                // Spinner discreto sem mostrar conteúdo do pensamento
+                startSpinner('pensando');
                 break;
             case 'acting':
+                // Spinner com nome da skill enquanto executa
                 startSpinner(event.skill);
                 break;
+            case 'tool_result':
+                // Para spinner antes de renderizar o resultado
+                stopSpinner();
+                renderEvent(event);
+                break;
+            case 'token':
+                // Primeiro token — para spinner e começa a stremar
+                if (spinTimer) stopSpinner();
+                renderEvent(event);
+                break;
             case 'streaming_start':
+                stopSpinner();
+                renderEvent(event);
+                break;
             case 'completed':
             case 'error':
             case 'cancelled':
@@ -153,8 +170,6 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                 renderEvent(event);
                 break;
             default:
-                // Para token — para spinner antes de stremar
-                if (event.type === 'token' && spinTimer) stopSpinner();
                 renderEvent(event);
         }
     };
@@ -219,7 +234,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             }
             if (action.type === 'clear') {
                 process.stdout.write('\x1bc'); // reset terminal
-                printHeader(sessionId);
+                printHeader(opts.userDataDir);
             }
             if (action.type === 'new-session') {
                 sessionId = randomUUID();
