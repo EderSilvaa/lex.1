@@ -89,26 +89,55 @@ function appendHistory(userDataDir: string, line: string): void {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
+// Logo LEX em Unicode block art — fiel ao SVG (triângulo + linha central + círculo)
+//
+//     △        ← apex
+//    ╱│╲
+//   ╱ │ ╲
+//  ╱  │  ╲
+//     ●        ← círculo base
+//
+// Renderizado em 5 linhas ao lado das infos de versão/provider.
+const LOGO_LINES = [
+    `    ${CYAN}△${RESET}    `,
+    `   ${CYAN}╱${RESET}${BOLD}│${RESET}${CYAN}╲${RESET}   `,
+    `  ${CYAN}╱${RESET} ${BOLD}│${RESET} ${CYAN}╲${RESET}  `,
+    ` ${CYAN}╱${RESET}  ${BOLD}│${RESET}  ${CYAN}╲${RESET} `,
+    `    ${BOLD}●${RESET}    `,
+];
+
 function printHeader(userDataDir: string): void {
-    // Lê config local para mostrar provider/modelo no header
-    let providerLine = '';
+    // Lê config local para mostrar provider/modelo
+    let providerId = '';
+    let modelName  = '';
     try {
-        const cfgPath = require('path').join(userDataDir, 'cli-config.json');
-        const raw = require('fs').readFileSync(cfgPath, 'utf8');
-        const cfg = JSON.parse(raw);
-        if (cfg?.providerId) {
-            const model = cfg.agentModel ?? '';
-            providerLine = `${cfg.providerId}${model ? `/${model.split('/').pop()}` : ''}`;
-        }
+        const cfgPath = path.join(userDataDir, 'cli-config.json');
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        providerId = cfg?.providerId ?? '';
+        const m = cfg?.agentModel ?? '';
+        modelName = m ? m.split('/').pop() ?? m : '';
     } catch { /* sem config ainda */ }
 
+    // Versão do package.json
+    let version = '';
+    try { version = require('../../package.json').version ?? ''; } catch { /* ok */ }
+
+    // Linhas de info à direita do logo
+    const infoLines: string[] = [
+        `${BOLD}${CYAN}LEX${RESET}${version ? `  ${GRAY}v${version}${RESET}` : ''}`,
+        providerId
+            ? `${GRAY}${providerId}${modelName ? ` · ${modelName}` : ''}${RESET}`
+            : '',
+        `${GRAY}/help para lista de comandos${RESET}`,
+        '',
+        '',
+    ];
+
     process.stdout.write('\n');
-    process.stdout.write(
-        `${BOLD}${CYAN}LEX${RESET}` +
-        (providerLine ? `  ${GRAY}${providerLine}${RESET}` : '') +
-        '\n'
-    );
-    process.stdout.write(`${GRAY}/help para lista de comandos${RESET}\n\n`);
+    for (let i = 0; i < LOGO_LINES.length; i++) {
+        process.stdout.write((LOGO_LINES[i] ?? '') + '  ' + (infoLines[i] ?? '') + '\n');
+    }
+    process.stdout.write('\n');
 }
 
 // ── REPL principal ────────────────────────────────────────────────────────────
