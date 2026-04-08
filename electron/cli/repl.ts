@@ -89,53 +89,109 @@ function appendHistory(userDataDir: string, line: string): void {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-// Logo LEX — ASCII puro, compatível com cmd.exe e qualquer fonte monospace
-//
-//   /\
-//  /  \
-// / -- \
-//   ||
-//   ()
-//
-const LOGO_LINES = [
-    `   ${CYAN} /\\ ${RESET}  `,
-    `   ${CYAN}/  \\${RESET}  `,
-    `  ${CYAN}/ ${BOLD}--${RESET}${CYAN} \\${RESET} `,
-    `    ${BOLD}||${RESET}    `,
-    `    ${BOLD}()${RESET}    `,
-];
+// Largura total da caixa (sem contar os │ das bordas)
+const BOX_W = 60;
+const DIVIDER_COL = 26; // coluna onde o painel divide esquerdo | direito
+
+// Stripa ANSI para calcular largura real visível
+function visibleLen(s: string): number {
+    return s.replace(/\x1b\[[0-9;]*m/g, '').length;
+}
+
+// Pad à direita ignorando ANSI
+function padRight(s: string, width: number): string {
+    const diff = width - visibleLen(s);
+    return diff > 0 ? s + ' '.repeat(diff) : s;
+}
+
+function boxLine(left: string, right: string): string {
+    const l = padRight(left, DIVIDER_COL);
+    const r = padRight(right, BOX_W - DIVIDER_COL - 1);
+    return `${GRAY}\u2502${RESET}${l}${GRAY}\u2502${RESET}${r}${GRAY}\u2502${RESET}`;
+}
 
 function printHeader(userDataDir: string): void {
-    // Lê config local para mostrar provider/modelo
+    // Lê config
     let providerId = '';
     let modelName  = '';
+    let userName   = process.env['USERNAME'] || process.env['USER'] || '';
     try {
         const cfgPath = path.join(userDataDir, 'cli-config.json');
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
         providerId = cfg?.providerId ?? '';
         const m = cfg?.agentModel ?? '';
         modelName = m ? m.split('/').pop() ?? m : '';
-    } catch { /* sem config ainda */ }
+    } catch { /* ok */ }
 
-    // Versão do package.json
     let version = '';
     try { version = require('../../package.json').version ?? ''; } catch { /* ok */ }
 
-    // Linhas de info à direita do logo
-    const infoLines: string[] = [
-        `${BOLD}${CYAN}LEX${RESET}${version ? `  ${GRAY}v${version}${RESET}` : ''}`,
-        providerId
-            ? `${GRAY}${providerId}${modelName ? ` · ${modelName}` : ''}${RESET}`
-            : '',
-        `${GRAY}/help para lista de comandos${RESET}`,
+    // ── Título no topo ────────────────────────────────────────────────────────
+    const title = ` LEX v${version} `;
+    const titlePlain = title.replace(/\x1b\[[0-9;]*m/g, '');
+    const titleColored = ` ${BOLD}${CYAN}LEX${RESET} ${GRAY}v${version}${RESET} `;
+    const dashTotal = BOX_W - titlePlain.length;
+    const dashLeft  = 3;
+    const dashRight = dashTotal - dashLeft;
+    const topLine =
+        `${GRAY}\u256d${RESET}` +
+        `${CYAN}${'─'.repeat(dashLeft)}${RESET}` +
+        titleColored +
+        `${CYAN}${'─'.repeat(Math.max(0, dashRight))}${RESET}` +
+        `${GRAY}\u256e${RESET}`;
+
+    // ── Painel esquerdo (logo + info) ─────────────────────────────────────────
+    const greeting = userName ? `Bem-vindo, ${userName}!` : 'Bem-vindo!';
+    // Trunca strings para caber no painel esquerdo (DIVIDER_COL - 3 de margem)
+    const maxLeft = DIVIDER_COL - 3;
+    const providerStr = `${providerId}${modelName ? ` · ${modelName}` : ''}`;
+    const providerTrunc = providerStr.length > maxLeft ? providerStr.slice(0, maxLeft - 1) + '…' : providerStr;
+    const dirTrunc = userDataDir.length > maxLeft ? '…' + userDataDir.slice(-(maxLeft - 2)) : userDataDir;
+
+    const leftLines = [
+        '',
+        `  ${BOLD}${greeting}${RESET}`,
+        '',
+        `     ${CYAN} /\\ ${RESET}`,
+        `     ${CYAN}/  \\${RESET}`,
+        `    ${CYAN}/ ${BOLD}--${RESET}${CYAN} \\${RESET}`,
+        `      ${BOLD}||${RESET}`,
+        `      ${BOLD}()${RESET}`,
+        '',
+        `  ${GRAY}${providerTrunc}${RESET}`,
+        `  ${GRAY}${dirTrunc}${RESET}`,
+        '',
+    ];
+
+    // ── Painel direito (dicas + atividade recente) ────────────────────────────
+    const rightLines = [
+        '',
+        `  ${BOLD}${CYAN}Como comecar${RESET}`,
+        `  ${GRAY}/model  trocar modelo${RESET}`,
+        `  ${GRAY}/provider  trocar IA${RESET}`,
+        `  ${GRAY}/key  salvar API key${RESET}`,
+        `  ${GRAY}/help  todos comandos${RESET}`,
+        '',
+        `  ${BOLD}${CYAN}Sessoes recentes${RESET}`,
+        `  ${GRAY}Nenhuma sessao ainda${RESET}`,
+        '',
         '',
         '',
     ];
 
+    // ── Monta caixa ───────────────────────────────────────────────────────────
+    const rows = Math.max(leftLines.length, rightLines.length);
+    const bottomLine =
+        `${GRAY}\u2570${RESET}` +
+        `${GRAY}${'─'.repeat(BOX_W)}${RESET}` +
+        `${GRAY}\u256f${RESET}`;
+
     process.stdout.write('\n');
-    for (let i = 0; i < LOGO_LINES.length; i++) {
-        process.stdout.write((LOGO_LINES[i] ?? '') + '  ' + (infoLines[i] ?? '') + '\n');
+    process.stdout.write(topLine + '\n');
+    for (let i = 0; i < rows; i++) {
+        process.stdout.write(boxLine(leftLines[i] ?? '', rightLines[i] ?? '') + '\n');
     }
+    process.stdout.write(bottomLine + '\n');
     process.stdout.write('\n');
 }
 
