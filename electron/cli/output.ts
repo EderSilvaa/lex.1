@@ -38,14 +38,27 @@ function writeln(text: string) { process.stdout.write(text + '\n'); }
 
 function cleanLLMOutput(text: string): string {
     if (!text) return '';
+
+    // Extrai conteúdo de <resposta> se presente
     const m = text.match(/<resposta>([\s\S]*?)<\/resposta>/i);
-    if (m) return (m[1] ?? '').trim();
-    return text
+    let clean = m ? (m[1] ?? '') : text;
+
+    // Remove blocos de pensamento
+    clean = clean
         .replace(/<pensamento>[\s\S]*?<\/pensamento>/gi, '')
         .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
         .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, '')
-        .replace(/<\/?[a-z_]+>/gi, '')
-        .trim();
+        .replace(/<\/?[a-z_]+>/gi, '');
+
+    // Converte markdown básico para texto simples (terminal não renderiza MD)
+    clean = clean
+        .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
+        .replace(/\*(.+?)\*/g, '$1')        // *italic* → italic
+        .replace(/`(.+?)`/g, '$1')          // `code` → code
+        .replace(/^#{1,6}\s+/gm, '')        // # Heading → Heading
+        .replace(/^\s*[-*]\s+/gm, '  • ');  // - item → • item
+
+    return clean.trim();
 }
 
 // ── Estado ────────────────────────────────────────────────────────────────────
@@ -109,8 +122,8 @@ export function renderEvent(event: AgentEvent): void {
         case 'token':
             if (!event.token) break;
             if (!bulletDone) {
-                // Primeiro token — imprime o bullet antes de começar
-                write('\n' + c('white', '• '));
+                // Primeiro token — spinner já limpou a linha, bullet direto
+                write(c('white', '• '));
                 bulletDone = true;
             }
             write(event.token);
@@ -124,11 +137,11 @@ export function renderEvent(event: AgentEvent): void {
                 streaming  = false;
                 bulletDone = false;
             } else {
-                // Resposta sem streaming (sem tokens) — imprime com bullet
+                // Resposta sem streaming — imprime com bullet
                 const clean = cleanLLMOutput(event.resposta || '');
                 if (clean) {
                     const lines = clean.split('\n').filter(l => l.trim());
-                    write('\n' + c('white', '• '));
+                    write(c('white', '• '));
                     writeln(lines[0] ?? '');
                     for (let i = 1; i < lines.length; i++) {
                         writeln('  ' + lines[i]);

@@ -89,21 +89,20 @@ function appendHistory(userDataDir: string, line: string): void {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-// Logo LEX em Unicode block art — fiel ao SVG (triângulo + linha central + círculo)
+// Logo LEX — ASCII puro, compatível com cmd.exe e qualquer fonte monospace
 //
-//     △        ← apex
-//    ╱│╲
-//   ╱ │ ╲
-//  ╱  │  ╲
-//     ●        ← círculo base
+//   /\
+//  /  \
+// / -- \
+//   ||
+//   ()
 //
-// Renderizado em 5 linhas ao lado das infos de versão/provider.
 const LOGO_LINES = [
-    `    ${CYAN}△${RESET}    `,
-    `   ${CYAN}╱${RESET}${BOLD}│${RESET}${CYAN}╲${RESET}   `,
-    `  ${CYAN}╱${RESET} ${BOLD}│${RESET} ${CYAN}╲${RESET}  `,
-    ` ${CYAN}╱${RESET}  ${BOLD}│${RESET}  ${CYAN}╲${RESET} `,
-    `    ${BOLD}●${RESET}    `,
+    `   ${CYAN} /\\ ${RESET}  `,
+    `   ${CYAN}/  \\${RESET}  `,
+    `  ${CYAN}/ ${BOLD}--${RESET}${CYAN} \\${RESET} `,
+    `    ${BOLD}||${RESET}    `,
+    `    ${BOLD}()${RESET}    `,
 ];
 
 function printHeader(userDataDir: string): void {
@@ -271,15 +270,6 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             rl.prompt();
             return;
         }
-
-        // Sobrescreve o echo automático do readline com versão estilizada.
-        // Quando o usuário pressiona Enter, readline já escreveu "> linha\n"
-        // e moveu o cursor para a próxima linha. Subimos uma linha, limpamos
-        // e reescrevemos no estilo Claude Code ("> \linha").
-        if (process.stdout.isTTY) {
-            process.stdout.write('\x1b[1A\x1b[2K\r'); // sobe 1 linha e limpa
-        }
-        renderUserInput(line);
 
         running = true;
         startSpinner('pensando');
