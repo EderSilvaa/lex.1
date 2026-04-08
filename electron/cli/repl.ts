@@ -89,10 +89,6 @@ function appendHistory(userDataDir: string, line: string): void {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-// Largura total da caixa (sem contar os │ das bordas)
-const BOX_W = 60;
-const DIVIDER_COL = 26; // coluna onde o painel divide esquerdo | direito
-
 // Stripa ANSI para calcular largura real visível
 function visibleLen(s: string): number {
     return s.replace(/\x1b\[[0-9;]*m/g, '').length;
@@ -104,13 +100,24 @@ function padRight(s: string, width: number): string {
     return diff > 0 ? s + ' '.repeat(diff) : s;
 }
 
-function boxLine(left: string, right: string): string {
-    const l = padRight(left, DIVIDER_COL);
-    const r = padRight(right, BOX_W - DIVIDER_COL - 1);
-    return `${GRAY}\u2502${RESET}${l}${GRAY}\u2502${RESET}${r}${GRAY}\u2502${RESET}`;
+function trunc(s: string, max: number, fromLeft = false): string {
+    if (s.length <= max) return s;
+    return fromLeft ? '…' + s.slice(-(max - 1)) : s.slice(0, max - 1) + '…';
 }
 
 function printHeader(userDataDir: string): void {
+    // Largura dinâmica — usa terminal ou 80 como fallback, máximo 100
+    const termW   = Math.min(process.stdout.columns || 80, 100);
+    const BOX_W   = termW - 2;           // descontando bordas │ │
+    const LEFT_W  = Math.floor(BOX_W * 0.42);  // ~42% para o painel esquerdo
+    const RIGHT_W = BOX_W - LEFT_W - 1;  // -1 pelo divisor │
+
+    const boxLine = (left: string, right: string) => {
+        const l = padRight(left, LEFT_W);
+        const r = padRight(right, RIGHT_W);
+        return `${GRAY}\u2502${RESET}${l}${GRAY}\u2502${RESET}${r}${GRAY}\u2502${RESET}`;
+    };
+
     // Lê config
     let providerId = '';
     let modelName  = '';
@@ -126,13 +133,11 @@ function printHeader(userDataDir: string): void {
     let version = '';
     try { version = require('../../package.json').version ?? ''; } catch { /* ok */ }
 
-    // ── Título no topo ────────────────────────────────────────────────────────
-    const title = ` LEX v${version} `;
-    const titlePlain = title.replace(/\x1b\[[0-9;]*m/g, '');
+    // ── Topo ─────────────────────────────────────────────────────────────────
     const titleColored = ` ${BOLD}${CYAN}LEX${RESET} ${GRAY}v${version}${RESET} `;
-    const dashTotal = BOX_W - titlePlain.length;
-    const dashLeft  = 3;
-    const dashRight = dashTotal - dashLeft;
+    const titlePlain   = ` LEX v${version} `;
+    const dashLeft     = 3;
+    const dashRight    = BOX_W - dashLeft - titlePlain.length;
     const topLine =
         `${GRAY}\u256d${RESET}` +
         `${CYAN}${'─'.repeat(dashLeft)}${RESET}` +
@@ -140,13 +145,11 @@ function printHeader(userDataDir: string): void {
         `${CYAN}${'─'.repeat(Math.max(0, dashRight))}${RESET}` +
         `${GRAY}\u256e${RESET}`;
 
-    // ── Painel esquerdo (logo + info) ─────────────────────────────────────────
-    const greeting = userName ? `Bem-vindo, ${userName}!` : 'Bem-vindo!';
-    // Trunca strings para caber no painel esquerdo (DIVIDER_COL - 3 de margem)
-    const maxLeft = DIVIDER_COL - 3;
-    const providerStr = `${providerId}${modelName ? ` · ${modelName}` : ''}`;
-    const providerTrunc = providerStr.length > maxLeft ? providerStr.slice(0, maxLeft - 1) + '…' : providerStr;
-    const dirTrunc = userDataDir.length > maxLeft ? '…' + userDataDir.slice(-(maxLeft - 2)) : userDataDir;
+    // ── Painel esquerdo ───────────────────────────────────────────────────────
+    const maxL = LEFT_W - 3;
+    const greeting    = `Bem-vindo, ${userName || 'advogado'}!`;
+    const providerStr = trunc(`${providerId}${modelName ? ` · ${modelName}` : ''}`, maxL);
+    const dirStr      = trunc(userDataDir, maxL, true);
 
     const leftLines = [
         '',
@@ -158,41 +161,41 @@ function printHeader(userDataDir: string): void {
         `      ${BOLD}||${RESET}`,
         `      ${BOLD}()${RESET}`,
         '',
-        `  ${GRAY}${providerTrunc}${RESET}`,
-        `  ${GRAY}${dirTrunc}${RESET}`,
+        `  ${GRAY}${providerStr}${RESET}`,
+        `  ${GRAY}${dirStr}${RESET}`,
         '',
     ];
 
-    // ── Painel direito (dicas + atividade recente) ────────────────────────────
+    // ── Painel direito ────────────────────────────────────────────────────────
     const rightLines = [
         '',
         `  ${BOLD}${CYAN}Como comecar${RESET}`,
-        `  ${GRAY}/model  trocar modelo${RESET}`,
-        `  ${GRAY}/provider  trocar IA${RESET}`,
-        `  ${GRAY}/key  salvar API key${RESET}`,
-        `  ${GRAY}/help  todos comandos${RESET}`,
+        `  ${GRAY}/model <id>    trocar modelo${RESET}`,
+        `  ${GRAY}/provider <id> trocar provider${RESET}`,
+        `  ${GRAY}/key <apikey>  salvar chave${RESET}`,
+        `  ${GRAY}/nova          nova sessao${RESET}`,
+        `  ${GRAY}/help          todos comandos${RESET}`,
         '',
         `  ${BOLD}${CYAN}Sessoes recentes${RESET}`,
         `  ${GRAY}Nenhuma sessao ainda${RESET}`,
         '',
         '',
-        '',
     ];
 
-    // ── Monta caixa ───────────────────────────────────────────────────────────
-    const rows = Math.max(leftLines.length, rightLines.length);
+    // ── Fundo ─────────────────────────────────────────────────────────────────
     const bottomLine =
-        `${GRAY}\u2570${RESET}` +
-        `${GRAY}${'─'.repeat(BOX_W)}${RESET}` +
-        `${GRAY}\u256f${RESET}`;
+        `${GRAY}\u2570${'─'.repeat(BOX_W)}\u256f${RESET}`;
 
     process.stdout.write('\n');
     process.stdout.write(topLine + '\n');
+    const rows = Math.max(leftLines.length, rightLines.length);
     for (let i = 0; i < rows; i++) {
         process.stdout.write(boxLine(leftLines[i] ?? '', rightLines[i] ?? '') + '\n');
     }
     process.stdout.write(bottomLine + '\n');
     process.stdout.write('\n');
+    // Hint visual para a área de input
+    process.stdout.write(`  ${GRAY}mensagem:${RESET}\n`);
 }
 
 // ── REPL principal ────────────────────────────────────────────────────────────

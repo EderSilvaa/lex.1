@@ -63,6 +63,9 @@ function setupBackendDiagnostics() {
     }
 
     if (window.lexApi.onBackendStatus) {
+        let backendRestartMsgShown = false;
+        let backendRestartMsgAt = 0;
+
         window.lexApi.onBackendStatus((status) => {
             const st = String(status?.status || '').trim();
             if (!st) return;
@@ -72,19 +75,26 @@ function setupBackendDiagnostics() {
             const now = Date.now();
             if ((st === 'connected' || st === 'restarted') && (now - backendStatusUiLastAt) > 30000) {
                 backendStatusUiLastAt = now;
+                backendRestartMsgShown = false;
                 addMessageToUI('Backend de automação conectado.', 'system');
                 return;
             }
 
-            if (st === 'restart_scheduled') {
-                const delaySec = Math.ceil(Number(status?.delayMs || 0) / 1000) || 0;
-                addMessageToUI(`Backend desconectou. Nova tentativa em ${delaySec}s...`, 'system');
+            // Throttle: mostra apenas 1 mensagem de restart a cada 15s
+            if (st === 'restart_scheduled' || st === 'restart_failed' || st === 'exited' || st === 'disconnected') {
+                if (!backendRestartMsgShown || (now - backendRestartMsgAt) > 15000) {
+                    backendRestartMsgShown = true;
+                    backendRestartMsgAt = now;
+                    const attempt = Number(status?.attempt || 0);
+                    const attemptStr = attempt > 1 ? ` (tentativa ${attempt})` : '';
+                    addMessageToUI(`Backend reconectando...${attemptStr}`, 'system');
+                }
                 return;
             }
 
-            if (st === 'restart_failed' || st === 'exited' || st === 'disconnected') {
-                const err = status?.error ? ` (${String(status.error).slice(0, 180)})` : '';
-                addMessageToUI(`Backend instável: ${st}${err}`, 'system');
+            if (st === 'gave_up') {
+                backendRestartMsgShown = false;
+                addMessageToUI('Backend falhou após várias tentativas. Reinicie o app.', 'system');
             }
         });
     }

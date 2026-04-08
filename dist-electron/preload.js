@@ -31,6 +31,7 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     setAnthropicKey: (key) => electron_1.ipcRenderer.invoke('store-set-anthropic-key', key),
     getAnthropicKeyStatus: () => electron_1.ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => electron_1.ipcRenderer.invoke('check-pje'),
+    focusBrowser: () => electron_1.ipcRenderer.invoke('browser-focus'),
     executePlan: (plan) => electron_1.ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query) => electron_1.ipcRenderer.invoke('crawler-search', query),
     // Agent Loop API
@@ -42,6 +43,18 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     },
     offAgentEvent: () => {
         electron_1.ipcRenderer.removeAllListeners('agent-event');
+    },
+    onBackendLog: (cb) => {
+        electron_1.ipcRenderer.on('backend-log', (_, entry) => cb(entry));
+    },
+    offBackendLog: () => {
+        electron_1.ipcRenderer.removeAllListeners('backend-log');
+    },
+    onBackendStatus: (cb) => {
+        electron_1.ipcRenderer.on('backend-status', (_, status) => cb(status));
+    },
+    offBackendStatus: () => {
+        electron_1.ipcRenderer.removeAllListeners('backend-status');
     },
     // Vision AI debug stream (reservado para uso futuro)
     onVisionDebug: (cb) => electron_1.ipcRenderer.on('vision-debug', (_, val) => cb(val)),

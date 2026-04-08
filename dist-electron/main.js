@@ -103,8 +103,24 @@ let mainWindow = null;
 let tray = null;
 let trayModeActive = false;
 let store;
+let backendEventWiringReady = false;
 const approvedWorkspaceSelections = new Set();
 const approvedFileSelections = new Set();
+const singleInstanceLock = electron_1.app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+    console.warn('[Main] Outra instancia detectada. Encerrando esta instancia.');
+    electron_1.app.quit();
+}
+electron_1.app.on('second-instance', () => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized())
+            mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        return;
+    }
+    createWindow();
+});
 function normalizeFsPath(targetPath) {
     return path.resolve(String(targetPath || ''));
 }
@@ -426,6 +442,26 @@ function syncProvider(providerId, apiKey, agentModel, visionModel) {
     });
 }
 /**
+ * Reaplica estado do browser após alteração de provider/chave.
+ * Se backend está vivo, reinit ocorre no processo backend (fonte da verdade do browser).
+ * Fallback local mantém compatibilidade quando backend não está disponível.
+ */
+function refreshBrowserRuntime(reason) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if ((0, backend_client_1.isBackendAlive)()) {
+            try {
+                yield (0, backend_client_1.rpcCall)('browser-reinit');
+                console.log(`[Browser] Reinit no backend concluído (${reason})`);
+                return;
+            }
+            catch (err) {
+                console.warn(`[Browser] Falha ao reinit no backend (${reason}), usando fallback local:`, (err === null || err === void 0 ? void 0 : err.message) || err);
+            }
+        }
+        (0, browser_manager_1.reInitBrowser)().catch(e => console.error(`[Browser] Erro ao re-inicializar localmente (${reason}):`, e));
+    });
+}
+/**
  * Carrega chave do store para um provider.
  * Se o valor estiver em plaintext legado, migra para criptografado imediatamente.
  */
@@ -477,19 +513,36 @@ function initStore() {
         const providerId = (_a = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.providerId) !== null && _a !== void 0 ? _a : 'anthropic';
         const apiKey = loadApiKey(providerId);
         const preset = provider_config_1.PROVIDER_PRESETS[providerId];
-        // Migra visionModel: Claude 4.x pode causar problemas em browser automation
-        // agentModel não é migrado — Claude 4.x funciona fine com generateText no SDK principal
+        // Migra modelos removidos/legacy para defaults atuais
         const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
+        const REMOVED_OPENROUTER_MODELS = [
+            'mistralai/mistral-small-3.1-24b-instruct:free',
+            'meta-llama/llama-4-maverick:free',
+            'microsoft/phi-4-multimodal-instruct:free',
+            'google/gemma-4-27b-it:free',
+            'deepseek/deepseek-v3-0324:free',
+            'deepseek/deepseek-r1-0528:free',
+        ];
         const savedVision = (_b = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.visionModel) !== null && _b !== void 0 ? _b : preset.defaultVisionModel;
+        const savedAgent = (_c = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.agentModel) !== null && _c !== void 0 ? _c : preset.defaultAgentModel;
         const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
-            ? preset.defaultVisionModel : savedVision;
-        yield syncProvider(providerId, apiKey, (_c = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.agentModel) !== null && _c !== void 0 ? _c : preset.defaultAgentModel, visionModel);
+            ? preset.defaultVisionModel
+            : REMOVED_OPENROUTER_MODELS.includes(savedVision)
+                ? preset.defaultVisionModel
+                : savedVision;
+        const agentModel = REMOVED_OPENROUTER_MODELS.includes(savedAgent)
+            ? preset.defaultAgentModel
+            : savedAgent;
+        if (visionModel !== savedVision || agentModel !== savedAgent) {
+            console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
+        }
+        yield syncProvider(providerId, apiKey, agentModel, visionModel);
     });
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // IPC — Configuração de Provider/API Keys
 // ─────────────────────────────────────────────────────────────────────────────
-/** Define provider ativo + modelos. Re-inicia browser em background. */
+/** Define provider ativo + modelos. Re-inicia browser no backend quando disponível. */
 electron_1.ipcMain.handle('store-set-provider', (_event, cfg) => __awaiter(void 0, void 0, void 0, function* () {
     if (!store)
         return { error: 'Store not initialized' };
@@ -497,7 +550,7 @@ electron_1.ipcMain.handle('store-set-provider', (_event, cfg) => __awaiter(void 
     const apiKey = loadApiKey(cfg.providerId);
     console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0, 8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
     yield syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
-    (0, browser_manager_1.reInitBrowser)().catch(e => console.error('[Browser] Erro ao re-inicializar após troca de provider:', e));
+    yield refreshBrowserRuntime('troca de provider');
     return { success: true };
 }));
 /** Retorna provider ativo + status da chave. A apiKey nunca é enviada ao renderer. */
@@ -518,7 +571,7 @@ electron_1.ipcMain.handle('store-set-api-key', (_event_1, _a) => __awaiter(void 
     const current = (0, provider_config_1.getActiveConfig)();
     if (current.providerId === providerId) {
         yield syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        (0, browser_manager_1.reInitBrowser)().catch(e => console.error('[Browser] Erro ao re-inicializar após nova chave:', e));
+        yield refreshBrowserRuntime('nova chave API');
     }
     return { success: true, configured: normalizedKey.length > 0 };
 }));
@@ -1122,6 +1175,8 @@ function injectLexScripts(target) {
 const crawler_1 = require("./crawler");
 // ... (existing code)
 electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
+    if (!singleInstanceLock)
+        return;
     // Configura userDataDir para módulos desacoplados do Electron
     const userData = electron_1.app.getPath('userData');
     (0, browser_manager_1.setUserDataDir)(userData);
@@ -1153,16 +1208,40 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         initTrainingCollector(userData);
     }
     catch ( /* módulo não disponível */_a) { /* módulo não disponível */ }
-    // Inicia backend Node.js separado (agent + browser + skills)
-    try {
-        yield (0, backend_client_1.startBackend)(userData);
-        // Forward de eventos do backend → renderer
+    // Forward de eventos do backend → renderer (inicializa uma vez)
+    if (!backendEventWiringReady) {
+        backendEventWiringReady = true;
         backend_client_1.backendEvents.on('agent-event', (event) => {
             console.log('[Agent Event via Backend]', event.type);
             if (mainWindow) {
                 mainWindow.webContents.send('agent-event', event);
             }
         });
+        backend_client_1.backendEvents.on('backend-log', (entry) => {
+            if (mainWindow) {
+                mainWindow.webContents.send('backend-log', entry);
+            }
+        });
+        backend_client_1.backendEvents.on('backend-status', (status) => __awaiter(void 0, void 0, void 0, function* () {
+            const st = String((status === null || status === void 0 ? void 0 : status.status) || '');
+            console.log('[Backend Status]', st, status);
+            if (mainWindow) {
+                mainWindow.webContents.send('backend-status', status);
+            }
+            // Sempre que backend reconecta/reinicia, reaplica config ativa.
+            if (st === 'connected' || st === 'restarted') {
+                try {
+                    yield (0, backend_client_1.syncConfigToBackend)((0, provider_config_1.getActiveConfig)());
+                }
+                catch (err) {
+                    console.warn('[Main] Falha ao re-sincronizar config após reconexão do backend:', (err === null || err === void 0 ? void 0 : err.message) || err);
+                }
+            }
+        }));
+    }
+    // Inicia backend Node.js separado (agent + browser + skills)
+    try {
+        yield (0, backend_client_1.startBackend)(userData);
         // Sincroniza config de provider/API key com o backend (já foi carregada no initStore)
         const cfg = (0, provider_config_1.getActiveConfig)();
         yield (0, backend_client_1.syncConfigToBackend)(cfg);
@@ -1616,6 +1695,15 @@ electron_1.ipcMain.handle('rag-legislacao-stats', () => __awaiter(void 0, void 0
 // Check PJe status via browser
 electron_1.ipcMain.handle('check-pje', () => __awaiter(void 0, void 0, void 0, function* () {
     var _a, _b;
+    if ((0, backend_client_1.isBackendAlive)()) {
+        try {
+            const backendStatus = yield (0, backend_client_1.rpcCall)('browser-check-pje');
+            return backendStatus;
+        }
+        catch (err) {
+            console.warn('[check-pje] Falha ao consultar backend, usando fallback local:', (err === null || err === void 0 ? void 0 : err.message) || err);
+        }
+    }
     try {
         const page = (0, browser_manager_1.getActivePage)();
         const url = (_a = page === null || page === void 0 ? void 0 : page.url()) !== null && _a !== void 0 ? _a : null;
@@ -1635,6 +1723,49 @@ electron_1.ipcMain.handle('check-pje', () => __awaiter(void 0, void 0, void 0, f
     }
     catch (_c) {
         return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+    }
+}));
+// Tenta trazer a aba de automação do browser para frente.
+electron_1.ipcMain.handle('browser-focus', () => __awaiter(void 0, void 0, void 0, function* () {
+    if ((0, backend_client_1.isBackendAlive)()) {
+        try {
+            return yield (0, backend_client_1.rpcCall)('browser-focus');
+        }
+        catch (err) {
+            console.warn('[browser-focus] Falha ao focar via backend, usando fallback local:', (err === null || err === void 0 ? void 0 : err.message) || err);
+        }
+    }
+    try {
+        yield (0, browser_manager_1.ensureBrowser)();
+        const page = (0, browser_manager_1.getActivePage)();
+        if (page) {
+            try {
+                yield page.bringToFront();
+            }
+            catch (err) {
+                console.warn('[browser-focus] bringToFront falhou (fallback local):', (err === null || err === void 0 ? void 0 : err.message) || err);
+            }
+        }
+        const status = yield (() => __awaiter(void 0, void 0, void 0, function* () {
+            var _a, _b;
+            const active = (0, browser_manager_1.getActivePage)();
+            const url = (_a = active === null || active === void 0 ? void 0 : active.url()) !== null && _a !== void 0 ? _a : null;
+            const isPje = typeof url === 'string' && url.includes('pje.');
+            let tribunalAtivo = null;
+            if (isPje && url) {
+                const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
+                if (match === null || match === void 0 ? void 0 : match[1])
+                    tribunalAtivo = match[1].toUpperCase();
+            }
+            const mem = (0, memory_1.getMemory)();
+            const [memoriaData, usuario] = yield Promise.all([mem.carregar(), mem.getUsuario()]);
+            const pref = ((_b = memoriaData.preferencias) === null || _b === void 0 ? void 0 : _b['tribunal_preferido']) || usuario.tribunal_preferido || null;
+            return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+        }))();
+        return { ok: !!page, status };
+    }
+    catch (err) {
+        return { ok: false, error: (err === null || err === void 0 ? void 0 : err.message) || String(err) };
     }
 }));
 // ============================================================================
@@ -2084,7 +2215,7 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
                 objetivo: objetivoFinal,
                 config: { maxIterations: maxIter, timeoutMs },
                 sessionId: sessionId || AGENT_SESSION_ID,
-            });
+            }, { timeoutMs: timeoutMs + 60000 });
             return { success: true, resposta };
         }
         catch (error) {
@@ -2125,13 +2256,58 @@ electron_1.ipcMain.handle('agent-cancel', () => __awaiter(void 0, void 0, void 0
 // ============================================================================
 // IPC: Plan & Orchestrator (Phase 1 AIOS)
 // ============================================================================
-electron_1.ipcMain.handle('ai-plan-execute', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { goal, sessionId }) {
+electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     const license = yield (0, license_1.checkLicense)();
     if (license.status === 'not_authenticated') {
         return { success: false, error: 'not_authenticated' };
     }
     if (license.status === 'trial_expired') {
         return { success: false, error: 'trial_expired' };
+    }
+    const raw = payload !== null && payload !== void 0 ? payload : {};
+    const sessionId = (raw === null || raw === void 0 ? void 0 : raw.sessionId) || AGENT_SESSION_ID;
+    const isLegacyPlan = Array.isArray(raw === null || raw === void 0 ? void 0 : raw.steps);
+    const inferredGoal = String((raw === null || raw === void 0 ? void 0 : raw.goal)
+        || ((_a = raw === null || raw === void 0 ? void 0 : raw.intent) === null || _a === void 0 ? void 0 : _a.description)
+        || ((_b = raw === null || raw === void 0 ? void 0 : raw.intent) === null || _b === void 0 ? void 0 : _b.objective)
+        || (raw === null || raw === void 0 ? void 0 : raw.description)
+        || '').trim();
+    // Legacy executePlan(sendChat.plan): executar no backend para evitar cair no browser/local do main.
+    if (isLegacyPlan && inferredGoal) {
+        const objetivoFinal = injectDisambiguationIfNeeded(inferredGoal);
+        const fallbackCfg = { maxIterations: 8, timeoutMs: 300000 };
+        if ((0, backend_client_1.isBackendAlive)()) {
+            try {
+                const resposta = yield (0, backend_client_1.rpcCall)('agent-run', {
+                    objetivo: objetivoFinal,
+                    config: fallbackCfg,
+                    sessionId,
+                }, { timeoutMs: 360000 });
+                return { success: true, result: resposta, mode: 'backend-agent' };
+            }
+            catch (error) {
+                console.warn('[ai-plan-execute] Falha no backend para plano legado, usando fallback local:', (error === null || error === void 0 ? void 0 : error.message) || error);
+            }
+        }
+        try {
+            const agent = yield ensureAgentInitialized();
+            const tenantConfig = agent.getDefaultTenantConfig();
+            const resposta = yield agent.runAgentLoop({
+                objetivo: objetivoFinal,
+                config: fallbackCfg,
+                tenantConfig,
+                sessionId,
+            });
+            return { success: true, result: resposta, mode: 'local-agent' };
+        }
+        catch (error) {
+            return { success: false, error: (error === null || error === void 0 ? void 0 : error.message) || String(error) };
+        }
+    }
+    const goal = String((raw === null || raw === void 0 ? void 0 : raw.goal) || '').trim();
+    if (!goal) {
+        return { success: false, error: 'goal ausente no payload' };
     }
     try {
         yield ensureAgentInitialized();
@@ -2183,7 +2359,7 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event_1, _a) => __awaiter(void 0,
             }
             mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('agent-event', { type: 'orchestrator', data: evt });
         });
-        const result = yield orchestrator.execute(goal, sessionId || AGENT_SESSION_ID);
+        const result = yield orchestrator.execute(goal, sessionId);
         return { success: true, result };
     }
     catch (error) {
