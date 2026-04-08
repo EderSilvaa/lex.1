@@ -22,7 +22,7 @@ import {
 } from '../backend-client';
 import { getActiveConfig } from '../provider-config';
 import type { AgentEvent } from '../agent/types';
-import { renderEvent, renderError, renderInfo, resetStreamingState } from './output';
+import { renderEvent, renderError, renderInfo, renderUserInput, resetStreamingState } from './output';
 import { tryRunCommand } from './commands';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
@@ -141,20 +141,18 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     const onEvent = (event: AgentEvent) => {
         switch (event.type) {
             case 'thinking':
-                // Spinner discreto sem mostrar conteúdo do pensamento
                 startSpinner('pensando');
                 break;
             case 'acting':
-                // Spinner com nome da skill enquanto executa
+                stopSpinner();
+                renderEvent(event);
                 startSpinner(event.skill);
                 break;
             case 'tool_result':
-                // Para spinner antes de renderizar o resultado
                 stopSpinner();
                 renderEvent(event);
                 break;
             case 'token':
-                // Primeiro token — para spinner e começa a stremar
                 if (spinTimer) stopSpinner();
                 renderEvent(event);
                 break;
@@ -225,7 +223,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         appendHistory(opts.userDataDir, line);
         ctrlCCount = 0;
 
-        // Tenta como comando slash
+        // Tenta como comando slash (não re-echoa comandos)
         const action = await tryRunCommand(line, { sessionId, userDataDir: opts.userDataDir });
         if (action) {
             if (action.type === 'exit') {
@@ -245,9 +243,10 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             return;
         }
 
-        // É um objetivo para o agente
+        // É um objetivo para o agente — re-echo estilizado + spinner
+        renderUserInput(line);
         running = true;
-        startSpinner('iniciando');
+        startSpinner('pensando');
 
         try {
             await rpcCall(
