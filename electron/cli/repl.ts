@@ -22,7 +22,7 @@ import {
 } from '../backend-client';
 import { getActiveConfig } from '../provider-config';
 import type { AgentEvent } from '../agent/types';
-import { renderEvent, renderError, renderInfo, renderUserInput, resetStreamingState } from './output';
+import { renderEvent, renderError, renderInfo, resetStreamingState } from './output';
 import { tryRunCommand } from './commands';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ const CYAN   = A('\x1b[36m');
 const GRAY   = A('\x1b[90m');
 const BOLD   = A('\x1b[1m');
 const RESET  = A('\x1b[0m');
-const YELLOW = A('\x1b[33m');
+
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -155,11 +155,12 @@ function printHeader(userDataDir: string): void {
         '',
         `  ${BOLD}${greeting}${RESET}`,
         '',
-        `     ${CYAN} /\\ ${RESET}`,
-        `     ${CYAN}/  \\${RESET}`,
-        `    ${CYAN}/ ${BOLD}--${RESET}${CYAN} \\${RESET}`,
-        `      ${BOLD}||${RESET}`,
-        `      ${BOLD}()${RESET}`,
+        `      ${CYAN}█  █${RESET}`,
+        `     ${CYAN}██  ██${RESET}`,
+        `    ${CYAN}███  ███${RESET}`,
+        `   ${CYAN}████  ████${RESET}`,
+        `  ${CYAN}█████  █████${RESET}`,
+        ` ${CYAN}██████  ██████${RESET}`,
         '',
         `  ${GRAY}${providerStr}${RESET}`,
         `  ${GRAY}${dirStr}${RESET}`,
