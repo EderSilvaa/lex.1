@@ -1,360 +1,50 @@
 /**
- * CLI — REPL interativo
+ * CLI — REPL interativo (Ink/React)
  *
- * Loop readline com:
- *  - Sessão persistente (mesmo sessionId ao longo da conversa)
- *  - Histórico de comandos em %APPDATA%/lex-test1/cli-history
- *  - Spinner ANSI durante thinking/acting
- *  - Ctrl+C cancela run em andamento; segundo Ctrl+C sai
- *  - Comandos /help /clear /sair /sessao /nova /config
+ * Substitui o loop readline + ANSI manual por um App React renderizado
+ * via Ink. Toda a lógica de sessão, spinner e eventos vive em ui/App.tsx.
  */
 
-import * as readline from 'readline';
-import * as fs from 'fs';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
+import React from 'react';
+import { render } from 'ink';
 import {
     startBackend,
     stopBackend,
     rpcCall,
-    backendEvents,
     syncConfigToBackend,
+    setBackendSilent,
 } from '../backend-client';
 import { getActiveConfig } from '../provider-config';
-import type { AgentEvent } from '../agent/types';
-import { renderEvent, renderError, renderInfo, resetStreamingState } from './output';
-import { tryRunCommand } from './commands';
-
-// ── ANSI helpers ────────────────────────────────────────────────────────────
-
-const supportsColor =
-    process.stdout.isTTY && process.env['NO_COLOR'] === undefined;
-const A = (s: string) => (supportsColor ? s : '');
-
-const CYAN   = A('\x1b[36m');
-const GRAY   = A('\x1b[90m');
-const BOLD   = A('\x1b[1m');
-const RESET  = A('\x1b[0m');
-
-
-// ── Spinner ──────────────────────────────────────────────────────────────────
-
-const SPIN_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-let spinTimer: NodeJS.Timeout | null = null;
-let spinIdx = 0;
-let spinLabel = '';
-
-function startSpinner(label: string): void {
-    if (!process.stdout.isTTY) return;
-    spinLabel = label;
-    spinIdx = 0;
-    spinTimer = setInterval(() => {
-        process.stdout.write(
-            `\r${CYAN}${SPIN_FRAMES[spinIdx % SPIN_FRAMES.length]}${RESET} ${GRAY}${spinLabel}${RESET}   `,
-        );
-        spinIdx++;
-    }, 100);
-}
-
-function stopSpinner(): void {
-    if (spinTimer) {
-        clearInterval(spinTimer);
-        spinTimer = null;
-        if (process.stdout.isTTY) {
-            process.stdout.write('\r\x1b[2K'); // apaga a linha do spinner
-        }
-    }
-}
-
-// ── History ──────────────────────────────────────────────────────────────────
-
-function historyPath(userDataDir: string): string {
-    return path.join(userDataDir, 'cli-history');
-}
-
-function loadHistory(userDataDir: string): string[] {
-    try {
-        const raw = fs.readFileSync(historyPath(userDataDir), 'utf8');
-        return raw.split('\n').filter(Boolean).reverse().slice(0, 500);
-    } catch {
-        return [];
-    }
-}
-
-function appendHistory(userDataDir: string, line: string): void {
-    try {
-        fs.appendFileSync(historyPath(userDataDir), line + '\n', 'utf8');
-    } catch { /* tolerante */ }
-}
-
-// ── Header ───────────────────────────────────────────────────────────────────
-
-// Stripa ANSI para calcular largura real visível
-function visibleLen(s: string): number {
-    return s.replace(/\x1b\[[0-9;]*m/g, '').length;
-}
-
-// Pad à direita ignorando ANSI
-function padRight(s: string, width: number): string {
-    const diff = width - visibleLen(s);
-    return diff > 0 ? s + ' '.repeat(diff) : s;
-}
-
-function trunc(s: string, max: number, fromLeft = false): string {
-    if (s.length <= max) return s;
-    return fromLeft ? '…' + s.slice(-(max - 1)) : s.slice(0, max - 1) + '…';
-}
-
-function printHeader(userDataDir: string): void {
-    // Largura dinâmica — usa terminal ou 80 como fallback, máximo 100
-    const termW   = Math.min(process.stdout.columns || 80, 100);
-    const BOX_W   = termW - 2;           // descontando bordas │ │
-    const LEFT_W  = Math.floor(BOX_W * 0.42);  // ~42% para o painel esquerdo
-    const RIGHT_W = BOX_W - LEFT_W - 1;  // -1 pelo divisor │
-
-    const boxLine = (left: string, right: string) => {
-        const l = padRight(left, LEFT_W);
-        const r = padRight(right, RIGHT_W);
-        return `${GRAY}\u2502${RESET}${l}${GRAY}\u2502${RESET}${r}${GRAY}\u2502${RESET}`;
-    };
-
-    // Lê config
-    let providerId = '';
-    let modelName  = '';
-    let userName   = process.env['USERNAME'] || process.env['USER'] || '';
-    try {
-        const cfgPath = path.join(userDataDir, 'cli-config.json');
-        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        providerId = cfg?.providerId ?? '';
-        const m = cfg?.agentModel ?? '';
-        modelName = m ? m.split('/').pop() ?? m : '';
-    } catch { /* ok */ }
-
-    let version = '';
-    try { version = require('../../package.json').version ?? ''; } catch { /* ok */ }
-
-    // ── Topo ─────────────────────────────────────────────────────────────────
-    const titleColored = ` ${BOLD}${CYAN}LEX${RESET} ${GRAY}v${version}${RESET} `;
-    const titlePlain   = ` LEX v${version} `;
-    const dashLeft     = 3;
-    const dashRight    = BOX_W - dashLeft - titlePlain.length;
-    const topLine =
-        `${GRAY}\u256d${RESET}` +
-        `${CYAN}${'─'.repeat(dashLeft)}${RESET}` +
-        titleColored +
-        `${CYAN}${'─'.repeat(Math.max(0, dashRight))}${RESET}` +
-        `${GRAY}\u256e${RESET}`;
-
-    // ── Painel esquerdo ───────────────────────────────────────────────────────
-    const maxL = LEFT_W - 3;
-    const greeting    = `Bem-vindo, ${userName || 'advogado'}!`;
-    const providerStr = trunc(`${providerId}${modelName ? ` · ${modelName}` : ''}`, maxL);
-    const dirStr      = trunc(userDataDir, maxL, true);
-
-    const leftLines = [
-        '',
-        `  ${BOLD}${greeting}${RESET}`,
-        '',
-        `      ${CYAN}█  █${RESET}`,
-        `     ${CYAN}██  ██${RESET}`,
-        `    ${CYAN}███  ███${RESET}`,
-        `   ${CYAN}████  ████${RESET}`,
-        `  ${CYAN}█████  █████${RESET}`,
-        ` ${CYAN}██████  ██████${RESET}`,
-        '',
-        `  ${GRAY}${providerStr}${RESET}`,
-        `  ${GRAY}${dirStr}${RESET}`,
-        '',
-    ];
-
-    // ── Painel direito ────────────────────────────────────────────────────────
-    const rightLines = [
-        '',
-        `  ${BOLD}${CYAN}Como comecar${RESET}`,
-        `  ${GRAY}/model <id>    trocar modelo${RESET}`,
-        `  ${GRAY}/provider <id> trocar provider${RESET}`,
-        `  ${GRAY}/key <apikey>  salvar chave${RESET}`,
-        `  ${GRAY}/nova          nova sessao${RESET}`,
-        `  ${GRAY}/help          todos comandos${RESET}`,
-        '',
-        `  ${BOLD}${CYAN}Sessoes recentes${RESET}`,
-        `  ${GRAY}Nenhuma sessao ainda${RESET}`,
-        '',
-        '',
-    ];
-
-    // ── Fundo ─────────────────────────────────────────────────────────────────
-    const bottomLine =
-        `${GRAY}\u2570${'─'.repeat(BOX_W)}\u256f${RESET}`;
-
-    process.stdout.write('\n');
-    process.stdout.write(topLine + '\n');
-    const rows = Math.max(leftLines.length, rightLines.length);
-    for (let i = 0; i < rows; i++) {
-        process.stdout.write(boxLine(leftLines[i] ?? '', rightLines[i] ?? '') + '\n');
-    }
-    process.stdout.write(bottomLine + '\n');
-    process.stdout.write('\n');
-    // Hint visual para a área de input
-    process.stdout.write(`  ${GRAY}mensagem:${RESET}\n`);
-}
-
-// ── REPL principal ────────────────────────────────────────────────────────────
+import { setInteractiveMode } from './output';
+import App from './ui/App';
+import type { SessionPreview } from './ui/Header';
 
 export interface ReplOptions {
     userDataDir: string;
+    inElectron?: boolean;
 }
 
 export async function runRepl(opts: ReplOptions): Promise<number> {
+    setBackendSilent(true);
     await startBackend(opts.userDataDir);
-    // Sincroniza provider/model/key com o backend após connect/attach
     await syncConfigToBackend(getActiveConfig());
 
-    let sessionId = randomUUID();
-    let running = false;       // agent-run em andamento
-    let ctrlCCount = 0;        // primeiro cancela, segundo sai
+    // Rota renderInfo / renderError pelo message-bus → Ink App
+    setInteractiveMode(true);
 
-    printHeader(opts.userDataDir);
+    let initialSessions: SessionPreview[] = [];
+    try { initialSessions = await rpcCall('session-list', {}); } catch { /* ok */ }
 
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        prompt: `${CYAN}>${RESET} `,
-        history: loadHistory(opts.userDataDir),
-        historySize: 500,
-        terminal: true,
-    });
+    const { waitUntilExit } = render(
+        React.createElement(App, {
+            userDataDir: opts.userDataDir,
+            initialSessions,
+            inElectron: opts.inElectron,
+        }),
+    );
 
-    // Evento de agent — spinner + renderização
-    const onEvent = (event: AgentEvent) => {
-        switch (event.type) {
-            case 'thinking':
-                startSpinner('pensando');
-                break;
-            case 'acting':
-                stopSpinner();
-                renderEvent(event);
-                startSpinner(event.skill);
-                break;
-            case 'tool_result':
-                stopSpinner();
-                renderEvent(event);
-                break;
-            case 'token':
-                if (spinTimer) stopSpinner();
-                renderEvent(event);
-                break;
-            case 'streaming_start':
-                stopSpinner();
-                renderEvent(event);
-                break;
-            case 'completed':
-            case 'error':
-            case 'cancelled':
-            case 'timeout':
-                stopSpinner();
-                renderEvent(event);
-                break;
-            default:
-                renderEvent(event);
-        }
-    };
+    await waitUntilExit();
 
-    backendEvents.on('agent-event', onEvent);
-
-    const cleanup = async () => {
-        backendEvents.off('agent-event', onEvent);
-        stopSpinner();
-        resetStreamingState();
-        rl.close();
-        try { await stopBackend(); } catch { /* ignore */ }
-    };
-
-    // Ctrl+C: cancela run ativo ou sai
-    rl.on('SIGINT', async () => {
-        if (running) {
-            ctrlCCount++;
-            if (ctrlCCount === 1) {
-                stopSpinner();
-                renderInfo('cancelando… (ctrl+c novamente para forçar saída)');
-                try { await rpcCall('agent-cancel', {}); } catch { /* ignore */ }
-            } else {
-                await cleanup();
-                process.exit(130);
-            }
-            return;
-        }
-        // Nenhum run ativo — sai direto
-        process.stdout.write('\n');
-        await cleanup();
-        process.exit(0);
-    });
-
-    rl.on('close', async () => {
-        await cleanup();
-        process.exit(0);
-    });
-
-    // Loop de input
-    rl.prompt();
-
-    rl.on('line', async (input) => {
-        const line = input.trim();
-        rl.pause();
-
-        if (!line) {
-            rl.resume();
-            rl.prompt();
-            return;
-        }
-
-        appendHistory(opts.userDataDir, line);
-        ctrlCCount = 0;
-
-        // Tenta como comando slash (não re-echoa comandos)
-        const action = await tryRunCommand(line, { sessionId, userDataDir: opts.userDataDir });
-        if (action) {
-            if (action.type === 'exit') {
-                await cleanup();
-                process.exit(0);
-            }
-            if (action.type === 'clear') {
-                process.stdout.write('\x1bc'); // reset terminal
-                printHeader(opts.userDataDir);
-            }
-            if (action.type === 'new-session') {
-                sessionId = randomUUID();
-                renderInfo(`nova sessão: ${sessionId.slice(0, 8)}`);
-            }
-            rl.resume();
-            rl.prompt();
-            return;
-        }
-
-        running = true;
-        startSpinner('pensando');
-
-        try {
-            await rpcCall(
-                'agent-run',
-                { objetivo: line, config: {}, sessionId },
-                { timeoutMs: 12 * 60 * 1000 + 60_000 },
-            );
-        } catch (err: any) {
-            stopSpinner();
-            renderError(err?.message || String(err));
-        } finally {
-            running = false;
-            ctrlCCount = 0;
-            stopSpinner();
-        }
-
-        rl.resume();
-        rl.prompt();
-    });
-
-    // Mantém o processo vivo enquanto readline estiver aberto
-    return new Promise<number>((resolve) => {
-        rl.once('close', () => resolve(0));
-    });
+    try { await stopBackend(); } catch { /* ignore */ }
+    return 0;
 }

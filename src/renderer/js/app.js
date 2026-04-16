@@ -991,6 +991,33 @@ async function initAuth() {
 document.addEventListener('DOMContentLoaded', () => {
     initAuth();
 
+    // Deep-link: main.ts envia 'navigate-to' quando Electron é aberto com --view=<id>
+    if (window.appNav) {
+        window.appNav.onNavigateTo((viewId) => {
+            const btn = document.getElementById('nav-' + viewId);
+            if (btn) btn.click();
+        });
+
+        // CLI → UI: payload com ação específica (abrir arquivo, destacar nó do brain, etc.)
+        window.appNav.onUiPayload((payload) => {
+            if (!payload) return;
+            try {
+                if (payload.action === 'open-file' && payload.path) {
+                    const btn = document.getElementById('nav-arquivos');
+                    if (btn) btn.click();
+                    window.dispatchEvent(new CustomEvent('lex-open-file', { detail: { path: payload.path } }));
+                }
+                if (payload.action === 'highlight-brain' && payload.nodeId) {
+                    const btn = document.getElementById('nav-brain');
+                    if (btn) btn.click();
+                    window.dispatchEvent(new CustomEvent('lex-highlight-brain', { detail: { nodeId: payload.nodeId } }));
+                }
+            } catch (err) {
+                console.warn('[UI] Payload error:', err);
+            }
+        });
+    }
+
     if (window.updaterApi) {
         window.updaterApi.onUpdateDownloaded(() => {
             const banner = document.createElement('div');
@@ -1065,6 +1092,7 @@ const views = {
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null,
     'nav-brain': document.querySelector('.brain-wrapper'),
+    'nav-terminal': document.querySelector('.terminal-wrapper'),
     'nav-lotes': document.querySelector('.lotes-wrapper'),
     'nav-settings': document.querySelector('.settings-wrapper')
 };
@@ -1101,11 +1129,30 @@ navItems.forEach(item => {
             if (typeof initBrainView === 'function') initBrainView();
         }
 
+        // Init terminal view
+        if (viewId === 'nav-terminal') {
+            if (typeof initTerminalView === 'function') initTerminalView();
+        }
+
     });
 });
 
-// Initialize: Ensure Chat is visible by default
-if (views['nav-chat']) views['nav-chat'].classList.remove('hidden');
+// Initialize: Ensure Terminal is visible by default (chat widget is hidden)
+if (views['nav-terminal']) {
+    views['nav-terminal'].classList.remove('hidden');
+    // terminal.js loads AFTER app.js — the typeof check must be inside the
+    // callback, otherwise initTerminalView doesn't exist yet and this block
+    // is skipped entirely, leaving a blank terminal on first open.
+    setTimeout(() => {
+        if (typeof initTerminalView === 'function') {
+            initTerminalView();
+            setTimeout(() => {
+                if (typeof fitActiveTerminal === 'function') fitActiveTerminal();
+            }, 300);
+        }
+    }, 200);
+}
+if (views['nav-chat']) views['nav-chat'].classList.add('hidden');
 
 function normalizeSystemText(rawText) {
     const asText = typeof rawText === 'string' ? rawText : String(rawText || '');

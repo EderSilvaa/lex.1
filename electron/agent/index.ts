@@ -5,7 +5,7 @@
  */
 
 // Core
-export { runAgentLoop, cancelAgentLoop, getAgentState, listActiveRuns, agentEmitter } from './loop';
+export { runAgentLoop, cancelAgentLoop, resolveUserResponse, getAgentState, listActiveRuns, agentEmitter } from './loop';
 export { think } from './think';
 export { critic } from './critic';
 export {
@@ -38,7 +38,7 @@ export { withRetry, withAIRetry, withPJeRetry } from './retry';
 export { UsageTracker, getUsageTracker } from './usage-tracker';
 
 // Session Manager (A2)
-export { SessionManager, getSessionManager } from './session';
+export { SessionManager, getSessionManager, initSessionManager } from './session';
 
 // Action Queue (C2)
 export { ActionQueue, getActionQueue } from './action-queue';

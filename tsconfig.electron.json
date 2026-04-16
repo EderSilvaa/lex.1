@@ -4,11 +4,12 @@
         "outDir": "./dist-electron",
         "rootDir": "./electron",
         "module": "commonjs",
-        "target": "es6",
+        "target": "es2020",
         "lib": [
             "es2020",
             "dom"
         ],
+        "jsx": "react",
         "types": [
             "node",
             "electron"

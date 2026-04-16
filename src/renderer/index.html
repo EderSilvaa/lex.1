@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="styles/lotes.css">
     <link rel="stylesheet" href="styles/brain.css">
     <link rel="stylesheet" href="styles/quill.snow.css">
+    <link rel="stylesheet" href="styles/xterm.css">
+    <link rel="stylesheet" href="styles/terminal.css">
 
 </head>
 
@@ -32,7 +34,7 @@
             </div>
 
             <nav class="nav-menu">
-                <button class="nav-item active" id="nav-chat" title="Chat">
+                <button class="nav-item" id="nav-chat" title="Chat" style="display:none">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -60,6 +62,14 @@
                         <line x1="17.66" y1="6.34" x2="19.78" y2="4.22"></line>
                     </svg>
                     <span class="label">Brain</span>
+                </button>
+                <button class="nav-item active" id="nav-terminal" title="Terminal">
+                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                        fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="4 17 10 11 4 5"></polyline>
+                        <line x1="12" y1="19" x2="20" y2="19"></line>
+                    </svg>
+                    <span class="label">Terminal</span>
                 </button>
                 <button class="nav-item" id="nav-lotes" title="Producao em Lote">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
@@ -102,7 +112,7 @@
 
         <!-- Main Content (Chat Only + Floating Widget) -->
         <main class="main-content">
-            <div class="chat-wrapper">
+            <div class="chat-wrapper hidden">
                 <div class="chat-container">
                     <div class="greeting-section">
                         <h1>Ola, Eder Silva</h1>
@@ -579,6 +589,19 @@
                 </div>
             </div>
 
+            <!-- Terminal View -->
+            <div class="terminal-wrapper">
+                <div class="terminal-session-bar">
+                    <div id="terminal-tabs" class="terminal-tabs"></div>
+                    <button id="terminal-new-session" class="terminal-new-btn" title="Nova sessao">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="terminal-container"></div>
+            </div>
+
             <div class="lotes-wrapper hidden">
                 <div class="lotes-header">
                     <button id="btn-back-lotes" class="icon-btn hidden" title="Voltar">
@@ -801,11 +824,15 @@
     <script src="js/marked.min.js"></script>
     <script src="js/purify.min.js"></script>
     <script src="js/quill.min.js"></script>
+    <script src="js/xterm.js"></script>
+    <script src="js/xterm-addon-fit.js"></script>
+    <script src="js/xterm-addon-web-links.js"></script>
     <script src="js/app.js"></script>
     <script src="js/file-manager.js"></script>
     <script src="js/lotes.js"></script>
     <script src="js/force-graph.min.js"></script>
     <script src="js/brain.js"></script>
+    <script src="js/terminal.js"></script>
 </body>
 
 </html>

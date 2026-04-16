@@ -207,6 +207,24 @@ function cmdSet(args: string[], userDataDir: string): number {
     return 1;
 }
 
+/**
+ * Verifica se o provider ativo tem as credenciais mínimas para funcionar.
+ * Retorna null se OK, ou uma string de erro acionável se precisar de setup.
+ */
+export function checkProviderReady(): string | null {
+    const { getActiveConfig } = require('../provider-config') as typeof import('../provider-config');
+    const cfg = getActiveConfig();
+    if (cfg.providerId === 'ollama') return null; // local — sem chave necessária
+
+    if (!cfg.apiKey) {
+        return [
+            `Nenhuma API key configurada (provider: ${cfg.providerId}).`,
+            `Cole sua chave aqui e pressione Enter — o LEX salva automaticamente.`,
+        ].join('\n');
+    }
+    return null;
+}
+
 function cmdListProviders(): number {
     process.stdout.write('providers disponíveis:\n');
     for (const [id, preset] of Object.entries(PROVIDER_PRESETS)) {

@@ -188,6 +188,9 @@ export interface Skill {
     // Timeout em ms para esta skill. Sobrescreve o default da categoria.
     timeoutMs?: number;
 
+    // Marcada como deprecated — será removida em milestone futura.
+    deprecated?: boolean;
+
     // Execução
     execute: (params: Record<string, any>, context: AgentContext) => Promise<SkillResult>;
 }
@@ -229,7 +232,8 @@ export type AgentEvent =
     | { type: 'timeout' }
     | { type: 'streaming_start' }
     | { type: 'token'; token: string }
-    | { type: 'privacy_stats'; stats: Array<{ category: string; count: number }> };
+    | { type: 'privacy_stats'; stats: Array<{ category: string; count: number }> }
+    | { type: 'orchestrator'; data: OrchestratorEvent };
 
 // ============================================================================
 // PLANNING & ORCHESTRATION (Phase 1 AIOS)
@@ -321,6 +325,7 @@ export interface AgentLoopOptions {
     config?: Partial<AgentConfig>;
     tenantConfig?: TenantConfig;
     sessionId?: string;
+    runId?: string;
     agentSpec?: AgentSpec;
     parentAbort?: AbortSignal;
 }

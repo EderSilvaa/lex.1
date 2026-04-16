@@ -15,8 +15,9 @@ export const osListar: Skill = {
     parametros: {
         caminho: {
             tipo: 'string',
-            descricao: 'Caminho da pasta a listar. Use "~" para home, "downloads" para Downloads, "desktop" para Desktop, "documentos" para Documents. Ou caminho absoluto.',
-            obrigatorio: true
+            descricao: 'Caminho da pasta a listar. Atalhos: "downloads", "desktop", "documentos", "imagens", "~" (home). Ou caminho absoluto. Se omitido, lista a pasta home do usuário.',
+            obrigatorio: false,
+            default: '~'
         }
     },
 
@@ -28,7 +29,7 @@ export const osListar: Skill = {
     ],
 
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {
-        let caminho = String(params['caminho'] || '').trim();
+        let caminho = String(params['caminho'] || '~').trim();
 
         // Atalhos amigáveis
         const pastas = pastasConhecidas().dados!;

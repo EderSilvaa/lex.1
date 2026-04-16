@@ -9,7 +9,6 @@
  *   Se app reinicia → load() verifica checkpoint → retoma do batch seguinte
  */
 
-import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Plan, SubTask } from './types';
@@ -41,8 +40,24 @@ interface CheckpointSubTask {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CHECKPOINTS_DIR = () =>
-    path.join(app.getPath('userData'), 'checkpoints');
+let _userDataDir: string = '';
+
+export function initCheckpointStore(userDataDir: string): void {
+    _userDataDir = userDataDir;
+}
+
+function getCheckpointsDir(): string {
+    if (_userDataDir) return path.join(_userDataDir, 'checkpoints');
+    // Fallback: tenta app.getPath do Electron (modo GUI)
+    try {
+        const { app } = require('electron') as typeof import('electron');
+        return path.join(app.getPath('userData'), 'checkpoints');
+    } catch {
+        return path.join(process.env['APPDATA'] || process.env['HOME'] || '.', 'lex-checkpoints');
+    }
+}
+
+const CHECKPOINTS_DIR = () => getCheckpointsDir();
 
 const MAX_CHECKPOINTS = 20;
 

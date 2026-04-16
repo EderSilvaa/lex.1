@@ -49,23 +49,24 @@ export class PtyManager extends EventEmitter {
     }
 
     /** Cria uma sessão interativa de terminal */
-    async createSession(id: string, opts?: { shell?: string; cwd?: string; cols?: number; rows?: number }): Promise<void> {
+    async createSession(id: string, opts?: { shell?: string; args?: string[]; cwd?: string; cols?: number; rows?: number; env?: Record<string, string> }): Promise<void> {
         if (this.sessions.has(id)) {
             throw new Error(`Session "${id}" already exists`);
         }
 
         const pty = await ensurePty();
         const shell = opts?.shell || this.getDefaultShell();
+        const args = opts?.args || [];
         const cwd = opts?.cwd || os.homedir();
         const cols = opts?.cols || 120;
         const rows = opts?.rows || 30;
 
-        const ptyProcess = pty.spawn(shell, [], {
+        const ptyProcess = pty.spawn(shell, args, {
             name: 'xterm-256color',
             cols,
             rows,
             cwd,
-            env: { ...process.env } as Record<string, string>,
+            env: { ...process.env, ...(opts?.env || {}) } as Record<string, string>,
         });
 
         const session: PtySession = {

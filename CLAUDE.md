@@ -83,17 +83,66 @@ Heartbeat: `startHeartbeat()` roda a cada 6h, faz `fetch(url)` com cookies para 
 | `resolve-selector.ts` | ✅ Integrado | Waterfall de 3 tiers (learned → hardcoded → discovery). Usado por 4 skills PJe: consultar, preencher, documentos, movimentacoes |
 | `captcha.ts` | ✅ Integrado | Detecção de CAPTCHA (DOM heuristics) + auto-solve via vision model. PJe → pausa para usuário, gov → auto-solve |
 
+### MCP — Model Context Protocol (`electron/mcp-manager.ts`)
+
+Carrega servers MCP externos (stdio) a partir de `~/.lex/mcp.json` e multiplexa tools:
+- `init()` — spawna servers declarados (idempotente)
+- `listTools()` — agrega tools prefixadas (`server__tool_name`)
+- `callTool(name, args)` — roteia para o server correto
+
+**Provider-agnóstico:** tools MCP são convertidos para formato Vercel AI SDK e funcionam com qualquer provider que suporte tool-calling.
+
+**Config:** `~/.lex/mcp.json` (template criado em `~/.lex/mcp.example.json` pelo `scripts/setup-mcp-deps.js`).
+
+**Importante:** MCP tools NÃO são injetados no think loop (que tem seu próprio sistema de skills). Só são usados quando `callAI({ useMcpTools: true })` é passado explicitamente.
+
+### CLI (`electron/cli/`)
+
+CLI standalone que roda como processo separado, conecta no backend via WebSocket. Funciona dentro do terminal embutido do Electron ou em terminal externo do SO.
+
+| Arquivo | Papel |
+|---|---|
+| `index.ts` | Entry point: parseia args, roda REPL ou one-shot. Aceita `--in-electron` |
+| `repl.ts` | REPL interativo com Ink/React |
+| `one-shot.ts` | Modo single-command (`lex "pergunta"`) |
+| `commands.ts` | Comandos `/model`, `/provider`, `/key`, `/schedule`, etc. |
+| `output.ts` | Formatação: markdown, spinner, bullet points, streaming |
+| `args.ts` | Parser de argumentos CLI |
+| `config.ts` | Config de provider/modelo para CLI |
+| `message-bus.ts` | EventEmitter para comunicação interna CLI |
+| `prompt-select.ts` | Seleção interativa de prompts |
+| `schedule.ts` | Comandos de scheduling via CLI |
+| `ui-bridge.ts` | Helper `uiNavigate(tab, payload?)` para controlar o Electron |
+| `ui/App.tsx` | UI principal Ink/React (welcome box, streaming, events) |
+| `ui/Header.tsx` | Header com logo LEX |
+| `ui/EventItem.tsx` | Renderização de eventos do agente |
+| `ui/Spinner.tsx` | Spinner animado |
+
+### Terminal Embutido (`src/renderer/js/terminal.js`)
+
+Terminal xterm.js integrado no Electron como view padrão (chat widget está oculto).
+
+**Boot order crítico:**
+1. `main.ts` registra IPC handlers (`terminal-create-lex`, `terminal-resize`, etc.) **logo após `createWindow()`**, antes de plugins/scheduler
+2. `app.js` agenda `initTerminalView()` com `setTimeout(200ms)` — o `typeof` check está **dentro** do callback (terminal.js carrega depois de app.js)
+3. `terminal.js` usa `ResizeObserver` no wrapper para fit quando container ganha dimensões reais
+
+**Sessões:** múltiplas tabs (LEX CLI ou shell do SO). PTY via `node-pty` no main process.
+
 ### Skills (`electron/skills/`)
 ```
 skills/
-  pje/        abrir, agir, consultar, movimentacoes, documentos, navegar, preencher
+  pje/        browser-use (MCP canonical), abrir, agir, consultar, movimentacoes,
+              documentos, navegar, preencher (legacy — auto-detecta via hasMcpBrowser())
   os/         arquivos, clipboard, escrever, fetch, listar, sistema
-  pc/         agir (nut-js: mouse/teclado) — TODO: avaliar skills específicas (screenshot, abrir programa, etc.)
+  pc/         agir (nut-js: mouse/teclado)
   documentos/ analisar, gerar
   browser/    get-state, extract, scroll, click, navigate, type, screenshot, close-tab, switch-tab
   pesquisa/   jurisprudencia
 ```
 Cada skill exporta `{ nome, descricao, execute(params, ctx) }`. O `executor.ts` as registra e despacha.
+
+**PJe auto-routing:** `electron/skills/pje/index.ts` detecta se MCP browser-use está configurado. Se sim, registra apenas `pje_browser_use` + utilitários. Se não, registra as 8 skills Playwright legacy.
 
 ### Providers / BYOK (`electron/provider-config.ts`)
 Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getActiveConfig()` / `getActiveVisionModel()`. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
@@ -188,3 +237,7 @@ Sistema extensível de plugins para integrações externas com OAuth 2.0 e geren
 - **`keepAlive: true`** — impede kill prematuro do Chrome em Electron. `killPreviousChrome()` mata instâncias anteriores pelo PID salvo em `chrome.pid`.
 - **IPC:** renderer → main via `window.electronAPI.*` (exposto no preload). Main → renderer via `mainWindow.webContents.send(...)`.
 - **Build separado:** `tsconfig.json` compila o renderer para `dist/`; `tsconfig.electron.json` compila o processo principal para `dist-electron/`.
+- **Boot order no main.ts:** `createWindow()` → terminal IPC handlers → backend → plugins → scheduler. Terminal DEVE ser registrado antes de qualquer init async pesado, pois o renderer chama `terminal-create-lex` ~200ms após carregar.
+- **Script load order no renderer:** `app.js` carrega ANTES de `terminal.js`. Qualquer referência a funções de `terminal.js` em `app.js` deve estar dentro de callbacks (setTimeout, event handlers), não no top-level.
+- **MCP tools e think loop:** NÃO injetar MCP tools no think loop. O think loop espera resposta XML (`<pensamento>`, `<resposta>`). MCP tools devem ser usados via `callAI({ useMcpTools: true })` apenas em paths que NÃO passam pelo think loop.
+- **Retry 529:** `electron/agent/retry.ts` inclui status 529 (Anthropic overloaded) e string "overloaded" nos retryable. `withAIRetry` é usado em todas as chamadas LLM.

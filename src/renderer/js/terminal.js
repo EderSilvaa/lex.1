@@ -89,11 +89,13 @@ function initTerminalView() {
 
 /**
  * Cria uma nova sessão de terminal.
+ * @param {{ mode?: 'lex'|'shell' }} [opts] — 'lex' (default) roda o LEX CLI, 'shell' roda o shell do SO.
  */
-async function createTerminalSession() {
+async function createTerminalSession(opts = {}) {
+    const mode = opts.mode || 'lex';
     sessionCounter++;
     const sessionId = `term-${sessionCounter}-${Date.now()}`;
-    const displayName = `Terminal ${sessionCounter}`;
+    const displayName = mode === 'lex' ? `LEX ${sessionCounter}` : `Shell ${sessionCounter}`;
 
     // Cria instância xterm.js
     const terminal = new Terminal({
@@ -117,6 +119,36 @@ async function createTerminalSession() {
         // Addon opcional
     }
 
+    // Copy/paste: Ctrl+C copia se houver seleção (senão cai pro SIGINT default),
+    // Ctrl+V cola do clipboard, Ctrl+Shift+C/V sempre copia/cola.
+    terminal.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+        const ctrl = e.ctrlKey || e.metaKey;
+        if (!ctrl) return true;
+
+        // Ctrl+Shift+C / Ctrl+C com seleção → copiar
+        if ((e.key === 'C' || e.key === 'c') && (e.shiftKey || terminal.hasSelection())) {
+            const sel = terminal.getSelection();
+            if (sel) {
+                try { navigator.clipboard.writeText(sel); } catch (_) { /* ignore */ }
+                e.preventDefault();
+                return false;
+            }
+            // Sem seleção + sem shift → deixa Ctrl+C ir como SIGINT pro PTY
+        }
+
+        // Ctrl+V / Ctrl+Shift+V → colar
+        if ((e.key === 'V' || e.key === 'v')) {
+            navigator.clipboard.readText().then((text) => {
+                if (text) window.terminalApi.write(sessionId, text);
+            }).catch(() => { /* ignore */ });
+            e.preventDefault();
+            return false;
+        }
+
+        return true;
+    });
+
     // Guarda a sessão
     sessions[sessionId] = {
         terminal,
@@ -134,7 +166,9 @@ async function createTerminalSession() {
     const rows = Math.floor((container?.clientHeight || 400) / 18);
 
     try {
-        const result = await window.terminalApi.create(sessionId, { cols, rows });
+        const result = mode === 'lex'
+            ? await window.terminalApi.createLex(sessionId, { cols, rows })
+            : await window.terminalApi.create(sessionId, { cols, rows });
         if (!result.success) {
             terminal.write(`\x1b[31mErro ao criar terminal: ${result.error}\x1b[0m\r\n`);
         }
@@ -149,10 +183,15 @@ async function createTerminalSession() {
         }
     });
 
-    // Fit após montar
+    // Fit após montar — duplo: imediato + delayed para garantir dimensões corretas
     requestAnimationFrame(() => {
         fitAddon.fit();
         terminal.focus();
+        // Re-fit após estabilizar (fonts carregadas, layout finalizado)
+        setTimeout(() => {
+            fitAddon.fit();
+            terminal.focus();
+        }, 200);
     });
 
     updateTabUI();
@@ -191,6 +230,17 @@ function switchToSession(sessionId) {
         wrapper.style.height = '100%';
         container.appendChild(wrapper);
         session.terminal.open(wrapper);
+
+        // xterm pode abrir com container de dimensão 0 (layout ainda calculando).
+        // ResizeObserver garante o fit assim que o container tiver tamanho real.
+        const ro = new ResizeObserver(() => {
+            if (wrapper.clientWidth > 0 && wrapper.clientHeight > 0) {
+                session.fitAddon.fit();
+                session.terminal.focus();
+                ro.disconnect();
+            }
+        });
+        ro.observe(wrapper);
     }
 
     requestAnimationFrame(() => {
@@ -275,7 +325,8 @@ function fitActiveTerminal() {
         // Notifica o PTY do novo tamanho
         const dims = session.fitAddon.proposeDimensions();
         if (dims) {
-            window.terminalApi.resize(activeSessionId, dims.cols, dims.rows);
+            window.terminalApi.resize(activeSessionId, dims.cols, dims.rows)
+                .catch(() => {}); // IPC handler may not be registered yet during boot
         }
     } catch (e) {
         // Ignore errors during fit (element not visible, etc.)

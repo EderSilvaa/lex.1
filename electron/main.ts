@@ -974,6 +974,15 @@ function createWindow() {
     // Setup Agent event forwarding to renderer (async, no need to wait)
     setupAgentEventForwarding().catch(err => console.error('[Agent] Failed to setup events:', err));
 
+    // Deep-link: --view=<tab> abre direto na aba correta (ex: --view=brain)
+    const viewArg = process.argv.find(a => a.startsWith('--view='));
+    if (viewArg) {
+        const viewId = viewArg.split('=')[1];
+        mainWindow.webContents.once('did-finish-load', () => {
+            mainWindow?.webContents.send('navigate-to', viewId);
+        });
+    }
+
     // Modo 24/7: minimiza para bandeja em vez de fechar
     mainWindow.on('close', (event) => {
         if (trayModeActive) {
@@ -1245,6 +1254,93 @@ app.whenReady().then(async () => {
     createWindow();
     registerCrawlerHandlers();
 
+    // Terminal embutido (xterm.js + node-pty)
+    // Registrado logo após createWindow — o renderer chama createLex nos primeiros 200ms.
+    try {
+        const { initTerminal, getPtyManager } = await import('./terminal');
+        initTerminal();
+        const ptyMgr = getPtyManager();
+
+        ipcMain.handle('terminal-create', async (_, opts) => {
+            try {
+                await ptyMgr.createSession(opts.sessionId, opts);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-write', async (_, { sessionId, data }) => {
+            try {
+                ptyMgr.write(sessionId, data);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-resize', async (_, { sessionId, cols, rows }) => {
+            try {
+                ptyMgr.resize(sessionId, cols, rows);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-kill', async (_, sessionId) => {
+            try {
+                ptyMgr.killSession(sessionId);
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        ipcMain.handle('terminal-list-sessions', async () => {
+            return { success: true, data: ptyMgr.listSessions() };
+        });
+
+        // Sessão especial: roda o LEX CLI dentro do PTY
+        ipcMain.handle('terminal-create-lex', async (_, opts) => {
+            try {
+                const path = await import('path');
+                const cliEntry = path.join(app.getAppPath(), 'bin', 'lex.js');
+                const shell = process.platform === 'win32' ? 'node.exe' : 'node';
+                await ptyMgr.createSession(opts.sessionId, {
+                    shell,
+                    args: [cliEntry, '--in-electron'],
+                    cwd: app.getAppPath(),
+                    cols: opts.cols,
+                    rows: opts.rows,
+                    env: {
+                        LEX_IN_ELECTRON: '1',
+                        NODE_OPTIONS: '--max-old-space-size=4096',
+                    },
+                });
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
+        // Forward PTY events para renderer
+        ptyMgr.on('data', (sessionId: string, data: string) => {
+            mainWindow?.webContents.send('terminal-data', { sessionId, data });
+        });
+
+        ptyMgr.on('exit', (sessionId: string, exitCode: number) => {
+            mainWindow?.webContents.send('terminal-exit', { sessionId, exitCode });
+        });
+
+        // Cleanup no quit
+        app.on('before-quit', () => ptyMgr.killAll());
+
+        console.log('[Terminal] IPC handlers registrados');
+    } catch (err: any) {
+        console.error('[Terminal] Falha ao inicializar:', err.message);
+    }
+
     initRouteMemory(userData);
     initSelectorMemory(userData);
 
@@ -1276,6 +1372,14 @@ app.whenReady().then(async () => {
         backendEvents.on('backend-log', (entry: any) => {
             if (mainWindow) {
                 mainWindow.webContents.send('backend-log', entry);
+            }
+        });
+
+        // CLI → UI: navegar para aba e/ou abrir recurso específico
+        backendEvents.on('ui-navigate', ({ tab, payload }: { tab?: string; payload?: any }) => {
+            if (mainWindow) {
+                if (tab) mainWindow.webContents.send('navigate-to', tab);
+                if (payload) mainWindow.webContents.send('ui-payload', payload);
             }
         });
 
@@ -1341,69 +1445,6 @@ app.whenReady().then(async () => {
         await initScheduler();
     } catch (err: any) {
         console.error('[Scheduler] Falha ao inicializar:', err.message);
-    }
-
-    // Terminal embutido (xterm.js + node-pty)
-    try {
-        const { initTerminal, getPtyManager } = await import('./terminal');
-        initTerminal();
-        const ptyMgr = getPtyManager();
-
-        ipcMain.handle('terminal-create', async (_, opts) => {
-            try {
-                await ptyMgr.createSession(opts.sessionId, opts);
-                return { success: true };
-            } catch (err: any) {
-                return { success: false, error: err.message };
-            }
-        });
-
-        ipcMain.handle('terminal-write', async (_, { sessionId, data }) => {
-            try {
-                ptyMgr.write(sessionId, data);
-                return { success: true };
-            } catch (err: any) {
-                return { success: false, error: err.message };
-            }
-        });
-
-        ipcMain.handle('terminal-resize', async (_, { sessionId, cols, rows }) => {
-            try {
-                ptyMgr.resize(sessionId, cols, rows);
-                return { success: true };
-            } catch (err: any) {
-                return { success: false, error: err.message };
-            }
-        });
-
-        ipcMain.handle('terminal-kill', async (_, sessionId) => {
-            try {
-                ptyMgr.killSession(sessionId);
-                return { success: true };
-            } catch (err: any) {
-                return { success: false, error: err.message };
-            }
-        });
-
-        ipcMain.handle('terminal-list-sessions', async () => {
-            return { success: true, data: ptyMgr.listSessions() };
-        });
-
-        // Forward PTY events para renderer
-        ptyMgr.on('data', (sessionId: string, data: string) => {
-            mainWindow?.webContents.send('terminal-data', { sessionId, data });
-        });
-
-        ptyMgr.on('exit', (sessionId: string, exitCode: number) => {
-            mainWindow?.webContents.send('terminal-exit', { sessionId, exitCode });
-        });
-
-        // Cleanup no quit
-        app.on('before-quit', () => ptyMgr.killAll());
-
-        console.log('[Terminal] IPC handlers registrados');
-    } catch (err: any) {
-        console.error('[Terminal] Falha ao inicializar:', err.message);
     }
 
     // Legal Store — base jurídica dinâmica (seed no primeiro uso)

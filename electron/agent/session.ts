@@ -664,6 +664,16 @@ Retorne APENAS campos com valores. Omita campos vazios. Se não há fatos releva
         }));
     }
 
+    listSessionPreviews(): Array<{ id: string; messageCount: number; updatedAt: number; preview: string }> {
+        return Array.from(this.sessions.values())
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .map(s => {
+                const first = s.messages.find(m => m.role === 'user');
+                const preview = first ? first.content.slice(0, 80).replace(/\n/g, ' ') : '';
+                return { id: s.id, messageCount: s.messages.length, updatedAt: s.updatedAt, preview };
+            });
+    }
+
     /** Salva imediatamente — chamar no quit do app */
     async flush(): Promise<void> {
         await this.saveToDisk();
@@ -739,7 +749,22 @@ Retorne APENAS campos com valores. Omita campos vazios. Se não há fatos releva
 // Helpers
 // ============================================================================
 
+let _sessionUserDataDir = '';
+
+/**
+ * Define o diretório de dados para o SessionManager singleton.
+ * Deve ser chamado antes da primeira chamada a `getSessionManager()`.
+ * Resetar o singleton força recarga das sessões do diretório correto.
+ */
+export function initSessionManager(userDataDir: string): void {
+    if (_sessionUserDataDir !== userDataDir) {
+        _sessionUserDataDir = userDataDir;
+        sessionManagerInstance = null; // força reinit com o path correto
+    }
+}
+
 function getSessionsFilePath(): string {
+    if (_sessionUserDataDir) return path.join(_sessionUserDataDir, 'sessions.json');
     const appData = process.env['APPDATA'] || os.homedir();
     return path.join(appData, 'lex-test1', 'sessions.json');
 }

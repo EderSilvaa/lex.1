@@ -318,14 +318,30 @@ async function connectDirectCDP(cdpPort: number): Promise<Browser> {
 function findPlaywrightChromium(): string | undefined {
   const primary = chromium.executablePath()
   if (fs.existsSync(primary)) return primary
-  const msBase = path.join(process.env['LOCALAPPDATA'] ?? '', 'ms-playwright')
+
+  // Diretório base do ms-playwright por plataforma
+  const msBase = process.platform === 'win32'
+    ? path.join(process.env['LOCALAPPDATA'] ?? '', 'ms-playwright')
+    : process.platform === 'darwin'
+    ? path.join(process.env['HOME'] ?? '', 'Library', 'Caches', 'ms-playwright')
+    : path.join(process.env['HOME'] ?? '', '.cache', 'ms-playwright')
+
   if (!fs.existsSync(msBase)) return undefined
+
   const dirs = fs.readdirSync(msBase)
     .filter(d => d.startsWith('chromium-'))
     .sort()
     .reverse()
+
+  // Subpaths do executável por plataforma
+  const subs = process.platform === 'win32'
+    ? ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe']
+    : process.platform === 'darwin'
+    ? ['chrome-mac/Chromium.app/Contents/MacOS/Chromium', 'chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium']
+    : ['chrome-linux/chrome']
+
   for (const dir of dirs) {
-    for (const sub of ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe']) {
+    for (const sub of subs) {
       const p = path.join(msBase, dir, sub)
       if (fs.existsSync(p)) return p
     }
@@ -464,11 +480,25 @@ async function launchWithGoogleChrome(userDataDir: string): Promise<void> {
 
   await new Promise(r => setTimeout(r, 1500))
 
-  const chromePaths = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    `${process.env['LOCALAPPDATA']}\\Google\\Chrome\\Application\\chrome.exe`,
-  ]
+  const chromePaths: string[] = process.platform === 'win32'
+    ? [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        `${process.env['LOCALAPPDATA'] ?? ''}\\Google\\Chrome\\Application\\chrome.exe`,
+      ]
+    : process.platform === 'darwin'
+    ? [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        `${process.env['HOME'] ?? ''}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+      ]
+    : [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',
+      ]
   const executablePath = chromePaths.find(p => { try { fs.accessSync(p); return true } catch { return false } })
   if (!executablePath) throw new Error('Chrome/Chromium não encontrado — instale Google Chrome ou execute: npx playwright install chromium')
 

@@ -170,6 +170,7 @@ Você opera em um loop de **Think → Act → Observe** até completar o objetiv
 - Se o objetivo é uma **pergunta jurídica, análise de caso ou consulta conceitual** → tipo=resposta com análise profunda
 - Se o objetivo pede **ação** no PJe, browser ou sistema → tipo=skill
 - Para executar comandos do terminal (python, pip, git, npm) → skill terminal_executar
+- Contexto PC claro (Downloads, Desktop, C:, .pdf, .docx, pasta local) → tipo=skill com os_listar. Atalhos: "downloads", "desktop", "documentos", "imagens", "~"
 - Se ambíguo ("pastas", "arquivos", "documentos" sem contexto PJe/PC) → tipo=pergunta
 - NUNCA responda com instruções textuais quando há skill que executa a ação
 - Para comandos PJe (abrir, consultar, navegar), use skills pje_* ou browser_*
@@ -239,15 +240,16 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 - **Referência**: ref (número) > elemento (texto visível) > seletor (CSS)
 - Se PJe abriu aba nova: \`browser_list_tabs\` + \`browser_switch_tab\`
 
-### Terminal e Comandos do Sistema
-- \`terminal_executar\`: executar comandos shell com saída em tempo real (python, pip, git, npm, etc). Preferir sobre os_sistema para execução de comandos.
+### Sistema de Arquivos e OS
+- \`os_listar\`: lista arquivos/pastas. Atalhos de caminho: "downloads", "desktop", "documentos", "imagens", "~" (home). Ex: \`os_listar { "caminho": "downloads" }\`
+- \`os_arquivos\`: ler arquivo (PDF, DOCX, XLSX → texto automático)
+- \`os_clipboard\`: copiar texto para Ctrl+V
 - \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas, listar/encerrar processos
+- \`terminal_executar\`: executar comandos shell com saída em tempo real (python, pip, git, npm, etc)
 
 ### Documentos e Pesquisa
 - \`doc_gerar\`: gerar documento com contexto completo
 - \`pesquisa_jurisprudencia\`: busca termos relevantes
-- \`os_arquivos\`: ler arquivo (PDF, DOCX, XLSX → texto automático)
-- \`os_clipboard\`: copiar texto para Ctrl+V
 
 ### CAPTCHA
 - PJe: tipo=pergunta, peça ao usuário resolver

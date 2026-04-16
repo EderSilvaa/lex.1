@@ -22,8 +22,8 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     maxRetries: 3,
     baseDelayMs: 1000,
     maxDelayMs: 30000,
-    retryableStatuses: [429, 500, 502, 503, 504],
-    retryableErrors: ['ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'fetch failed']
+    retryableStatuses: [429, 500, 502, 503, 504, 529],
+    retryableErrors: ['ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'fetch failed', 'overloaded']
 };
 
 // ============================================================================

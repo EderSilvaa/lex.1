@@ -14,7 +14,9 @@ export interface ParsedArgs {
     mode: 'one-shot' | 'repl' | 'version' | 'help';
     objetivo?: string;
     userDataDir?: string;
+    scheduleFile?: string;
     noAttach: boolean;
+    inElectron: boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const out: ParsedArgs = {
         mode: 'repl',
         noAttach: false,
+        inElectron: process.env['LEX_IN_ELECTRON'] === '1',
     };
 
     const positional: string[] = [];
@@ -85,8 +88,25 @@ export function parseArgs(argv: string[]): ParsedArgs {
             out.userDataDir = a.slice('--user-data-dir='.length);
             continue;
         }
+        if (a === '--schedule-file') {
+            const v = argv[++i];
+            if (v) {
+                out.mode = 'one-shot';
+                out.scheduleFile = v;
+            }
+            continue;
+        }
+        if (a.startsWith('--schedule-file=')) {
+            out.mode = 'one-shot';
+            out.scheduleFile = a.slice('--schedule-file='.length);
+            continue;
+        }
         if (a === '--no-attach') {
             out.noAttach = true;
+            continue;
+        }
+        if (a === '--in-electron') {
+            out.inElectron = true;
             continue;
         }
 
@@ -108,6 +128,7 @@ LEX Jurídico — CLI
 Uso:
   lex                            Inicia sessão interativa (REPL)
   lex "<objetivo>"               Executa o agente uma vez e sai
+  lex config                     Gerencia provider, modelo e API key
   lex --version                  Mostra a versão
   lex --help                     Mostra esta ajuda
 
@@ -115,7 +136,22 @@ Opções:
   --user-data-dir <path>         Diretório de dados (default: %APPDATA%/lex-test1)
   --no-attach                    Não tenta attachar a backend existente; sobe um próprio
 
+Configuração (primeira vez):
+  1. lex config list-providers                    Lista os providers disponíveis
+  2. lex config set provider <id>                 Ex: anthropic, openai, groq
+  3. lex config set key <id> <sua-chave>          Salva a API key (criptografada)
+  4. lex "<objetivo>"                             Pronto para usar
+
+Subcomandos config:
+  lex config get                                  Mostra provider/modelo/key atuais
+  lex config set provider <id>                    Troca o provider ativo
+  lex config set model <id>                       Troca o modelo
+  lex config set key <providerId> <apiKey>        Salva a API key
+  lex config list-providers                       Lista providers e modelos
+
 Exemplos:
+  lex config set provider anthropic
+  lex config set key anthropic sk-ant-...
   lex "liste os 3 últimos processos do TJSP"
-  lex --user-data-dir ./meu-escritorio
+  lex --user-data-dir ./cliente-silva "consulte o processo 1234567"
 `.trimStart();

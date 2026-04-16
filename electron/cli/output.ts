@@ -63,12 +63,19 @@ function cleanLLMOutput(text: string): string {
 
 // ── Estado ────────────────────────────────────────────────────────────────────
 
-let streaming   = false;   // true enquanto tokens chegando
-let bulletDone  = false;   // true após o • ter sido impresso
+let streaming      = false;   // true enquanto tokens chegando
+let bulletDone     = false;   // true após o • ter sido impresso
+let thinkingDepth  = 0;       // >0 quando dentro de tag de pensamento
+let tokenBuf       = '';      // buffer para detectar tags abertas no meio do stream
+
+const THINKING_OPEN  = /^<(pensamento|thinking|raciocinio)>/i;
+const THINKING_CLOSE = /^<\/(pensamento|thinking|raciocinio)>/i;
 
 export function resetStreamingState(): void {
-    streaming  = false;
-    bulletDone = false;
+    streaming     = false;
+    bulletDone    = false;
+    thinkingDepth = 0;
+    tokenBuf      = '';
 }
 
 // ── Re-echo do input ──────────────────────────────────────────────────────────
@@ -115,19 +122,59 @@ export function renderEvent(event: AgentEvent): void {
 
         // ── Streaming ──────────────────────────────────────────────────────────
         case 'streaming_start':
-            streaming  = true;
-            bulletDone = false;
+            streaming     = true;
+            bulletDone    = false;
+            thinkingDepth = 0;
+            tokenBuf      = '';
+            if (isTTY) write('\r\x1b[2K'); // limpa qualquer echo residual do paste
             break;
 
-        case 'token':
+        case 'token': {
             if (!event.token) break;
-            if (!bulletDone) {
-                // Primeiro token — spinner já limpou a linha, bullet direto
-                write(c('white', '• '));
-                bulletDone = true;
+
+            // Filtra tags de pensamento no stream — acumula no buffer e só
+            // emite quando confirma que não é uma tag de abertura/fechamento
+            tokenBuf += event.token;
+
+            // Drena o buffer enquanto há conteúdo processável
+            while (tokenBuf.length > 0) {
+                const openM  = tokenBuf.match(THINKING_OPEN);
+                const closeM = tokenBuf.match(THINKING_CLOSE);
+
+                if (openM) {
+                    thinkingDepth++;
+                    tokenBuf = tokenBuf.slice(openM[0].length);
+                    continue;
+                }
+                if (closeM && thinkingDepth > 0) {
+                    thinkingDepth--;
+                    tokenBuf = tokenBuf.slice(closeM[0].length);
+                    continue;
+                }
+
+                // Se está dentro de bloco de pensamento, descarta
+                if (thinkingDepth > 0) { tokenBuf = ''; break; }
+
+                // Possível início de tag — aguarda mais tokens
+                if (tokenBuf.startsWith('<')) {
+                    const closeAngle = tokenBuf.indexOf('>');
+                    if (closeAngle === -1 && tokenBuf.length < 30) break; // aguarda
+                }
+
+                // Emite o primeiro caractere e continua
+                const ch = tokenBuf[0]!;
+                tokenBuf = tokenBuf.slice(1);
+
+                if (!bulletDone) {
+                    if (!ch.trim()) continue;
+                    if (isTTY) write('\r\x1b[2K');
+                    write(c('white', '• '));
+                    bulletDone = true;
+                }
+                write(ch);
             }
-            write(event.token);
             break;
+        }
 
         // ── Resposta final ─────────────────────────────────────────────────────
         case 'completed': {
@@ -183,12 +230,71 @@ export function renderEvent(event: AgentEvent): void {
             break;
 
         case 'waiting_user':
+            if (streaming) { writeln(''); streaming = false; bulletDone = false; }
             writeln('');
-            writeln(c('yellow', '? ') + event.pergunta);
+            writeln(c('yellow', '? ') + c('bold', event.pergunta));
             if (event.opcoes?.length) {
                 for (const op of event.opcoes) writeln(c('gray', `  • ${op}`));
             }
+            writeln('');
+            writeln(SEPARATOR);
+            writeln('');
             break;
+
+        // ── Orchestrator (multi-agent) ─────────────────────────────────────────
+        case 'orchestrator': {
+            const evt = (event as any).data;
+            switch (evt?.type) {
+                case 'plan_created': {
+                    const tasks: any[] = evt.plan?.subtasks ?? [];
+                    writeln(c('cyan', `◈ Plano: ${tasks.length} subtasks`));
+                    for (const t of tasks) {
+                        writeln(c('gray', `  ◦ [${t.agentType}] ${t.description.slice(0, 80)}`));
+                    }
+                    writeln('');
+                    break;
+                }
+                case 'checkpoint_resumed':
+                    writeln(c('yellow', `⟳ Retomando checkpoint (batch ${evt.fromBatch})…`));
+                    break;
+                case 'subtask_started':
+                    writeln(c('cyan', '●') + ' ' + c('dim', `${evt.agentType}`) + c('gray', ` subtask ${evt.subtaskId}`));
+                    break;
+                case 'subtask_completed': {
+                    const cleaned = cleanLLMOutput(typeof evt.result === 'string' ? evt.result : '');
+                    const preview = cleaned.split('\n').find((l: string) => l.trim()) ?? '';
+                    writeln(c('gray', `  ⎿  `) + c('green', '✓') + (preview ? c('gray', `  ${preview.slice(0, 80)}`) : ''));
+                    break;
+                }
+                case 'subtask_failed':
+                    writeln(c('gray', '  ⎿  ') + c('red', `✗ ${evt.subtaskId}: ${String(evt.error).slice(0, 80)}`));
+                    break;
+                case 'subtask_retrying':
+                    writeln(c('yellow', `  ↻ retry ${evt.attempt}/${evt.maxRetries} (${evt.subtaskId})`));
+                    break;
+                case 'plan_completed': {
+                    if (streaming) { writeln(''); streaming = false; bulletDone = false; }
+                    const clean = cleanLLMOutput(evt.finalAnswer || '');
+                    if (clean) {
+                        const lines = clean.split('\n').filter((l: string) => l.trim());
+                        write(c('white', '• '));
+                        writeln(lines[0] ?? '');
+                        for (let i = 1; i < lines.length; i++) writeln('  ' + lines[i]);
+                    }
+                    writeln('');
+                    writeln(SEPARATOR);
+                    writeln('');
+                    break;
+                }
+                case 'plan_failed':
+                    writeln('\n' + c('red', `✗ plano falhou: ${String(evt.error).slice(0, 150)}`));
+                    writeln('');
+                    writeln(SEPARATOR);
+                    writeln('');
+                    break;
+            }
+            break;
+        }
 
         default:
             break;
@@ -216,10 +322,29 @@ function formatResult(result: any): string {
     return line.length > 100 ? line.slice(0, 100) + '…' : line;
 }
 
+// ── Modo interativo (Ink) ─────────────────────────────────────────────────────
+
+let _interactiveMode = false;
+
+/** Ativa roteamento via message-bus (chamado antes de ink.render). */
+export function setInteractiveMode(val: boolean): void {
+    _interactiveMode = val;
+}
+
 export function renderInfo(text: string): void {
-    writeln(c('gray', text));
+    if (_interactiveMode) {
+        const { emitInfo } = require('./message-bus') as typeof import('./message-bus');
+        emitInfo(text);
+    } else {
+        writeln(c('gray', text));
+    }
 }
 
 export function renderError(text: string): void {
-    writeln(c('red', `✗ ${text}`));
+    if (_interactiveMode) {
+        const { emitError } = require('./message-bus') as typeof import('./message-bus');
+        emitError(text);
+    } else {
+        writeln(c('red', `✗ ${text}`));
+    }
 }

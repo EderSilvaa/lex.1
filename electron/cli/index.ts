@@ -15,8 +15,10 @@ import { parseArgs, parseLexUrl, HELP_TEXT } from './args';
 import { resolveUserDataDir } from './user-data';
 import { runOneShot } from './one-shot';
 import { runRepl } from './repl';
-import { runConfigCommand, bootstrapConfig } from './config';
+import { runConfigCommand, bootstrapConfig, checkProviderReady } from './config';
 import { renderError } from './output';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function getVersion(): string {
     try {
@@ -76,6 +78,27 @@ async function main(): Promise<number> {
     bootstrapConfig(userDataDir);
 
     if (args.mode === 'one-shot') {
+        // Preflight só no one-shot — no REPL o usuário configura via /provider e /key
+        const configError = checkProviderReady();
+        if (configError) {
+            renderError(configError);
+            return 1;
+        }
+        if (args.scheduleFile) {
+            const schedulePath = path.resolve(args.scheduleFile);
+            try {
+                const payload = JSON.parse(fs.readFileSync(schedulePath, 'utf8')) as { goal?: string };
+                const objetivo = String(payload.goal || '').trim();
+                if (!objetivo) {
+                    renderError(`payload de agendamento sem goal: ${schedulePath}`);
+                    return 1;
+                }
+                return runOneShot({ objetivo, userDataDir });
+            } catch (err: any) {
+                renderError(`falha ao ler payload do agendamento: ${err?.message || String(err)}`);
+                return 1;
+            }
+        }
         if (!args.objetivo) {
             renderError('objetivo vazio');
             return 1;
@@ -83,7 +106,7 @@ async function main(): Promise<number> {
         return runOneShot({ objetivo: args.objetivo, userDataDir });
     }
 
-    return runRepl({ userDataDir });
+    return runRepl({ userDataDir, inElectron: args.inElectron });
 }
 
 main()

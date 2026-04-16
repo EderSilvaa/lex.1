@@ -1,7 +1,11 @@
 /**
- * Skills PJe - Exports
+ * Skills PJe - Exports & Registration
  *
- * Skills reais para automação do PJe.
+ * Roteamento automático:
+ *   - Provider Anthropic + MCP com server "browser" → registra `pje_browser_use` (canônica)
+ *   - Qualquer outro cenário → registra skills Playwright legadas (fallback)
+ *
+ * Skills utilitárias (token-check, pedir-codigo) são registradas sempre.
  */
 
 import { pjeAbrir } from './abrir';
@@ -14,7 +18,9 @@ import { pjePreencher } from './preencher';
 import { pjeVerificarToken } from './token-check';
 import { pedirCodigoTotp } from './pedir-codigo';
 import { pjeBulkColetar } from './bulk-coletar';
+import { pjeBrowserUse } from './browser-use';
 import { registerSkill } from '../../agent/executor';
+import { getMcpManager } from '../../mcp-manager';
 
 export { pjeAbrir } from './abrir';
 export { pjeAgir } from './agir';
@@ -26,23 +32,69 @@ export { pjePreencher } from './preencher';
 export { pjeVerificarToken } from './token-check';
 export { pedirCodigoTotp } from './pedir-codigo';
 export { pjeBulkColetar } from './bulk-coletar';
+export { pjeBrowserUse } from './browser-use';
+
+// Skills Playwright legadas (deprecated quando MCP browser-use está ativo)
+const LEGACY_PJE_SKILLS = [
+    pjeAbrir,
+    pjeAgir,
+    pjeConsultar,
+    pjeMovimentacoes,
+    pjeDocumentos,
+    pjeNavegar,
+    pjePreencher,
+    pjeBulkColetar,
+];
 
 /**
- * Registra todas as skills do PJe no Agent Loop
+ * Detecta se MCP browser-use está disponível:
+ *   - Provider Anthropic
+ *   - Pelo menos um server com "browser" no nome em ~/.lex/mcp.json
+ */
+function hasMcpBrowser(): boolean {
+    try {
+        const mcpMgr = getMcpManager();
+        const mcpConfig = mcpMgr.loadConfig();
+        const servers = mcpConfig.mcpServers;
+        if (!servers) return false;
+
+        return Object.keys(servers).some((id) => /browser/i.test(id));
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Registra skills PJe com roteamento automático.
  */
 export function registerPJeSkills(): void {
-    console.log('[Skills:PJe] Registrando skills...');
-
-    registerSkill(pjeAbrir);
-    registerSkill(pjeAgir);
-    registerSkill(pjeConsultar);
-    registerSkill(pjeMovimentacoes);
-    registerSkill(pjeDocumentos);
-    registerSkill(pjeNavegar);
-    registerSkill(pjePreencher);
+    // Skills utilitárias — sempre disponíveis (não dependem de browser)
     registerSkill(pjeVerificarToken);
     registerSkill(pedirCodigoTotp);
-    registerSkill(pjeBulkColetar);
 
-    console.log('[Skills:PJe] Skills registradas: pje_abrir, pje_agir, pje_consultar, pje_movimentacoes, pje_documentos, pje_navegar, pje_preencher, pje_verificar_token, pedir_codigo_totp, pje_bulk_coletar');
+    if (hasMcpBrowser()) {
+        // MCP browser-use disponível → skill canônica
+        registerSkill(pjeBrowserUse);
+
+        // Marca as legadas como deprecated (disponíveis via import, mas não registradas)
+        for (const skill of LEGACY_PJE_SKILLS) {
+            skill.deprecated = true;
+        }
+
+        console.log(
+            '[Skills:PJe] Modo MCP browser-use ativo. ' +
+            'Skill canônica: pje_browser_use | ' +
+            `${LEGACY_PJE_SKILLS.length} skills legadas marcadas deprecated (não registradas).`,
+        );
+    } else {
+        // Sem MCP browser → registra skills Playwright legadas
+        for (const skill of LEGACY_PJE_SKILLS) {
+            registerSkill(skill);
+        }
+
+        console.log(
+            `[Skills:PJe] Modo Playwright ativo. ` +
+            `${LEGACY_PJE_SKILLS.length} skills legadas + 2 utilitárias registradas.`,
+        );
+    }
 }

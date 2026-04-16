@@ -17,8 +17,12 @@ import { EventEmitter } from 'events';
 const BACKEND_PORT = 19876;
 const BACKEND_READY_TIMEOUT = 15000;
 const DEFAULT_RPC_TIMEOUT = 120000;
-const AGENT_RUN_RPC_TIMEOUT = 12 * 60 * 1000;
-const PLAN_EXEC_RPC_TIMEOUT = 12 * 60 * 1000;
+// agent-run e ai-plan-execute usam idle timeout: o timer reseta toda vez que
+// chega um evento de progresso. Só disparam se o backend ficar realmente mudo
+// (agente travado/crash). Enquanto o agente espera resposta do usuário ou
+// raciocina, eventos fluem e mantêm a RPC viva.
+const AGENT_RUN_IDLE_TIMEOUT = 30 * 60 * 1000;
+const PLAN_EXEC_IDLE_TIMEOUT = 30 * 60 * 1000;
 const BACKEND_RESTART_BASE_DELAY_MS = 2000;
 const BACKEND_RESTART_MAX_DELAY_MS = 30000;
 const BACKEND_MAX_RESTART_ATTEMPTS = 10;
@@ -32,6 +36,10 @@ let restartAttempts = 0;
 let lastUserDataDir: string | null = null;
 let stopping = false;
 let lastExitTimestamp = 0; // Para suprimir 'disconnected' duplicado após 'exited'
+let silentMode = false;   // Suprime logs de backend no stdout (modo CLI REPL)
+
+/** Suprime todos os console.log do backend no stdout. Chamar antes de startBackend(). */
+export function setBackendSilent(val: boolean): void { silentMode = val; }
 // Quando true, este processo (Electron ou CLI) é dono do backend e pode matá-lo no shutdown.
 // Quando false, attachamos a um backend já em execução (de outro processo) e só devemos fechar o WS.
 let weOwnBackendProc = false;
@@ -40,6 +48,8 @@ interface PendingRpcCall {
     resolve: (v: any) => void;
     reject: (e: Error) => void;
     timer: NodeJS.Timeout;
+    method: string;
+    idleTimeoutMs: number;   // se > 0, usa idle timeout (resetado por eventos)
 }
 
 interface RpcCallOptions {
@@ -53,19 +63,28 @@ const pending = new Map<string, PendingRpcCall>();
 export const backendEvents = new EventEmitter();
 
 function killProcessOnPort(port: number): void {
-    if (process.platform !== 'win32') return;
     try {
-        const out = execSync(
-            `netstat -ano | findstr "LISTENING" | findstr ":${port}"`,
-            { encoding: 'utf8', timeout: 3000 }
-        ).trim();
-        const lines = out.split(/\r?\n/).filter(Boolean);
-        for (const line of lines) {
-            const parts = line.trim().split(/\s+/);
-            const pid = parseInt(parts[parts.length - 1] ?? '', 10);
-            if (pid && pid !== process.pid) {
-                console.warn(`[BackendClient] Matando processo anterior na porta ${port}: PID ${pid}`);
-                try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch { /* ignore */ }
+        if (process.platform === 'win32') {
+            const out = execSync(
+                `netstat -ano | findstr "LISTENING" | findstr ":${port}"`,
+                { encoding: 'utf8', timeout: 3000 }
+            ).trim();
+            for (const line of out.split(/\r?\n/).filter(Boolean)) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parseInt(parts[parts.length - 1] ?? '', 10);
+                if (pid && pid !== process.pid) {
+                    console.warn(`[BackendClient] Matando processo anterior na porta ${port}: PID ${pid}`);
+                    try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch { /* ignore */ }
+                }
+            }
+        } else {
+            const out = execSync(`lsof -ti tcp:${port}`, { encoding: 'utf8', timeout: 3000 }).trim();
+            for (const pidStr of out.split(/\s+/).filter(Boolean)) {
+                const pid = Number(pidStr);
+                if (pid && pid !== process.pid) {
+                    console.warn(`[BackendClient] Matando processo anterior na porta ${port}: PID ${pid}`);
+                    try { execSync(`kill -9 ${pid}`, { timeout: 3000 }); } catch { /* ignore */ }
+                }
             }
         }
     } catch {
@@ -224,7 +243,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
                 await waitForBackend();
                 restartAttempts = 0;
                 emitBackendStatus('connected', { reusedProcess: true });
-                console.log('[BackendClient] Reconectado ao backend existente');
+                if (!silentMode) console.log('[BackendClient] Reconectado ao backend existente');
                 return;
             } catch (err: any) {
                 console.warn('[BackendClient] Reconexão ao backend existente falhou, reiniciando processo:', err?.message || err);
@@ -240,7 +259,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
             if (attached) {
                 restartAttempts = 0;
                 emitBackendStatus('connected', { attachedExternal: true });
-                console.log('[BackendClient] Attachado a backend externo já em execução');
+                if (!silentMode) console.log('[BackendClient] Attachado a backend externo já em execução');
                 return;
             }
         } catch (err: any) {
@@ -266,7 +285,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
             env['LEX_BACKEND_PORT'] = String(BACKEND_PORT);
             env['LEX_USER_DATA'] = userDataDir;
 
-            console.log('[BackendClient] Spawnando backend...', serverPath);
+            if (!silentMode) console.log('[BackendClient] Spawnando backend...', serverPath);
             emitBackendStatus('starting');
 
             backendProc = spawn('node', [serverPath], {
@@ -280,7 +299,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
                 for (const rawLine of d.toString().split(/\r?\n/g)) {
                     const line = rawLine.trim();
                     if (!line) continue;
-                    console.log('[Backend]', line);
+                    if (!silentMode) console.log('[Backend]', line);
                     emitBackendLog('info', line);
                 }
             });
@@ -289,8 +308,13 @@ export async function startBackend(userDataDir: string): Promise<void> {
                 for (const rawLine of d.toString().split(/\r?\n/g)) {
                     const line = rawLine.trim();
                     if (!line) continue;
-                    console.error('[Backend ERR]', line);
                     emitBackendLog('error', line);
+                    if (line.startsWith('[')) {
+                        if (!silentMode) console.log('[Backend]', line);
+                    } else {
+                        // Erros sem prefixo são reais — sempre mostrar
+                        console.error('[Backend ERR]', line);
+                    }
                 }
             });
 
@@ -309,7 +333,7 @@ export async function startBackend(userDataDir: string): Promise<void> {
             await waitForBackend();
             restartAttempts = 0;
             emitBackendStatus('connected');
-            console.log('[BackendClient] Conectado ao backend');
+            if (!silentMode) console.log('[BackendClient] Conectado ao backend');
         } catch (err: any) {
             const message = err?.message || String(err);
             emitBackendStatus('start_failed', { error: message });
@@ -384,6 +408,14 @@ function setupWsHandlers(socket: WebSocket): void {
 
         // Streaming event
         if (msg.event) {
+            // Qualquer evento de progresso do agente reseta o idle-timer da
+            // agent-run pendente. Assim o usuário pode demorar no waiting_user
+            // sem cair em timeout, mas um backend travado (sem eventos) ainda
+            // dispara o limite.
+            if (msg.event === 'agent-event') {
+                touchIdleTimers('agent-run');
+                touchIdleTimers('ai-plan-execute');
+            }
             backendEvents.emit(msg.event, msg.data);
         }
     });
@@ -410,14 +442,43 @@ function setupWsHandlers(socket: WebSocket): void {
     });
 }
 
-/** Chamada RPC para o backend. Retorna Promise com resultado. */
-function getRpcTimeout(method: string, timeoutOverride?: number): number {
+/**
+ * Retorna { timeoutMs, idleTimeoutMs }.
+ *   - idleTimeoutMs > 0 → timer resetado por eventos (streaming methods)
+ *   - timeoutMs é o valor inicial do timer
+ */
+function getRpcTimeout(
+    method: string,
+    timeoutOverride?: number,
+): { timeoutMs: number; idleTimeoutMs: number } {
     if (Number.isFinite(timeoutOverride) && (timeoutOverride as number) > 0) {
-        return timeoutOverride as number;
+        return { timeoutMs: timeoutOverride as number, idleTimeoutMs: 0 };
     }
-    if (method === 'agent-run') return AGENT_RUN_RPC_TIMEOUT;
-    if (method === 'ai-plan-execute') return PLAN_EXEC_RPC_TIMEOUT;
-    return DEFAULT_RPC_TIMEOUT;
+    if (method === 'agent-run') {
+        return { timeoutMs: AGENT_RUN_IDLE_TIMEOUT, idleTimeoutMs: AGENT_RUN_IDLE_TIMEOUT };
+    }
+    if (method === 'ai-plan-execute') {
+        return { timeoutMs: PLAN_EXEC_IDLE_TIMEOUT, idleTimeoutMs: PLAN_EXEC_IDLE_TIMEOUT };
+    }
+    return { timeoutMs: DEFAULT_RPC_TIMEOUT, idleTimeoutMs: 0 };
+}
+
+/**
+ * Reseta o idle-timer de todas as RPCs pendentes que correspondem ao método.
+ * Chamado quando chega um agent-event para manter agent-run viva enquanto há
+ * progresso, mesmo que o usuário demore respondendo um waiting_user.
+ */
+function touchIdleTimers(methodFilter: string): void {
+    for (const [id, call] of pending) {
+        if (call.method !== methodFilter || call.idleTimeoutMs <= 0) continue;
+        clearTimeout(call.timer);
+        call.timer = setTimeout(() => {
+            if (pending.has(id)) {
+                pending.delete(id);
+                call.reject(new Error(`RPC idle timeout: ${call.method}`));
+            }
+        }, call.idleTimeoutMs);
+    }
 }
 
 /** Chamada RPC para o backend. Retorna Promise com resultado. */
@@ -428,7 +489,7 @@ export function rpcCall(method: string, params?: any, options?: RpcCallOptions):
         }
 
         const id = randomUUID();
-        const timeoutMs = getRpcTimeout(method, options?.timeoutMs);
+        const { timeoutMs, idleTimeoutMs } = getRpcTimeout(method, options?.timeoutMs);
         const timer = setTimeout(() => {
             if (pending.has(id)) {
                 pending.delete(id);
@@ -436,7 +497,7 @@ export function rpcCall(method: string, params?: any, options?: RpcCallOptions):
             }
         }, timeoutMs);
 
-        pending.set(id, { resolve, reject, timer });
+        pending.set(id, { resolve, reject, timer, method, idleTimeoutMs });
         ws.send(JSON.stringify({ id, method, params: params ?? {} }));
     });
 }

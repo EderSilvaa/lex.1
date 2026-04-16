@@ -89,6 +89,38 @@ function setupPrivacy(): PrivacyContext {
 // A3: Registry de runs ativos para cancel/state
 const activeRuns = new Map<string, { state: AgentState; abort: AbortController }>();
 
+// Registry de resolvers para respostas do usuário (waiting_user → agent-respond)
+const pendingUserResponses = new Map<string, (response: string) => void>();
+
+/**
+ * Chamado pelo RPC agent-respond quando o usuário responde a uma pergunta.
+ * Desbloqueia o loop que estava aguardando.
+ */
+export function resolveUserResponse(runId: string, response: string): boolean {
+    const resolver = pendingUserResponses.get(runId);
+    if (!resolver) return false;
+    pendingUserResponses.delete(runId);
+    resolver(response);
+    return true;
+}
+
+/**
+ * Bloqueia o loop até o usuário responder ou o run ser cancelado.
+ */
+function awaitUserResponse(runId: string, abortSignal: AbortSignal): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+        const onAbort = () => {
+            pendingUserResponses.delete(runId);
+            reject(new Error('Cancelado'));
+        };
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+        pendingUserResponses.set(runId, (response: string) => {
+            abortSignal.removeEventListener('abort', onAbort);
+            resolve(response);
+        });
+    });
+}
+
 /**
  * Emite evento para a UI
  */
@@ -130,10 +162,10 @@ function normalizeCnjInText(text: string): string {
 }
 
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
-    const { objetivo: objetivoRaw, config = {}, tenantConfig, sessionId, agentSpec, parentAbort } = opts;
+    const { objetivo: objetivoRaw, config = {}, tenantConfig, sessionId, runId: requestedRunId, agentSpec, parentAbort } = opts;
     const objetivo = normalizeCnjInText(objetivoRaw);
     const cfg = { ...DEFAULT_CONFIG, ...config, ...(agentSpec?.configOverrides || {}) };
-    const runId = randomUUID();
+    const runId = requestedRunId || randomUUID();
     const abort = new AbortController();
 
     // P0 Fix 4: Encadeia parent abort → child abort
@@ -482,15 +514,22 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
 
                     if (activeSessionId) {
                         sessionManager.addMessage(activeSessionId, 'assistant', decisao.pergunta!);
-
-                        // Premium: extração de facts (async, non-blocking)
                         sessionManager.extractAndStoreFacts(activeSessionId).catch(e =>
                             console.warn('[Agent] Fact extraction failed:', e.message)
                         );
                     }
 
-                    // Retorna pergunta (UI deve lidar com continuação)
-                    return `❓ ${decisao.pergunta}`;
+                    // Bloqueia o loop até o usuário responder (via agent-respond RPC)
+                    const resposta = await awaitUserResponse(runId, abort.signal);
+
+                    log(cfg.verbose, `💬 Usuário respondeu: ${resposta}`);
+                    if (activeSessionId) {
+                        sessionManager.addMessage(activeSessionId, 'user', resposta);
+                    }
+                    // Injeta resposta no objetivo para o próximo think
+                    state.objetivo = `${state.objetivo}\n\n[Pergunta: ${decisao.pergunta}\nResposta: ${resposta}]`;
+                    state.status = 'running';
+                    break; // continua o while loop
                 }
 
                 // ────────────────────────────────────────────────────────
@@ -509,8 +548,11 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
                         }
-                        activeRuns.delete(runId);
-                        return `❓ ${question}`;
+                        const loopResp = await awaitUserResponse(runId, abort.signal);
+                        if (activeSessionId) sessionManager.addMessage(activeSessionId, 'user', loopResp);
+                        state.objetivo = `${state.objetivo}\n\n[Pergunta: ${question}\nResposta: ${loopResp}]`;
+                        state.status = 'running';
+                        break;
                     }
 
                     if (cfg.enableCritic) {
@@ -527,7 +569,11 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                             if (activeSessionId) {
                                 sessionManager.addMessage(activeSessionId, 'assistant', criticResult.blocked);
                             }
-                            return `❓ ${criticResult.blocked}`;
+                            const criticResp = await awaitUserResponse(runId, abort.signal);
+                            if (activeSessionId) sessionManager.addMessage(activeSessionId, 'user', criticResp);
+                            state.objetivo = `${state.objetivo}\n\n[Confirmação solicitada: ${criticResult.blocked}\nResposta: ${criticResp}]`;
+                            state.status = 'running';
+                            break;
                         }
 
                         // Critic pode ter corrigido skill/params
@@ -604,7 +650,11 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
                         }
-                        return `❓ ${question}`;
+                        const pauseResp = await awaitUserResponse(runId, abort.signal);
+                        if (activeSessionId) sessionManager.addMessage(activeSessionId, 'user', pauseResp);
+                        state.objetivo = `${state.objetivo}\n\n[Pergunta: ${question}\nResposta: ${pauseResp}]`;
+                        state.status = 'running';
+                        break;
                     }
 
                     break;

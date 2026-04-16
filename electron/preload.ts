@@ -294,6 +294,8 @@ contextBridge.exposeInMainWorld('docKnowledgeApi', {
 contextBridge.exposeInMainWorld('terminalApi', {
     create: (sessionId: string, opts?: { shell?: string; cwd?: string; cols?: number; rows?: number }) =>
         ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
+    createLex: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
+        ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
     write: (sessionId: string, data: string) =>
         ipcRenderer.invoke('terminal-write', { sessionId, data }),
     resize: (sessionId: string, cols: number, rows: number) =>
@@ -316,4 +318,11 @@ contextBridge.exposeInMainWorld('updaterApi', {
     onUpdateAvailable:  (cb: () => void) => ipcRenderer.on('update-available',  () => cb()),
     onUpdateDownloaded: (cb: () => void) => ipcRenderer.on('update-downloaded', () => cb()),
     installNow: () => ipcRenderer.invoke('update-install-now'),
+});
+
+contextBridge.exposeInMainWorld('appNav', {
+    onNavigateTo: (cb: (viewId: string) => void) =>
+        ipcRenderer.on('navigate-to', (_, viewId) => cb(viewId)),
+    onUiPayload: (cb: (payload: any) => void) =>
+        ipcRenderer.on('ui-payload', (_, payload) => cb(payload)),
 });

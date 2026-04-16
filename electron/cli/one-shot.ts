@@ -24,9 +24,14 @@ export interface OneShotOptions {
 
 export async function runOneShot(opts: OneShotOptions): Promise<number> {
     const sessionId = randomUUID();
+    let currentRunId = '';
 
     const onEvent = (event: AgentEvent) => {
         try {
+            if (event.type === 'started') currentRunId = event.runId;
+            if (event.type === 'completed' || event.type === 'error' || event.type === 'cancelled' || event.type === 'timeout') {
+                currentRunId = '';
+            }
             renderEvent(event);
         } catch {
             /* render não deve travar o agent */
@@ -44,7 +49,7 @@ export async function runOneShot(opts: OneShotOptions): Promise<number> {
         cancelled = true;
         renderInfo('cancelando run (ctrl+c novamente para forçar saída)…');
         try {
-            await rpcCall('agent-cancel', {});
+            await rpcCall('agent-cancel', currentRunId ? { runId: currentRunId } : {});
         } catch {
             /* ignore */
         }
