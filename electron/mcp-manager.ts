@@ -46,11 +46,63 @@ const TOOL_NAME_SEPARATOR = '__';
 
 class McpManager {
     private servers = new Map<string, ConnectedServer>();
+    private restartingPromises = new Map<string, Promise<void>>();
     private initialized = false;
     private configPath: string;
 
     constructor() {
         this.configPath = path.join(os.homedir(), '.lex', 'mcp.json');
+    }
+
+    /** Extrai o serverId de uma tool prefixada. null se não tiver prefixo. */
+    getServerIdFromToolName(prefixedName: string): string | null {
+        const idx = prefixedName.indexOf(TOOL_NAME_SEPARATOR);
+        return idx === -1 ? null : prefixedName.slice(0, idx);
+    }
+
+    /**
+     * Fecha e re-spawna um server MCP pelo id. Usado quando uma tool trava
+     * — o processo filho (ex: browser-use Python) pode estar pendurado em I/O
+     * e uma chamada nova enfileiraria atrás da antiga. Restart limpa estado.
+     *
+     * Idempotente: chamadas concorrentes compartilham a mesma Promise.
+     */
+    async restartServer(id: string): Promise<void> {
+        const existing = this.restartingPromises.get(id);
+        if (existing) return existing;
+
+        const promise = this._doRestart(id);
+        this.restartingPromises.set(id, promise);
+        try {
+            await promise;
+        } finally {
+            this.restartingPromises.delete(id);
+        }
+    }
+
+    private async _doRestart(id: string): Promise<void> {
+        const srv = this.servers.get(id);
+        if (srv) {
+            console.log(`[MCP] Reiniciando server "${id}"...`);
+            try {
+                // close() do Client dispara close() do Transport que mata o child.
+                // Promise.race protege caso o close também pendure.
+                await Promise.race([
+                    srv.client.close(),
+                    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+                ]);
+            } catch { /* ignore */ }
+            this.servers.delete(id);
+        }
+
+        const cfg = this.loadConfig();
+        const spec = cfg.mcpServers?.[id];
+        if (!spec) {
+            console.warn(`[MCP] Não posso reiniciar "${id}" — ausente no config`);
+            return;
+        }
+        await this.connectServer(id, spec);
+        console.log(`[MCP] Server "${id}" reiniciado (${this.servers.get(id)?.tools.length || 0} tools).`);
     }
 
     /** Caminho do arquivo de config (para UI/diagnóstico). */

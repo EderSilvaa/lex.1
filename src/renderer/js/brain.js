@@ -70,10 +70,7 @@
         }
 
         if (!data || data.nodes.length === 0) {
-            data = _getMockData();
-            document.getElementById('brain-stats-text').textContent = '⚠ dados de exemplo — use o agente para popular o Brain';
-            _graphData = data;
-            _renderGraph(container, data);
+            _showEmpty(container, 'Brain vazio. Use o agente (pje_browser_use) para popular com observações reais.');
             return;
         }
 
@@ -332,9 +329,144 @@
     function _setupButtons() {
         const dreamBtn = document.getElementById('btn-brain-dream');
         const exportBtn = document.getElementById('btn-brain-export');
+        const exportPatternsBtn = document.getElementById('btn-brain-export-patterns');
+        const learnBtn = document.getElementById('btn-brain-learn');
         const sidebarClose = document.getElementById('btn-brain-sidebar-close');
 
-        if (dreamBtn) {
+        if (dreamBtn && !dreamBtn.dataset.safeDreamBound) {
+            dreamBtn.dataset.safeDreamBound = '1';
+            dreamBtn.addEventListener('click', async (event) => {
+                event.stopImmediatePropagation();
+                dreamBtn.disabled = true;
+                const orig = dreamBtn.textContent;
+                dreamBtn.textContent = 'Preview...';
+                try {
+                    const preview = await window.brainApi.runDream(_getDreamOptions(true));
+                    _renderDreamReport(preview);
+                    if (preview && preview.error) {
+                        alert('Dream falhou: ' + preview.error);
+                        return;
+                    }
+                    if (preview && preview.skipped) {
+                        alert('Dream pulado: ' + (preview.reason || 'ja existe um Dream em execucao'));
+                        return;
+                    }
+
+                    const total = preview?.totalAffected ?? 0;
+                    const ok = confirm(`Dream preview: ${total} mudancas planejadas.\nExecutar agora?`);
+                    if (!ok) return;
+                    const highRisk = (preview?.reports || []).filter(r => r?.risk?.level === 'high' && !r.skipped);
+                    if (highRisk.length > 0) {
+                        const risky = highRisk.map(r => r.phase).join(', ');
+                        const riskOk = confirm(`Fases de alto risco detectadas: ${risky}.\nConfirmar mesmo assim?`);
+                        if (!riskOk) return;
+                    }
+
+                    dreamBtn.textContent = 'Rodando...';
+                    const result = await window.brainApi.runDream(_getDreamOptions(false));
+                    _renderDreamReport(result);
+                    if (result && result.error) {
+                        alert('Dream falhou: ' + result.error);
+                    } else {
+                        alert(`Dream completo! ${result?.totalAffected ?? 0} nos afetados. Recarregando grafo...`);
+                        _initialized = false;
+                        document.getElementById('brain-graph').innerHTML = '';
+                        _graph = null;
+                        await _loadGraph();
+                        await _loadStats();
+                        const dash = document.getElementById('brain-dashboard');
+                        if (dash && !dash.classList.contains('hidden')) {
+                            await _loadDashboard(true);
+                            _renderDreamReport(result);
+                        }
+                    }
+                } catch (err) {
+                    alert('Dream falhou: ' + err.message);
+                } finally {
+                    dreamBtn.disabled = false;
+                    dreamBtn.textContent = orig;
+                }
+            }, true);
+        }
+
+        if (learnBtn) {
+            learnBtn.addEventListener('click', () => _toggleDashboard());
+            learnBtn.setAttribute('aria-expanded', 'false');
+        }
+        if (exportPatternsBtn) {
+            exportPatternsBtn.addEventListener('click', async () => {
+                exportPatternsBtn.disabled = true;
+                const orig = exportPatternsBtn.textContent;
+                exportPatternsBtn.textContent = 'Exportando...';
+                try {
+                    const result = await window.brainApi.exportPatterns();
+                    if (result && result.error) alert('Export falhou: ' + result.error);
+                    else if (result && result.filePath) alert('Patterns exportados:\n' + result.filePath);
+                } catch (err) {
+                    alert('Export falhou: ' + err.message);
+                } finally {
+                    exportPatternsBtn.disabled = false;
+                    exportPatternsBtn.textContent = orig;
+                }
+            });
+        }
+
+        const closeDash = document.getElementById('btn-brain-dashboard-close');
+        if (closeDash) closeDash.addEventListener('click', () => _toggleDashboard(false));
+        _setupDashboardDismiss();
+        const refreshDash = document.getElementById('btn-brain-dashboard-refresh');
+        if (refreshDash) {
+            refreshDash.addEventListener('click', async () => {
+                refreshDash.disabled = true;
+                const orig = refreshDash.textContent;
+                refreshDash.textContent = 'Atualizando...';
+                try {
+                    await _loadDashboard(true);
+                    await _loadStats();
+                } finally {
+                    refreshDash.disabled = false;
+                    refreshDash.textContent = orig;
+                }
+            });
+        }
+
+        const detectBtn = document.getElementById('btn-brain-detect-flows');
+        if (detectBtn) {
+            detectBtn.addEventListener('click', async () => {
+                detectBtn.disabled = true;
+                const orig = detectBtn.textContent;
+                detectBtn.textContent = 'Detectando...';
+                try {
+                    const report = await window.brainApi.detectFlows();
+                    if (report && report.error) {
+                        alert('Detect flows falhou: ' + report.error);
+                    } else {
+                        const created = report?.flowsCreated ?? 0;
+                        const updated = report?.flowsUpdated ?? 0;
+                        alert(`Flows: ${created} novos, ${updated} atualizados (walks: ${report?.walksGenerated ?? 0}).`);
+                        await _loadDashboard(true);
+                        await _loadStats();
+                        _initialized = false;
+                        const graph = document.getElementById('brain-graph');
+                        if (graph) graph.innerHTML = '';
+                        _graph = null;
+                        await _loadGraph();
+                        await _loadStats();
+                        const dash = document.getElementById('brain-dashboard');
+                        if (dash && !dash.classList.contains('hidden')) {
+                            await _loadDashboard(true);
+                        }
+                    }
+                } catch (err) {
+                    alert('Falhou: ' + err.message);
+                } finally {
+                    detectBtn.disabled = false;
+                    detectBtn.textContent = orig;
+                }
+            });
+        }
+
+        if (dreamBtn && !dreamBtn.dataset.safeDreamBound) {
             dreamBtn.addEventListener('click', async () => {
                 dreamBtn.disabled = true;
                 dreamBtn.textContent = 'Rodando...';
@@ -405,74 +537,6 @@
     }
 
     // ========================================================================
-    // MOCK DATA (preview UX quando Brain está vazio)
-    // ========================================================================
-
-    function _getMockData() {
-        const n = (id, type, label, confidence, data) => ({ id, type, label, confidence: confidence || 0.7, data: data || {}, updatedAt: Date.now() - Math.random() * 30 * 86400000, accessedAt: Date.now() });
-        const e = (id, sourceId, targetId, relation) => ({ id, sourceId, targetId, relation, weight: 1.0 });
-
-        const nodes = [
-            // Processos
-            n('p1', 'processo', '0001234-12.2023.8.01.0001', 0.9, { classe: 'Ação de Indenização', tribunal: 'TJPA', status: 'Em andamento', partes: { autor: ['João Silva'], reu: ['Banco XYZ S.A.'] } }),
-            n('p2', 'processo', '0009876-45.2022.8.06.0001', 0.85, { classe: 'Revisão Contratual', tribunal: 'TJCE', status: 'Aguardando julgamento', partes: { autor: ['Maria Souza'], reu: ['Financeira ABC'] } }),
-            n('p3', 'processo', '0005555-77.2021.4.01.3400', 0.75, { classe: 'Mandado de Segurança', tribunal: 'TRF1', status: 'Recurso pendente', partes: { autor: ['Pedro Costa'], reu: ['União Federal'] } }),
-            // Teses
-            n('t1', 'tese', 'Juros abusivos acima da média de mercado', 0.8),
-            n('t2', 'tese', 'Dano moral por negativação indevida', 0.9),
-            n('t3', 'tese', 'Revisão de cláusulas abusivas CDC', 0.85),
-            n('t4', 'tese', 'Ilegalidade de cobrança de tarifa de cadastro', 0.7),
-            n('t5', 'tese', 'Direito líquido e certo — prazo decadencial', 0.65),
-            // Decisões
-            n('d1', 'decisao', 'Tutela antecipada deferida — suspensão de cobrança', 0.9),
-            n('d2', 'decisao', 'Sentença procedente — indenização R$ 8.000', 0.95),
-            n('d3', 'decisao', 'Acórdão: mantida sentença de 1º grau', 0.8),
-            // Partes
-            n('pa1', 'parte', 'Banco XYZ S.A.', 0.6),
-            n('pa2', 'parte', 'Financeira ABC', 0.6),
-            n('pa3', 'parte', 'João Silva', 0.7),
-            n('pa4', 'parte', 'Maria Souza', 0.7),
-            // Tribunais
-            n('tr1', 'tribunal', 'TJPA', 0.95),
-            n('tr2', 'tribunal', 'TJCE', 0.9),
-            n('tr3', 'tribunal', 'TRF1', 0.85),
-            // Aprendizados
-            n('a1', 'aprendizado', '[TJPA] "negativação indevida" → pje_consultar, pje_agir', 0.8),
-            n('a2', 'aprendizado', 'Usar pje_documentos antes de pje_agir em recursos', 0.75),
-            n('a3', 'aprendizado', '[TJCE] Petição inicial: sempre incluir valor da causa', 0.7),
-        ];
-
-        const edges = [
-            // p1 → teses, decisão, parte, tribunal
-            e('e1',  'p1', 't1', 'has_tese'),
-            e('e2',  'p1', 't2', 'has_tese'),
-            e('e3',  'p1', 'd1', 'has_decisao'),
-            e('e4',  'p1', 'd2', 'has_decisao'),
-            e('e5',  'p1', 'pa1', 'has_parte'),
-            e('e6',  'p1', 'pa3', 'has_parte'),
-            e('e7',  'p1', 'tr1', 'from_tribunal'),
-            // p2 → teses, parte, tribunal
-            e('e8',  'p2', 't3', 'has_tese'),
-            e('e9',  'p2', 't4', 'has_tese'),
-            e('e10', 'p2', 'd3', 'has_decisao'),
-            e('e11', 'p2', 'pa2', 'has_parte'),
-            e('e12', 'p2', 'pa4', 'has_parte'),
-            e('e13', 'p2', 'tr2', 'from_tribunal'),
-            // p3 → teses, tribunal
-            e('e14', 'p3', 't5', 'has_tese'),
-            e('e15', 'p3', 'tr3', 'from_tribunal'),
-            // teses relacionadas
-            e('e16', 't1', 't3', 'related_to'),
-            e('e17', 't2', 'd2', 'learned_from'),
-            // aprendizados vinculados a tribunais
-            e('e18', 'a1', 'tr1', 'learned_from'),
-            e('e19', 'a3', 'tr2', 'learned_from'),
-        ];
-
-        return { nodes, edges };
-    }
-
-    // ========================================================================
     // HELPERS
     // ========================================================================
 
@@ -492,6 +556,468 @@
     function _formatDate(ts) {
         if (!ts) return '-';
         return new Date(ts).toLocaleDateString('pt-BR');
+    }
+
+    // ========================================================================
+    // REPLAY PREVIEW MODAL (global, disparado por quem invoca o skill)
+    // ========================================================================
+
+    window.showReplayPreview = function showReplayPreview(preview) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('replay-preview-modal');
+            if (!modal || !preview) return resolve(false);
+
+            const goalEl = document.getElementById('replay-modal-goal');
+            const summaryEl = document.getElementById('replay-modal-summary');
+            const stepsEl = document.getElementById('replay-modal-steps');
+            const confEl = document.getElementById('replay-modal-confidence');
+            const btnConfirm = document.getElementById('replay-modal-confirm');
+            const btnCancel = document.getElementById('replay-modal-cancel');
+
+            if (goalEl) goalEl.textContent = preview.task || '(sem task)';
+            if (summaryEl) summaryEl.textContent = preview.summary || '';
+            if (confEl) confEl.textContent = 'confidence ' + (Number(preview.confidence || 0).toFixed(2));
+
+            if (stepsEl) {
+                stepsEl.innerHTML = (preview.steps || []).map(s => `
+                    <li>
+                        <div class="step-head">
+                            <code>${_escHtml(s.tool)}</code>
+                            <span class="muted">seen ${s.observedCount}×</span>
+                        </div>
+                        ${s.selector ? `<div class="step-sel">seletor: <code>${_escHtml(s.selector)}</code></div>` : ''}
+                        ${s.alternates && s.alternates.length ? `<div class="step-alt muted">alternates: ${s.alternates.map(a => _escHtml(a)).join(', ')}</div>` : ''}
+                        ${s.inputPreview ? `<div class="step-input muted">input: ${_escHtml(s.inputPreview)}</div>` : ''}
+                        ${s.expected ? `<div class="step-expected muted">→ ${_escHtml(s.expected)}</div>` : ''}
+                    </li>
+                `).join('');
+            }
+
+            modal.classList.remove('hidden');
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                btnConfirm?.removeEventListener('click', onConfirm);
+                btnCancel?.removeEventListener('click', onCancel);
+            };
+            const onConfirm = () => { cleanup(); resolve(true); };
+            const onCancel = () => { cleanup(); resolve(false); };
+
+            btnConfirm?.addEventListener('click', onConfirm);
+            btnCancel?.addEventListener('click', onCancel);
+        });
+    };
+
+    // ========================================================================
+    // DASHBOARD DE APRENDIZADO (observer + replay + flows)
+    // ========================================================================
+
+    let _dashLoaded = false;
+
+    function _toggleDashboard(force) {
+        const el = document.getElementById('brain-dashboard');
+        if (!el) return;
+        const willShow = typeof force === 'boolean' ? force : el.classList.contains('hidden');
+        el.classList.toggle('hidden', !willShow);
+        const learnBtn = document.getElementById('btn-brain-learn');
+        if (learnBtn) {
+            learnBtn.classList.toggle('active', willShow);
+            learnBtn.setAttribute('aria-expanded', String(willShow));
+        }
+        if (willShow) _loadDashboard();
+    }
+
+    function _setupDashboardDismiss() {
+        if (document.body.dataset.brainDashboardDismissBound) return;
+        document.body.dataset.brainDashboardDismissBound = '1';
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') _toggleDashboard(false);
+        });
+
+        document.addEventListener('pointerdown', (event) => {
+            const dash = document.getElementById('brain-dashboard');
+            if (!dash || dash.classList.contains('hidden')) return;
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (dash.contains(target)) return;
+
+            const learnBtn = document.getElementById('btn-brain-learn');
+            if (learnBtn && learnBtn.contains(target)) return;
+
+            const graph = document.getElementById('brain-graph');
+            if (graph && graph.contains(target)) _toggleDashboard(false);
+        }, true);
+    }
+
+    async function _syncToggles() {
+        const t1 = document.getElementById('toggle-replay-enabled');
+        const t2 = document.getElementById('toggle-replay-confirm');
+        if (!t1 || !t2) return;
+
+        try {
+            const [enabled, confirm] = await Promise.all([
+                window.brainApi.getPreference('replay.enabled', true),
+                window.brainApi.getPreference('replay.confirmBeforeExecute', false),
+            ]);
+            t1.checked = enabled !== false;
+            t2.checked = !!confirm;
+        } catch { /* ignore */ }
+
+        if (!t1.dataset.bound) {
+            t1.addEventListener('change', async () => {
+                try { await window.brainApi.setPreference('replay.enabled', t1.checked); }
+                catch (err) { alert('Falha ao salvar: ' + err.message); }
+            });
+            t1.dataset.bound = '1';
+        }
+        if (!t2.dataset.bound) {
+            t2.addEventListener('change', async () => {
+                try { await window.brainApi.setPreference('replay.confirmBeforeExecute', t2.checked); }
+                catch (err) { alert('Falha ao salvar: ' + err.message); }
+            });
+            t2.dataset.bound = '1';
+        }
+    }
+
+    function _renderDreamPolicyControls() {
+        const el = document.getElementById('brain-dash-dream-policy');
+        if (!el || el.dataset.bound) return;
+        const options = _getDreamOptions(false);
+        const phases = [
+            ['normalize', 'Normalize'],
+            ['consolidate', 'Merge'],
+            ['staleness', 'Stale'],
+            ['flow', 'Flows'],
+            ['promote', 'Promote'],
+            ['prune', 'Prune'],
+            ['compaction', 'Compact'],
+            ['render', 'Render'],
+        ];
+
+        el.innerHTML = `
+            <div class="brain-dream-policy-grid">
+                ${phases.map(([key, label]) => `
+                    <label title="${_escHtml(key)}">
+                        <input type="checkbox" data-dream-phase="${_escHtml(key)}" ${options.phases[key] ? 'checked' : ''}>
+                        <span>${_escHtml(label)}</span>
+                    </label>
+                `).join('')}
+                <label title="Restaura snapshot automaticamente se a avaliação marcar danger">
+                    <input type="checkbox" id="dream-auto-rollback" ${options.autoRollbackOnDanger ? 'checked' : ''}>
+                    <span>Auto rollback</span>
+                </label>
+            </div>
+        `;
+
+        el.addEventListener('change', () => _saveDreamPolicyControls());
+        el.dataset.bound = '1';
+    }
+
+    function _saveDreamPolicyControls() {
+        const phases = {};
+        document.querySelectorAll('[data-dream-phase]').forEach(input => {
+            phases[input.dataset.dreamPhase] = !!input.checked;
+        });
+        const autoRollback = document.getElementById('dream-auto-rollback');
+        localStorage.setItem('brain.dream.policy', JSON.stringify({
+            phases,
+            autoRollbackOnDanger: !!autoRollback?.checked,
+        }));
+    }
+
+    function _getDreamOptions(dryRun) {
+        const defaults = {
+            phases: {
+                normalize: true,
+                consolidate: true,
+                staleness: true,
+                flow: true,
+                promote: true,
+                prune: true,
+                compaction: true,
+                render: true,
+            },
+            autoRollbackOnDanger: false,
+        };
+        try {
+            const saved = JSON.parse(localStorage.getItem('brain.dream.policy') || '{}');
+            return {
+                dryRun,
+                phases: { ...defaults.phases, ...(saved.phases || {}) },
+                autoRollbackOnDanger: !!saved.autoRollbackOnDanger,
+            };
+        } catch {
+            return { dryRun, ...defaults };
+        }
+    }
+
+    function _renderDreamReport(result) {
+        const el = document.getElementById('brain-dash-dream');
+        if (!el) return;
+        if (!result) {
+            el.innerHTML = '<div class="brain-dash-muted">Sem relatorio do Dream.</div>';
+            return;
+        }
+
+        const reports = Array.isArray(result) ? result : (result.reports || []);
+        const total = Array.isArray(result)
+            ? reports.reduce((sum, report) => sum + (report.nodesAffected || 0), 0)
+            : (result.totalAffected || 0);
+        const mode = result.dryRun ? 'preview' : 'executado';
+        const duration = result.durationMs ? `${(result.durationMs / 1000).toFixed(1)}s` : '';
+        const delta = _dreamMetricDelta(result.metricsBefore, result.metricsAfter);
+        const snapshot = result.snapshotPath
+            ? `<div class="brain-dream-snapshot" title="${_escHtml(result.snapshotPath)}">
+                    <span>snapshot: ${_escHtml(_shortPath(result.snapshotPath))}</span>
+                    ${!result.dryRun && window.brainApi.restoreDreamSnapshot ? '<button type="button" class="brain-dream-restore" data-snapshot-restore>Restore</button>' : ''}
+               </div>`
+            : '';
+        const evalHtml = result.evaluation
+            ? `<div class="brain-dream-eval ${_escHtml(result.evaluation.verdict)}">
+                    <strong>${_escHtml(result.evaluation.verdict)}</strong>
+                    <span>score ${result.evaluation.score ?? 0}</span>
+                    ${(result.evaluation.reasons || []).slice(0, 2).map(reason => `<em>${_escHtml(reason)}</em>`).join('')}
+               </div>`
+            : '';
+        const error = result.error
+            ? `<div class="brain-dash-error">${_escHtml(result.error)}</div>`
+            : '';
+
+        el.innerHTML = `
+            <div class="brain-dream-summary">
+                <span class="brain-dash-badge">${_escHtml(mode)}</span>
+                <strong>${total}</strong>
+                <span class="brain-dash-muted">mudancas ${duration}</span>
+            </div>
+            ${delta ? `<div class="brain-dream-delta">${delta}</div>` : ''}
+            ${evalHtml}
+            ${snapshot}
+            ${error}
+            <div class="brain-dream-phases">
+                ${reports.map(report => `
+                    <div class="brain-dream-phase ${report.error ? 'error' : ''}">
+                        <div class="phase-head">
+                            <strong>${_escHtml(report.phase || '?')}</strong>
+                            <span>${report.nodesAffected || 0}</span>
+                        </div>
+                        ${report.risk ? `<div class="brain-dream-risk ${_escHtml(report.risk.level)}">risk ${_escHtml(report.risk.level)}</div>` : ''}
+                        ${(report.actions || []).slice(0, 3).map(action => `
+                            <div class="brain-dash-muted">${_escHtml(action)}</div>
+                        `).join('')}
+                        ${(report.explanations || []).slice(0, 2).map(reason => `
+                            <div class="brain-dream-explain">${_escHtml(reason)}</div>
+                        `).join('')}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        const restoreBtn = el.querySelector('[data-snapshot-restore]');
+        if (restoreBtn && result.snapshotPath) {
+            restoreBtn.addEventListener('click', async () => {
+                const ok = confirm('Restaurar o snapshot deste Dream? Isso volta o grafo para o estado anterior ao run.');
+                if (!ok) return;
+                restoreBtn.disabled = true;
+                restoreBtn.textContent = '...';
+                try {
+                    const restored = await window.brainApi.restoreDreamSnapshot(result.snapshotPath);
+                    if (!restored?.ok) {
+                        alert('Restore falhou: ' + (restored?.error || 'erro desconhecido'));
+                        return;
+                    }
+                    alert(`Snapshot restaurado: ${restored.nodesRestored} nos, ${restored.edgesRestored} arestas.`);
+                    _initialized = false;
+                    document.getElementById('brain-graph').innerHTML = '';
+                    _graph = null;
+                    await _loadGraph();
+                    await _loadStats();
+                    await _loadDashboard(true);
+                } catch (err) {
+                    alert('Restore falhou: ' + err.message);
+                } finally {
+                    restoreBtn.disabled = false;
+                    restoreBtn.textContent = 'Restore';
+                }
+            });
+        }
+    }
+
+    function _renderDreamHistory(history) {
+        const el = document.getElementById('brain-dash-dream');
+        if (!el) return;
+        if (!Array.isArray(history) || history.length === 0) {
+            el.innerHTML = '<div class="brain-dash-muted">Nenhum ciclo nesta sessao.</div>';
+            return;
+        }
+
+        const last = history[0];
+        el.innerHTML = `
+            <div class="brain-dream-summary">
+                <span class="brain-dash-badge">${last.dryRun ? 'preview' : 'executado'}</span>
+                <strong>${last.totalAffected || 0}</strong>
+                <span class="brain-dash-muted">mudancas ${(last.durationMs / 1000).toFixed(1)}s</span>
+            </div>
+            ${last.snapshotPath ? `<div class="brain-dream-snapshot" title="${_escHtml(last.snapshotPath)}">snapshot: ${_escHtml(_shortPath(last.snapshotPath))}</div>` : ''}
+            <div class="brain-dream-phases">
+                ${history.slice(0, 4).map(item => `
+                    <div class="brain-dream-phase ${item.errorCount ? 'error' : ''}">
+                        <div class="phase-head">
+                            <strong>${_escHtml(new Date(item.finishedAt).toLocaleTimeString())}</strong>
+                            <span>${item.totalAffected || 0}</span>
+                        </div>
+                        <div class="brain-dash-muted">${item.dryRun ? 'preview' : 'execucao'}${item.verdict ? `, ${_escHtml(item.verdict)}` : ''}${item.errorCount ? `, ${item.errorCount} erro(s)` : ''}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function _dreamMetricDelta(before, after) {
+        if (!before || !after) return '';
+        const pairs = [
+            ['nodes', before.nodeCount, after.nodeCount],
+            ['edges', before.edgeCount, after.edgeCount],
+            ['flows', before.flows, after.flows],
+            ['invalid', before.invalidatedPageStates, after.invalidatedPageStates],
+        ];
+        return pairs.map(([label, from, to]) => {
+            const diff = (to || 0) - (from || 0);
+            const sign = diff > 0 ? '+' : '';
+            return `<span><b>${_escHtml(label)}</b> ${to || 0} <em>${sign}${diff}</em></span>`;
+        }).join('');
+    }
+
+    function _shortPath(filePath) {
+        const normalized = String(filePath || '').replace(/\\/g, '/');
+        const parts = normalized.split('/');
+        return parts.slice(-2).join('/');
+    }
+
+    async function _loadDashboard(forceRefresh = false) {
+        const root = document.getElementById('brain-dashboard');
+        if (!root) return;
+        _syncToggles();
+        const statsEl = document.getElementById('brain-dash-stats');
+        const replayEl = document.getElementById('brain-dash-replay');
+        const flowsEl = document.getElementById('brain-dash-flows');
+        const tracesEl = document.getElementById('brain-dash-traces');
+        const selsEl = document.getElementById('brain-dash-selectors');
+        const windowEl = document.getElementById('brain-dash-window');
+        const dreamEl = document.getElementById('brain-dash-dream');
+
+        _renderDreamPolicyControls();
+
+        if (forceRefresh) _dashLoaded = false;
+        if (!_dashLoaded) {
+            [statsEl, replayEl, flowsEl, tracesEl, selsEl].forEach(e => { if (e) e.innerHTML = '<div class="brain-dash-muted">Carregando...</div>'; });
+        }
+
+        let data;
+        try {
+            data = await window.brainApi.getDashboard({ windowDays: 7, topFlowsLimit: 10 });
+        } catch (err) {
+            if (statsEl) statsEl.innerHTML = '<div class="brain-dash-error">Falha: ' + _escHtml(err.message) + '</div>';
+            return;
+        }
+        _dashLoaded = true;
+
+        if (dreamEl && window.brainApi.getDreamHistory) {
+            try {
+                _renderDreamHistory(await window.brainApi.getDreamHistory());
+            } catch {
+                dreamEl.innerHTML = '<div class="brain-dash-muted">Historico do Dream indisponivel.</div>';
+            }
+        }
+
+        if (!data) {
+            if (statsEl) statsEl.innerHTML = '<div class="brain-dash-muted">Brain não inicializado.</div>';
+            return;
+        }
+
+        // Stats
+        if (statsEl) {
+            const s = data.stats || {};
+            statsEl.innerHTML = `
+                <div class="brain-dash-grid">
+                    <div><span class="k">Nodes</span><span class="v">${s.totalNodes ?? 0}</span></div>
+                    <div><span class="k">Edges</span><span class="v">${s.totalEdges ?? 0}</span></div>
+                    <div><span class="k">Page states</span><span class="v">${s.pageStates ?? 0}</span></div>
+                    <div><span class="k">Actions</span><span class="v">${s.actions ?? 0}</span></div>
+                    <div><span class="k">Flows</span><span class="v">${s.flows ?? 0}</span></div>
+                    <div><span class="k">Invalidated</span><span class="v">${s.invalidatedPageStates ?? 0}</span></div>
+                </div>`;
+        }
+
+        // Replay hit rate
+        if (replayEl) {
+            const r = data.replayHitRate || { hits: 0, total: 0, rate: 0, windowDays: 7 };
+            if (windowEl) windowEl.textContent = `(${r.windowDays}d)`;
+            const pct = (r.rate * 100).toFixed(1);
+            const bar = `<div class="brain-dash-bar"><div style="width:${pct}%"></div></div>`;
+            replayEl.innerHTML = `
+                <div class="brain-dash-row">
+                    <span class="brain-dash-big">${pct}%</span>
+                    <span class="brain-dash-muted">${r.hits} de ${r.total} actions</span>
+                </div>
+                ${bar}`;
+        }
+
+        // Top flows
+        if (flowsEl) {
+            const list = data.topFlows || [];
+            if (list.length === 0) {
+                flowsEl.innerHTML = '<div class="brain-dash-muted">Nenhum flow detectado. Use "Detectar flows" após acumular observações.</div>';
+            } else {
+                flowsEl.innerHTML = list.map(f => `
+                    <div class="brain-dash-flow">
+                        <div class="brain-dash-flow-head">
+                            <strong>${_escHtml(f.tribunal || '?')}</strong>
+                            <span class="brain-dash-muted">${_escHtml(f.pjeContext || '')}</span>
+                            <span class="brain-dash-badge">${f.instances}×</span>
+                            ${f.crossConfirmations > 1 ? `<span class="brain-dash-badge trust">trust ${f.crossConfirmations}</span>` : ''}
+                        </div>
+                        <div class="brain-dash-flow-tools">${(f.tools || []).map(t => `<span class="tool">${_escHtml(t)}</span>`).join(' → ')}</div>
+                        <div class="brain-dash-flow-meta">
+                            conf ${(f.confidence || 0).toFixed(2)} · ${_formatDate(f.lastDetectedAt)}
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // Traces recentes
+        if (tracesEl) {
+            const list = data.recentTraces || [];
+            if (list.length === 0) {
+                tracesEl.innerHTML = '<div class="brain-dash-muted">Nenhuma trace recente.</div>';
+            } else {
+                tracesEl.innerHTML = list.map(t => `
+                    <div class="brain-dash-trace">
+                        <code>${_escHtml(String(t.traceId).slice(0, 8))}</code>
+                        <span>${t.steps} steps</span>
+                        <span>${(t.durationMs / 1000).toFixed(1)}s</span>
+                        <span class="${t.successRate >= 1 ? 'ok' : (t.successRate > 0 ? 'warn' : 'err')}">${Math.round(t.successRate * 100)}%</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // Selectors problemáticos
+        if (selsEl) {
+            const list = data.problemSelectors || [];
+            if (list.length === 0) {
+                selsEl.innerHTML = '<div class="brain-dash-muted">Nenhum seletor problemático.</div>';
+            } else {
+                selsEl.innerHTML = list.map(s => `
+                    <div class="brain-dash-selector">
+                        <div><strong>${_escHtml(s.tribunal || '?')}</strong> <span class="brain-dash-muted">${_escHtml(s.context || '')}</span></div>
+                        <code>${_escHtml((s.label || '').slice(0, 80))}</code>
+                        <div class="brain-dash-muted">✓ ${s.successCount} · ✗ ${s.failureCount}</div>
+                    </div>
+                `).join('');
+            }
+        }
     }
 
 })();

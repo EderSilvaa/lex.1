@@ -32,8 +32,10 @@
 .message.user .message-body {
     max-width: min(70%, 600px);
     width: auto;
-    background: #2f2f2f;
-    border-radius: 22px;
+    background: #3a3d40;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
     padding: 10px 18px;
 }
 
@@ -102,10 +104,69 @@
 .message.user .msg-content {
     border: 0;
     background: transparent;
-    color: #f1ebe0;
+    color: #f4eee6;
     text-align: left;
     word-break: break-word;
     overflow-wrap: break-word;
+}
+
+.long-message {
+    overflow: hidden;
+}
+
+.long-message-preview,
+.long-message-full {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.long-message-preview {
+    white-space: normal;
+    color: inherit;
+}
+
+.long-message-full {
+    display: block;
+}
+
+.long-message.is-collapsed .long-message-full {
+    display: none;
+}
+
+.long-message:not(.is-collapsed) .long-message-preview {
+    display: none;
+}
+
+.long-message-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.long-message-toggle {
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    padding: 6px 9px;
+    cursor: pointer;
+}
+
+.long-message-toggle:hover {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.09);
 }
 
 .message.system .msg-content {

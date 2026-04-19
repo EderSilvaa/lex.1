@@ -531,8 +531,18 @@ body {
     }
 
     .sidebar .label,
-    .sidebar .sidebar-header {
+    .sidebar .logo span {
         display: none;
+    }
+
+    .sidebar .sidebar-header {
+        display: flex;
+        justify-content: center;
+        padding: 8px 0 6px;
+    }
+
+    .sidebar .logo {
+        justify-content: center;
     }
 
     .nav-item {

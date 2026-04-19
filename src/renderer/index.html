@@ -566,8 +566,10 @@
                             </svg>
                             Buscar
                         </button>
+                        <button id="btn-brain-learn" class="brain-btn brain-btn-cyan" title="Aprendizado: flows, replay, traces">◉ Learn</button>
                         <button id="btn-brain-dream" class="brain-btn">✦ Dream</button>
                         <button id="btn-brain-export" class="brain-btn">↑ Export</button>
+                        <button id="btn-brain-export-patterns" class="brain-btn" title="Exportar só padrões de uso (sem dados de processo)">↑ Patterns</button>
                     </div>
 
                     <!-- Search bar (slide-in below toolbar) -->
@@ -580,6 +582,60 @@
                     <div id="brain-sidebar" class="brain-sidebar hidden">
                         <button id="btn-brain-sidebar-close" class="brain-sidebar-close">×</button>
                         <div id="brain-node-detail"></div>
+                    </div>
+
+                    <!-- Dashboard de aprendizado (slide-in from right) -->
+                    <div id="brain-dashboard" class="brain-dashboard hidden">
+                        <div class="brain-dashboard-header">
+                            <span class="brain-dashboard-title">APRENDIZADO</span>
+                            <button id="btn-brain-dashboard-refresh" class="brain-btn" title="Atualizar dashboard">Atualizar</button>
+                            <button id="btn-brain-detect-flows" class="brain-btn" title="Rodar detecção de flows agora">⟳ Detectar flows</button>
+                            <button id="btn-brain-dashboard-close" class="brain-sidebar-close" title="Fechar painel" aria-label="Fechar painel">×</button>
+                        </div>
+                        <div class="brain-dashboard-body">
+                            <section class="brain-dash-section">
+                                <h4>Controles de Replay</h4>
+                                <div class="brain-dash-toggles">
+                                    <label class="brain-toggle">
+                                        <input type="checkbox" id="toggle-replay-enabled" />
+                                        <span>Replay habilitado</span>
+                                        <small>Se desligado, toda task passa por vision.</small>
+                                    </label>
+                                    <label class="brain-toggle">
+                                        <input type="checkbox" id="toggle-replay-confirm" />
+                                        <span>Confirmar antes de executar</span>
+                                        <small>Mostra o plano e pede aprovação — recomendado no direito.</small>
+                                    </label>
+                                </div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Estatísticas</h4>
+                                <div id="brain-dash-stats" class="brain-dash-stats"></div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Dream</h4>
+                                <div id="brain-dash-dream-policy" class="brain-dream-policy"></div>
+                                <div id="brain-dash-dream" class="brain-dash-dream">
+                                    <div class="brain-dash-muted">Nenhum ciclo nesta sessÃ£o.</div>
+                                </div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Replay hit rate <span id="brain-dash-window" class="brain-dash-muted"></span></h4>
+                                <div id="brain-dash-replay"></div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Top flows</h4>
+                                <div id="brain-dash-flows"></div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Traces recentes</h4>
+                                <div id="brain-dash-traces"></div>
+                            </section>
+                            <section class="brain-dash-section">
+                                <h4>Seletores problemáticos</h4>
+                                <div id="brain-dash-selectors"></div>
+                            </section>
+                        </div>
                     </div>
                 </div>
 
@@ -825,6 +881,29 @@
     <script src="js/purify.min.js"></script>
     <script src="js/quill.min.js"></script>
     <script src="js/xterm.js"></script>
+    <!-- Replay preview modal (global, disparado pelo skill pje_browser_use) -->
+    <div id="replay-preview-modal" class="replay-modal hidden">
+        <div class="replay-modal-backdrop"></div>
+        <div class="replay-modal-panel">
+            <div class="replay-modal-header">
+                <span class="replay-modal-title">Confirmar execução de replay</span>
+                <span id="replay-modal-confidence" class="replay-modal-badge"></span>
+            </div>
+            <div class="replay-modal-body">
+                <div class="replay-modal-goal" id="replay-modal-goal"></div>
+                <div class="replay-modal-summary" id="replay-modal-summary"></div>
+                <ol class="replay-modal-steps" id="replay-modal-steps"></ol>
+                <div class="replay-modal-hint">
+                    Revise cada passo. Se algo estiver errado, cancele e a LEX cai no modo vision.
+                </div>
+            </div>
+            <div class="replay-modal-footer">
+                <button id="replay-modal-cancel" class="replay-modal-btn">Cancelar (usar vision)</button>
+                <button id="replay-modal-confirm" class="replay-modal-btn primary">Executar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/xterm-addon-fit.js"></script>
     <script src="js/xterm-addon-web-links.js"></script>
     <script src="js/app.js"></script>

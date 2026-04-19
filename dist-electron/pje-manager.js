@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PJeManager = void 0;
 const electron_1 = require("electron");
@@ -18,42 +9,40 @@ class PJeManager {
         this.currentUrl = null;
         this.mainWindow = mainWindow;
     }
-    initialize() {
-        return __awaiter(this, void 0, void 0, function* () {
-            console.log('🌐 PJeManager: Initializing PJe BrowserView...');
-            if (this.pjeView) {
-                console.log('🌐 PJeManager: Already initialized.');
-                return true;
-            }
-            // Create BrowserView
-            this.pjeView = new electron_1.BrowserView({
-                webPreferences: {
-                    nodeIntegration: false,
-                    contextIsolation: true,
-                    javascript: true,
-                    images: true,
-                    webSecurity: true, // Important for official sites
-                    // Preload can be added later if we need deep integration
-                }
-            });
-            // Add to main window
-            this.mainWindow.setBrowserView(this.pjeView);
-            // Initial Layout (Example: Right half or full content area)
-            // We will refine this based on the UI layout later
-            this.updateBounds();
-            // Auto-resize is tricky with BrowserView, we usually handle it manually on window resize events
-            // But basic auto-resize can be set:
-            this.pjeView.setAutoResize({
-                width: true,
-                height: true,
-                horizontal: true,
-                vertical: true
-            });
-            this.setupEventListeners();
-            this.initialized = true;
-            console.log('✅ PJeManager: Initialization complete.');
+    async initialize() {
+        console.log('🌐 PJeManager: Initializing PJe BrowserView...');
+        if (this.pjeView) {
+            console.log('🌐 PJeManager: Already initialized.');
             return true;
+        }
+        // Create BrowserView
+        this.pjeView = new electron_1.BrowserView({
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                javascript: true,
+                images: true,
+                webSecurity: true, // Important for official sites
+                // Preload can be added later if we need deep integration
+            }
         });
+        // Add to main window
+        this.mainWindow.setBrowserView(this.pjeView);
+        // Initial Layout (Example: Right half or full content area)
+        // We will refine this based on the UI layout later
+        this.updateBounds();
+        // Auto-resize is tricky with BrowserView, we usually handle it manually on window resize events
+        // But basic auto-resize can be set:
+        this.pjeView.setAutoResize({
+            width: true,
+            height: true,
+            horizontal: true,
+            vertical: true
+        });
+        this.setupEventListeners();
+        this.initialized = true;
+        console.log('✅ PJeManager: Initialization complete.');
+        return true;
     }
     setupEventListeners() {
         if (!this.pjeView)
@@ -91,21 +80,16 @@ class PJeManager {
             height: bounds.height
         });
     }
-    navigateTo(url) {
-        return __awaiter(this, void 0, void 0, function* () {
-            var _a;
-            if (!this.pjeView)
-                yield this.initialize();
-            console.log(`🧭 PJeManager: Navigating to ${url}`);
-            yield ((_a = this.pjeView) === null || _a === void 0 ? void 0 : _a.webContents.loadURL(url));
-        });
+    async navigateTo(url) {
+        if (!this.pjeView)
+            await this.initialize();
+        console.log(`🧭 PJeManager: Navigating to ${url}`);
+        await this.pjeView?.webContents.loadURL(url);
     }
-    executeScript(script) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.pjeView)
-                throw new Error('PJe View not initialized');
-            return yield this.pjeView.webContents.executeJavaScript(script);
-        });
+    async executeScript(script) {
+        if (!this.pjeView)
+            throw new Error('PJe View not initialized');
+        return await this.pjeView.webContents.executeJavaScript(script);
     }
     show() {
         if (this.pjeView) {
@@ -119,21 +103,18 @@ class PJeManager {
         }
     }
     get webContents() {
-        var _a;
-        return (_a = this.pjeView) === null || _a === void 0 ? void 0 : _a.webContents;
+        return this.pjeView?.webContents;
     }
-    getPageData() {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.pjeView)
-                return null;
-            return yield this.executeScript(`
+    async getPageData() {
+        if (!this.pjeView)
+            return null;
+        return await this.executeScript(`
             ({
                 url: window.location.href,
                 title: document.title,
                 innerText: document.body.innerText.substring(0, 500) // Sample
             })
         `);
-        });
     }
 }
 exports.PJeManager = PJeManager;

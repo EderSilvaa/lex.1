@@ -17,6 +17,7 @@ export interface ParsedArgs {
     scheduleFile?: string;
     noAttach: boolean;
     inElectron: boolean;
+    simple: boolean;
 }
 
 /**
@@ -63,6 +64,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         mode: 'repl',
         noAttach: false,
         inElectron: process.env['LEX_IN_ELECTRON'] === '1',
+        simple: process.env['LEX_SIMPLE_REPL'] === '1',
     };
 
     const positional: string[] = [];
@@ -109,6 +111,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
             out.inElectron = true;
             continue;
         }
+        if (a === '--simple') {
+            out.simple = true;
+            continue;
+        }
 
         // Não é flag conhecida — trata como positional (objetivo).
         positional.push(a);
@@ -135,6 +141,7 @@ Uso:
 Opções:
   --user-data-dir <path>         Diretório de dados (default: %APPDATA%/lex-test1)
   --no-attach                    Não tenta attachar a backend existente; sobe um próprio
+  --simple                       Usa REPL simples sem Ink (fallback/debug)
 
 Configuração (primeira vez):
   1. lex config list-providers                    Lista os providers disponíveis

@@ -1,0 +1,13 @@
+{
+  "schedules": [
+    {
+      "id": "f8043455",
+      "goal": "teste scheduler invalido",
+      "cron": "1 2 3 * *",
+      "name": "teste scheduler invalido",
+      "createdAt": 1776110675124,
+      "enabled": true,
+      "osTaskName": "LEX_f8043455"
+    }
+  ]
+}

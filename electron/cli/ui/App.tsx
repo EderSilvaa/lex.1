@@ -91,13 +91,17 @@ export interface AppProps {
     inElectron?: boolean;
 }
 
+function getInitialSessionId(): string {
+    return process.env['LEX_CONVERSATION_ID']?.trim() || randomUUID();
+}
+
 const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) => {
     const { exit } = useApp();
 
     const [messages, setMessages]   = useState<MessageEntry[]>([]);
     const [status, setStatus]       = useState<AppStatus>('idle');
     const [spinLabel, setSpinLabel] = useState<string | string[]>(THINK_LABELS);
-    const [sessionId, setSessionId] = useState<string>(randomUUID());
+    const [sessionId, setSessionId] = useState<string>(getInitialSessionId);
     const [input, setInput]         = useState('');
 
     // streaming tokens accumulated here; flushed to messages on completed/error
@@ -256,6 +260,36 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
         return () => { messageBus.off('message', onMsg); };
     }, [addEntry]);
 
+    // ── Preload histórico da conversa ao abrir ────────────────────────────────
+    // Quando o CLI abre uma sessão antiga (LEX_CONVERSATION_ID), busca o histórico
+    // e renderiza dentro do <Static> do Ink. Pintar direto no xterm quebra porque
+    // Ink limpa a tela quando seu output ≥ rows (log-update + clearTerminal).
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const hist = await rpcCall('session-history', { sessionId, limit: 12 });
+                if (cancelled || !Array.isArray(hist) || hist.length === 0) return;
+                const entries: MessageEntry[] = [];
+                for (const m of hist) {
+                    const role = m?.role === 'user' ? 'user' : 'assistant';
+                    const text = String(m?.content || '').trim();
+                    if (!text) continue;
+                    entries.push(role === 'user'
+                        ? { id: genId(), kind: 'user', text }
+                        : { id: genId(), kind: 'stream_done', text },
+                    );
+                }
+                if (entries.length > 0) setMessages(prev => [...entries, ...prev]);
+            } catch {
+                // sem histórico — sem problema
+            }
+        })();
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // ── Ctrl+C ────────────────────────────────────────────────────────────────
 
     useInput((_input, key) => {
@@ -290,7 +324,7 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
         if (waitingUser && currentRunId.current) {
             setStatus('thinking');
             try {
-                await rpcCall('agent-respond', { runId: currentRunId.current, response: line });
+                await rpcCall('agent-respond', { runId: currentRunId.current, response: line, sessionId, source: 'terminal' });
             } catch (err: any) {
                 addEntry({ id: genId(), kind: 'bus', msg: { kind: 'error', text: err?.message || String(err) } });
                 setStatus('idle');
@@ -375,7 +409,7 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
         try {
             await rpcCall(
                 'agent-run',
-                { objetivo, config: {}, sessionId },
+                { objetivo, config: {}, sessionId, source: 'terminal' },
                 { timeoutMs: 12 * 60 * 1000 + 60_000 },
             );
         } catch (err: any) {

@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto';
 // ── Config via env vars (passadas pelo Electron main ao spawnar) ──
 const PORT = parseInt(process.env['LEX_BACKEND_PORT'] || '19876', 10);
 const USER_DATA_DIR = process.env['LEX_USER_DATA'] || '';
+const terminalRunSessions = new Map<string, string>();
 
 if (!USER_DATA_DIR) {
     console.error('[Backend] LEX_USER_DATA não definido');
@@ -46,6 +47,20 @@ initSessionManager(USER_DATA_DIR);
         const mcp = getMcpManager();
         mcp.ensureConfigTemplate();
         if (mcp.hasServers()) await mcp.init();
+
+        // Observer: intercepta callTool do MCP para gravar observações no Brain.
+        // Fire-and-forget — não deve bloquear a chamada original.
+        try {
+            await ensureBrain();
+            const { initObserver, attachToMcpManager, registerDefaultEnrichers } =
+                await import('../observer');
+            initObserver();
+            registerDefaultEnrichers();
+            attachToMcpManager(mcp);
+            console.log('[Backend] Observer anexado ao McpManager');
+        } catch (obsErr: any) {
+            console.warn(`[Backend] Observer init falhou: ${obsErr?.message || String(obsErr)}`);
+        }
     } catch (err: any) {
         console.warn(`[Backend] MCP init falhou: ${err?.message || String(err)}`);
     }
@@ -199,11 +214,63 @@ function sendEventToClient(ws: WebSocket, event: string, data: any): void {
     }
 }
 
+function sendEventToClientId(clientId: string, event: string, data: any): boolean {
+    for (const [ws, id] of connectedClients) {
+        if (id === clientId) {
+            sendEventToClient(ws, event, data);
+            return true;
+        }
+    }
+    return false;
+}
+
 // Envia evento para todos os clients conectados (streaming)
 function sendEvent(event: string, data: any): void {
     for (const ws of connectedClients.keys()) {
         sendEventToClient(ws, event, data);
     }
+}
+
+function normalizeConversationText(value: any): string {
+    if (typeof value === 'string') return value.trim();
+    if (value == null) return '';
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
+    }
+}
+
+function emitTerminalConversationMessage(input: {
+    sessionId?: string;
+    role: 'user' | 'assistant';
+    content: any;
+    runId?: string;
+}): void {
+    const sessionId = String(input.sessionId || '').trim();
+    const content = normalizeConversationText(input.content);
+    if (!sessionId || !content) return;
+
+    sendEvent('conversation-message', {
+        source: 'terminal',
+        conversationId: sessionId,
+        sessionId,
+        role: input.role,
+        content,
+        timestamp: Date.now(),
+        runId: input.runId,
+    });
+}
+
+function sendAgentEvent(data: any): void {
+    const runId = typeof data?.runId === 'string' ? data.runId : '';
+    const ownerId = runId ? runOwners.get(runId) : null;
+
+    if (ownerId && sendEventToClientId(ownerId, 'agent-event', data)) {
+        return;
+    }
+
+    sendEvent('agent-event', data);
 }
 
 function releaseRunOwnerships(clientId: string): void {
@@ -305,7 +372,7 @@ async function setupEventForwarding(): Promise<void> {
     if (eventForwardingSetup) return;
     const agent = await ensureAgent();
     (agent.agentEmitter as EventEmitter).on('agent-event', (event: any) => {
-        sendEvent('agent-event', event);
+        sendAgentEvent(event);
     });
     eventForwardingSetup = true;
 }
@@ -348,7 +415,11 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             await bootstrapPythonForBrowserUse();
             const agent = await ensureAgent();
             await setupEventForwarding();
-            const { objetivo, config, tenantConfig, sessionId } = params;
+            const { objetivo, config, tenantConfig, sessionId, source } = params;
+            const isTerminalRun = source === 'terminal';
+            if (isTerminalRun) {
+                emitTerminalConversationMessage({ sessionId, role: 'user', content: objetivo });
+            }
 
             // Goals compostos → Orchestrator (multi-agent paralelo)
             const { shouldUsePlanner } = await import('../agent/planner');
@@ -359,10 +430,16 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
                 _activeOrchestrator = orchestrator;
                 _activeOrchestratorOwnerId = clientId;
                 orchestrator.on('event', (evt: any) => {
-                    sendEvent('agent-event', { type: 'orchestrator', data: evt });
+                    const event = { type: 'orchestrator', data: evt };
+                    if (!sendEventToClientId(clientId, 'agent-event', event)) {
+                        sendEvent('agent-event', event);
+                    }
                 });
                 try {
                     const result = await orchestrator.execute(objetivo, sessionId);
+                    if (isTerminalRun) {
+                        emitTerminalConversationMessage({ sessionId, role: 'assistant', content: result });
+                    }
                     return result;
                 } finally {
                     _activeOrchestrator = null;
@@ -372,16 +449,24 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
 
             const runId = randomUUID();
             runOwners.set(runId, clientId);
+            if (isTerminalRun && sessionId) {
+                terminalRunSessions.set(runId, sessionId);
+            }
             try {
-                return await agent.runAgentLoop({
+                const result = await agent.runAgentLoop({
                     objetivo,
                     config: config ?? {},
                     tenantConfig: tenantConfig ?? agent.getDefaultTenantConfig(),
                     sessionId,
                     runId,
                 });
+                if (isTerminalRun) {
+                    emitTerminalConversationMessage({ sessionId, role: 'assistant', content: result, runId });
+                }
+                return result;
             } finally {
                 runOwners.delete(runId);
+                terminalRunSessions.delete(runId);
             }
         }
 
@@ -421,7 +506,7 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
 
         case 'agent-respond': {
             const agent = await ensureAgent();
-            const { runId, response } = params;
+            const { runId, response, sessionId, source } = params;
             if (!runId) {
                 throw new Error('runId obrigatório para responder ao agente.');
             }
@@ -432,6 +517,14 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             const ok = agent.resolveUserResponse(controlledRunId, response);
             if (!ok) {
                 throw new Error(`Nenhuma resposta pendente para o run ${controlledRunId}.`);
+            }
+            if (source === 'terminal') {
+                emitTerminalConversationMessage({
+                    sessionId: terminalRunSessions.get(controlledRunId) || sessionId,
+                    role: 'user',
+                    content: response,
+                    runId: controlledRunId,
+                });
             }
             return { ok: true, runId: controlledRunId };
         }
@@ -490,7 +583,7 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
         }
 
         case 'browser-focus': {
-            await ensureBrowser();
+            // NÃO chama ensureBrowser() — só foca se Chrome já estiver aberto.
             const page = getActivePage();
             if (!page) {
                 return { ok: false, error: 'no_active_page', status: await buildPjeStatus() };
@@ -521,6 +614,15 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             const agent = await ensureAgent();
             const sm = agent.getSessionManager();
             return sm.listSessionPreviews();
+        }
+
+        case 'session-history': {
+            const agent = await ensureAgent();
+            const sm = agent.getSessionManager();
+            const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : '';
+            if (!sessionId) return [];
+            const limit = typeof params?.limit === 'number' ? params.limit : 12;
+            return sm.getHistory(sessionId, limit);
         }
 
         case 'session-flush': {
@@ -561,6 +663,25 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             const brain = getBrainSafe();
             if (!brain) return { nodeCount: 0, edgeCount: 0, byType: {} };
             return brain.getStats();
+        }
+
+        case 'brain-dashboard': {
+            const { getBrainSafe } = await ensureBrain();
+            const brain = getBrainSafe();
+            if (!brain) return null;
+            const { getDashboardOverview } = await import('../brain/dashboard');
+            return getDashboardOverview(brain, {
+                windowDays: Number(params?.windowDays) || 7,
+                topFlowsLimit: Number(params?.topFlowsLimit) || 10,
+            });
+        }
+
+        case 'brain-trace': {
+            const { getBrainSafe } = await ensureBrain();
+            const brain = getBrainSafe();
+            if (!brain) return null;
+            const { getTrace } = await import('../brain/trace-query');
+            return getTrace(brain, String(params?.traceId || ''));
         }
 
         // ── Ollama ──
@@ -619,6 +740,10 @@ async function shutdown(): Promise<void> {
             if (sm?.flush) await sm.flush();
         } catch { /* ok */ }
     }
+    try {
+        const { shutdownObserver } = await import('../observer');
+        await shutdownObserver();
+    } catch { /* ok */ }
     if (brainModule) {
         try { brainModule.closeBrain(); } catch { /* ok */ }
     }

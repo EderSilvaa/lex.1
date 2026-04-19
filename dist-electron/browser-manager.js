@@ -32,15 +32,6 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -94,7 +85,7 @@ function isElectronProcess() {
 }
 /** Cria env limpo para child Chromium — remove variáveis do Electron que causam crash */
 function cleanEnvForChromium() {
-    const env = Object.assign({}, process.env);
+    const env = { ...process.env };
     // CHROME_CRASHPAD_PIPE_NAME faz child Chromium tentar usar o crash handler do Electron → STATUS_BREAKPOINT
     delete env['CHROME_CRASHPAD_PIPE_NAME'];
     delete env['ELECTRON_RUN_AS_NODE'];
@@ -244,161 +235,160 @@ let bridgePort = null;
 let bridgeDied = false; // P2.3: flag para recovery sem matar Chrome
 /** Inicia o CDP bridge + Chrome como processo Node.js separado (não Electron)
  *  Chrome é spawnado DENTRO do bridge para evitar herança de handles do Electron */
-function startCdpBridge(chromePath, userDataDir, cdpPort) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // Mata bridge anterior
-        if (bridgeProc && !bridgeProc.killed) {
-            try {
-                bridgeProc.kill();
+async function startCdpBridge(chromePath, userDataDir, cdpPort) {
+    // Mata bridge anterior
+    if (bridgeProc && !bridgeProc.killed) {
+        try {
+            bridgeProc.kill();
+        }
+        catch { /* ok */ }
+        bridgeProc = null;
+        bridgePort = null;
+    }
+    // Escreve o script do bridge no diretório do código compilado
+    const bridgePath = path_1.default.join(__dirname, 'cdp-bridge.js');
+    fs_1.default.writeFileSync(bridgePath, CDP_BRIDGE_CODE);
+    return new Promise((resolve, reject) => {
+        // Bridge recebe: chromePath, userDataDir, cdpPort (ou 'PROXY_ONLY', cdpPort)
+        const bridgeArgs = chromePath === 'PROXY_ONLY'
+            ? [bridgePath, 'PROXY_ONLY', String(cdpPort)]
+            : [bridgePath, chromePath, userDataDir, String(cdpPort)];
+        bridgeProc = (0, child_process_1.spawn)('node', bridgeArgs, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: cleanEnvForChromium(), // env limpo sem CHROME_CRASHPAD_PIPE_NAME etc.
+        });
+        let output = '';
+        let resolved = false;
+        bridgeProc.stdout?.on('data', (chunk) => {
+            output += chunk.toString();
+            const match = output.match(/BRIDGE:(\d+)/);
+            if (match && !resolved) {
+                resolved = true;
+                bridgePort = parseInt(match[1]);
+                console.log('[CDP Bridge] Pronto na porta', bridgePort);
+                resolve(bridgePort);
             }
-            catch ( /* ok */_a) { /* ok */ }
+        });
+        bridgeProc.stderr?.on('data', (d) => {
+            const line = d.toString().trim();
+            if (line.startsWith('CHROME_PID:')) {
+                const pid = parseInt(line.split(':')[1]);
+                console.log('[Browser] Chromium PID:', pid, '(via bridge)');
+                // Salva PID para killPreviousChrome
+                try {
+                    fs_1.default.writeFileSync(path_1.default.join(userDataDir, 'chrome.pid'), String(pid));
+                }
+                catch { }
+            }
+            else if (line.startsWith('CHROME_EXIT:')) {
+                console.warn('[Browser] Chromium saiu com código:', line.split(':')[1]);
+            }
+            else if (line) {
+                console.log('[CDP Bridge]', line.slice(0, 300));
+            }
+        });
+        bridgeProc.on('exit', code => {
+            console.warn('[CDP Bridge] Saiu com código:', code);
+            if (!resolved)
+                reject(new Error(`Bridge saiu com código ${code}`));
             bridgeProc = null;
             bridgePort = null;
-        }
-        // Escreve o script do bridge no diretório do código compilado
-        const bridgePath = path_1.default.join(__dirname, 'cdp-bridge.js');
-        fs_1.default.writeFileSync(bridgePath, CDP_BRIDGE_CODE);
-        return new Promise((resolve, reject) => {
-            var _a, _b;
-            // Bridge recebe: chromePath, userDataDir, cdpPort (ou 'PROXY_ONLY', cdpPort)
-            const bridgeArgs = chromePath === 'PROXY_ONLY'
-                ? [bridgePath, 'PROXY_ONLY', String(cdpPort)]
-                : [bridgePath, chromePath, userDataDir, String(cdpPort)];
-            bridgeProc = (0, child_process_1.spawn)('node', bridgeArgs, {
-                stdio: ['ignore', 'pipe', 'pipe'],
-                env: cleanEnvForChromium(), // env limpo sem CHROME_CRASHPAD_PIPE_NAME etc.
-            });
-            let output = '';
-            let resolved = false;
-            (_a = bridgeProc.stdout) === null || _a === void 0 ? void 0 : _a.on('data', (chunk) => {
-                output += chunk.toString();
-                const match = output.match(/BRIDGE:(\d+)/);
-                if (match && !resolved) {
-                    resolved = true;
-                    bridgePort = parseInt(match[1]);
-                    console.log('[CDP Bridge] Pronto na porta', bridgePort);
-                    resolve(bridgePort);
-                }
-            });
-            (_b = bridgeProc.stderr) === null || _b === void 0 ? void 0 : _b.on('data', (d) => {
-                const line = d.toString().trim();
-                if (line.startsWith('CHROME_PID:')) {
-                    const pid = parseInt(line.split(':')[1]);
-                    console.log('[Browser] Chromium PID:', pid, '(via bridge)');
-                    // Salva PID para killPreviousChrome
-                    try {
-                        fs_1.default.writeFileSync(path_1.default.join(userDataDir, 'chrome.pid'), String(pid));
-                    }
-                    catch (_a) { }
-                }
-                else if (line.startsWith('CHROME_EXIT:')) {
-                    console.warn('[Browser] Chromium saiu com código:', line.split(':')[1]);
-                }
-                else if (line) {
-                    console.log('[CDP Bridge]', line.slice(0, 300));
-                }
-            });
-            bridgeProc.on('exit', code => {
-                console.warn('[CDP Bridge] Saiu com código:', code);
-                if (!resolved)
-                    reject(new Error(`Bridge saiu com código ${code}`));
-                bridgeProc = null;
-                bridgePort = null;
-                // P2.3: marca bridge como morto para recovery sem matar Chrome
-                if (resolved)
-                    bridgeDied = true;
-            });
-            setTimeout(() => { if (!resolved)
-                reject(new Error('CDP bridge timeout (30s)')); }, 30000);
+            // P2.3: marca bridge como morto para recovery sem matar Chrome
+            if (resolved)
+                bridgeDied = true;
         });
+        setTimeout(() => { if (!resolved)
+            reject(new Error('CDP bridge timeout (30s)')); }, 30000);
     });
 }
 /** Spawna Chrome via bridge Node.js e conecta Playwright direto no CDP do Chrome.
  *  Bridge só serve para spawnar Chrome fora do Job Object do Electron.
  *  Playwright conecta direto na porta do Chrome — sem passar pelo proxy. */
-function connectViaBridge(chromePath, userDataDir, cdpPort) {
-    return __awaiter(this, void 0, void 0, function* () {
-        yield startCdpBridge(chromePath, userDataDir, cdpPort);
-        // Conecta direto ao Chrome — bridge proxy não é necessário para Playwright
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
-    });
+async function connectViaBridge(chromePath, userDataDir, cdpPort) {
+    await startCdpBridge(chromePath, userDataDir, cdpPort);
+    // Conecta direto ao Chrome — bridge proxy não é necessário para Playwright
+    return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
 }
 /** Chrome já está rodando — conecta Playwright direto no CDP */
-function connectViaBridgeProxyOnly(cdpPort) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
-    });
+async function connectViaBridgeProxyOnly(cdpPort) {
+    return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
 }
 /** Launch direto: spawna Chrome sem bridge (para backend Node.js puro — sem env vars do Electron) */
-function launchDirectCDP(chromePath, userDataDir, cdpPort) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const chromeArgs = [
-            `--user-data-dir=${userDataDir}`,
-            `--remote-debugging-port=${cdpPort}`,
-            '--remote-debugging-address=127.0.0.1',
-            '--remote-allow-origins=*',
-            '--no-first-run', '--no-default-browser-check',
-            '--no-sandbox', '--disable-setuid-sandbox',
-            '--disable-extensions', '--disable-gpu',
-            '--disable-crash-reporter', '--disable-breakpad',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-features=RendererCodeIntegrity,ChromeWhatsNewUI,Translate',
-            'about:blank',
-        ];
-        const proc = (0, child_process_1.spawn)(chromePath, chromeArgs, {
-            detached: true,
-            stdio: ['ignore', 'ignore', 'pipe'],
-        });
-        proc.unref();
-        if (proc.pid) {
-            fs_1.default.writeFileSync(path_1.default.join(userDataDir, 'chrome.pid'), String(proc.pid));
-            console.log('[Browser] Chrome PID:', proc.pid, '(launch direto)');
-        }
-        proc.on('exit', code => console.warn('[Browser] Chrome saiu:', code));
-        // Espera Chrome ficar pronto no CDP
-        yield new Promise((resolve, reject) => {
-            const deadline = Date.now() + 20000;
-            const check = () => {
-                if (Date.now() > deadline)
-                    return reject(new Error('Chrome timeout'));
-                if (proc.exitCode !== null)
-                    return reject(new Error(`Chrome crashed: ${proc.exitCode}`));
-                const req = http_1.default.get(`http://127.0.0.1:${cdpPort}/json/version`, res => {
-                    res.statusCode === 200 ? resolve() : setTimeout(check, 400);
-                    res.resume();
-                });
-                req.on('error', () => setTimeout(check, 400));
-                req.setTimeout(1000, () => { req.destroy(); setTimeout(check, 400); });
-            };
-            check();
-        });
-        // Estabilização
-        yield new Promise(r => setTimeout(r, 1500));
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
+async function launchDirectCDP(chromePath, userDataDir, cdpPort) {
+    const chromeArgs = [
+        `--user-data-dir=${userDataDir}`,
+        `--remote-debugging-port=${cdpPort}`,
+        '--remote-debugging-address=127.0.0.1',
+        '--remote-allow-origins=*',
+        '--no-first-run', '--no-default-browser-check',
+        '--no-sandbox', '--disable-setuid-sandbox',
+        '--disable-extensions', '--disable-gpu',
+        '--disable-crash-reporter', '--disable-breakpad',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=RendererCodeIntegrity,ChromeWhatsNewUI,Translate',
+        'about:blank',
+    ];
+    const proc = (0, child_process_1.spawn)(chromePath, chromeArgs, {
+        detached: true,
+        stdio: ['ignore', 'ignore', 'pipe'],
     });
+    proc.unref();
+    if (proc.pid) {
+        fs_1.default.writeFileSync(path_1.default.join(userDataDir, 'chrome.pid'), String(proc.pid));
+        console.log('[Browser] Chrome PID:', proc.pid, '(launch direto)');
+    }
+    proc.on('exit', code => console.warn('[Browser] Chrome saiu:', code));
+    // Espera Chrome ficar pronto no CDP
+    await new Promise((resolve, reject) => {
+        const deadline = Date.now() + 20000;
+        const check = () => {
+            if (Date.now() > deadline)
+                return reject(new Error('Chrome timeout'));
+            if (proc.exitCode !== null)
+                return reject(new Error(`Chrome crashed: ${proc.exitCode}`));
+            const req = http_1.default.get(`http://127.0.0.1:${cdpPort}/json/version`, res => {
+                res.statusCode === 200 ? resolve() : setTimeout(check, 400);
+                res.resume();
+            });
+            req.on('error', () => setTimeout(check, 400));
+            req.setTimeout(1000, () => { req.destroy(); setTimeout(check, 400); });
+        };
+        check();
+    });
+    // Estabilização
+    await new Promise(r => setTimeout(r, 1500));
+    return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
 }
 /** Conecta ao Chrome rodando via CDP (direto, sem bridge) */
-function connectDirectCDP(cdpPort) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
-    });
+async function connectDirectCDP(cdpPort) {
+    return playwright_core_1.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
 }
 // Chromium do Playwright (sem singleton issues do Google Chrome)
 // Fallback para caminhos conhecidos se chromium.executablePath() não existir
 function findPlaywrightChromium() {
-    var _a;
     const primary = playwright_core_1.chromium.executablePath();
     if (fs_1.default.existsSync(primary))
         return primary;
-    const msBase = path_1.default.join((_a = process.env['LOCALAPPDATA']) !== null && _a !== void 0 ? _a : '', 'ms-playwright');
+    // Diretório base do ms-playwright por plataforma
+    const msBase = process.platform === 'win32'
+        ? path_1.default.join(process.env['LOCALAPPDATA'] ?? '', 'ms-playwright')
+        : process.platform === 'darwin'
+            ? path_1.default.join(process.env['HOME'] ?? '', 'Library', 'Caches', 'ms-playwright')
+            : path_1.default.join(process.env['HOME'] ?? '', '.cache', 'ms-playwright');
     if (!fs_1.default.existsSync(msBase))
         return undefined;
     const dirs = fs_1.default.readdirSync(msBase)
         .filter(d => d.startsWith('chromium-'))
         .sort()
         .reverse();
+    // Subpaths do executável por plataforma
+    const subs = process.platform === 'win32'
+        ? ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe']
+        : process.platform === 'darwin'
+            ? ['chrome-mac/Chromium.app/Contents/MacOS/Chromium', 'chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium']
+            : ['chrome-linux/chrome'];
     for (const dir of dirs) {
-        for (const sub of ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe']) {
+        for (const sub of subs) {
             const p = path_1.default.join(msBase, dir, sub);
             if (fs_1.default.existsSync(p))
                 return p;
@@ -412,19 +402,15 @@ let chromeProc = null;
 let initPromise = null;
 let heartbeatTimer = null;
 let activePageIndex = 0;
-function initBrowser() {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (initPromise)
-            return initPromise;
-        initPromise = _doInit().finally(() => { initPromise = null; });
+async function initBrowser() {
+    if (initPromise)
         return initPromise;
-    });
+    initPromise = _doInit().finally(() => { initPromise = null; });
+    return initPromise;
 }
-function reInitBrowser() {
-    return __awaiter(this, void 0, void 0, function* () {
-        yield closeBrowser();
-        yield initBrowser();
-    });
+async function reInitBrowser() {
+    await closeBrowser();
+    await initBrowser();
 }
 /** Remove pastas de cache/migração que causam downgrade detection e crashes no Windows */
 function cleanProfileCaches(userDataDir) {
@@ -436,7 +422,7 @@ function cleanProfileCaches(userDataDir) {
         try {
             fs_1.default.rmSync(path_1.default.join(userDataDir, dir), { recursive: true, force: true });
         }
-        catch ( /* ok */_a) { /* ok */ }
+        catch { /* ok */ }
     }
     // Remove qualquer pasta CHROME_DELETE residual de tentativas anteriores
     try {
@@ -445,173 +431,176 @@ function cleanProfileCaches(userDataDir) {
                 try {
                     fs_1.default.rmSync(path_1.default.join(userDataDir, entry), { recursive: true, force: true });
                 }
-                catch ( /* ok */_b) { /* ok */ }
+                catch { /* ok */ }
             }
         }
     }
-    catch ( /* ok */_c) { /* ok */ }
+    catch { /* ok */ }
     console.log('[Browser] Profile caches limpos');
 }
-function _doInit() {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        const userDataDir = path_1.default.join(getUserDataDir(), 'chrome-profile');
-        fs_1.default.mkdirSync(userDataDir, { recursive: true });
-        // Limpa caches que causam downgrade detection e crashes
-        cleanProfileCaches(userDataDir);
-        const useDirectLaunch = !isElectronProcess();
-        // ── 1. Tenta reconectar SOMENTE se temos um chrome.pid próprio vivo ──
-        // (evita conectar ao Comet/Perplexity ou outro Chrome de terceiros na porta)
-        const ownChromeUp = yield isOwnChromeUp(userDataDir);
-        if (ownChromeUp) {
-            console.log('[Browser] Chrome próprio já rodando na porta', CDP_PORT, '— reconectando...');
-            cdpBrowser = useDirectLaunch
-                ? yield connectDirectCDP(CDP_PORT)
-                : yield connectViaBridgeProxyOnly(CDP_PORT);
-            const contexts = cdpBrowser.contexts();
-            context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
-            if (context.pages().length === 0)
-                yield context.newPage();
-            activePageIndex = 0;
-            setupPageListeners();
-            console.log('[Browser] Reconectado ao Chrome existente');
-            startHeartbeat();
-            return;
-        }
-        // ── 2. Prefere Google Chrome do sistema (sem banner "Chrome for Testing") ────
-        try {
-            yield launchWithGoogleChrome(userDataDir);
-            return;
-        }
-        catch (e) {
-            console.log('[Browser] Google Chrome não disponível:', e.message);
-        }
-        // ── 3. Fallback: Playwright Chromium (mostra banner "Chrome for Testing") ────
-        const executablePath = findPlaywrightChromium();
-        if (executablePath) {
-            console.log('[Browser] Usando Playwright Chromium (fallback):', executablePath);
-            yield launchWithPlaywright(userDataDir, executablePath);
-            return;
-        }
-        throw new Error('Chrome/Chromium não encontrado — instale Google Chrome ou execute: npx playwright install chromium');
-    });
+async function _doInit() {
+    const userDataDir = path_1.default.join(getUserDataDir(), 'chrome-profile');
+    fs_1.default.mkdirSync(userDataDir, { recursive: true });
+    // Limpa caches que causam downgrade detection e crashes
+    cleanProfileCaches(userDataDir);
+    const useDirectLaunch = !isElectronProcess();
+    // ── 1. Tenta reconectar SOMENTE se temos um chrome.pid próprio vivo ──
+    // (evita conectar ao Comet/Perplexity ou outro Chrome de terceiros na porta)
+    const ownChromeUp = await isOwnChromeUp(userDataDir);
+    if (ownChromeUp) {
+        console.log('[Browser] Chrome próprio já rodando na porta', CDP_PORT, '— reconectando...');
+        cdpBrowser = useDirectLaunch
+            ? await connectDirectCDP(CDP_PORT)
+            : await connectViaBridgeProxyOnly(CDP_PORT);
+        const contexts = cdpBrowser.contexts();
+        context = contexts[0] ?? await cdpBrowser.newContext();
+        if (context.pages().length === 0)
+            await context.newPage();
+        activePageIndex = 0;
+        setupPageListeners();
+        console.log('[Browser] Reconectado ao Chrome existente');
+        startHeartbeat();
+        return;
+    }
+    // ── 2. Prefere Google Chrome do sistema (sem banner "Chrome for Testing") ────
+    try {
+        await launchWithGoogleChrome(userDataDir);
+        return;
+    }
+    catch (e) {
+        console.log('[Browser] Google Chrome não disponível:', e.message);
+    }
+    // ── 3. Fallback: Playwright Chromium (mostra banner "Chrome for Testing") ────
+    const executablePath = findPlaywrightChromium();
+    if (executablePath) {
+        console.log('[Browser] Usando Playwright Chromium (fallback):', executablePath);
+        await launchWithPlaywright(userDataDir, executablePath);
+        return;
+    }
+    throw new Error('Chrome/Chromium não encontrado — instale Google Chrome ou execute: npx playwright install chromium');
 }
 // No backend (Node.js puro): Chrome spawna direto — sem bridge.
 // No Electron: usa bridge para evitar herança de handles/Job Objects.
-function launchWithPlaywright(userDataDir, executablePath) {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        yield killPreviousChrome(userDataDir);
-        for (const lockFile of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile', 'LOCK']) {
-            for (const dir of [userDataDir, path_1.default.join(userDataDir, 'Default')]) {
-                try {
-                    fs_1.default.unlinkSync(path_1.default.join(dir, lockFile));
-                }
-                catch ( /* ok */_b) { /* ok */ }
+async function launchWithPlaywright(userDataDir, executablePath) {
+    await killPreviousChrome(userDataDir);
+    for (const lockFile of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile', 'LOCK']) {
+        for (const dir of [userDataDir, path_1.default.join(userDataDir, 'Default')]) {
+            try {
+                fs_1.default.unlinkSync(path_1.default.join(dir, lockFile));
             }
+            catch { /* ok */ }
         }
-        yield new Promise(r => setTimeout(r, 1000));
-        if (isElectronProcess()) {
-            console.log('[Browser] Launching Chromium via CDP bridge (Electron)...');
-            cdpBrowser = yield connectViaBridge(executablePath, userDataDir, CDP_PORT);
-        }
-        else {
-            console.log('[Browser] Launching Chromium direto (Node.js puro)...');
-            cdpBrowser = yield launchDirectCDP(executablePath, userDataDir, CDP_PORT);
-        }
-        const contexts = cdpBrowser.contexts();
-        context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
-        yield context.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        });
-        if (context.pages().length === 0)
-            yield context.newPage();
-        activePageIndex = 0;
-        setupPageListeners();
-        console.log('[Browser] Playwright Chromium conectado');
-        startHeartbeat();
+    }
+    await new Promise(r => setTimeout(r, 1000));
+    if (isElectronProcess()) {
+        console.log('[Browser] Launching Chromium via CDP bridge (Electron)...');
+        cdpBrowser = await connectViaBridge(executablePath, userDataDir, CDP_PORT);
+    }
+    else {
+        console.log('[Browser] Launching Chromium direto (Node.js puro)...');
+        cdpBrowser = await launchDirectCDP(executablePath, userDataDir, CDP_PORT);
+    }
+    const contexts = cdpBrowser.contexts();
+    context = contexts[0] ?? await cdpBrowser.newContext();
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
+    if (context.pages().length === 0)
+        await context.newPage();
+    activePageIndex = 0;
+    setupPageListeners();
+    console.log('[Browser] Playwright Chromium conectado');
+    startHeartbeat();
 }
-function launchWithGoogleChrome(userDataDir) {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        yield killPreviousChrome(userDataDir);
-        for (const lockFile of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile', 'LOCK']) {
-            for (const dir of [userDataDir, path_1.default.join(userDataDir, 'Default')]) {
-                try {
-                    fs_1.default.unlinkSync(path_1.default.join(dir, lockFile));
-                }
-                catch ( /* ok */_b) { /* ok */ }
+async function launchWithGoogleChrome(userDataDir) {
+    await killPreviousChrome(userDataDir);
+    for (const lockFile of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile', 'LOCK']) {
+        for (const dir of [userDataDir, path_1.default.join(userDataDir, 'Default')]) {
+            try {
+                fs_1.default.unlinkSync(path_1.default.join(dir, lockFile));
             }
+            catch { /* ok */ }
         }
-        yield new Promise(r => setTimeout(r, 1500));
-        const chromePaths = [
+    }
+    await new Promise(r => setTimeout(r, 1500));
+    const chromePaths = process.platform === 'win32'
+        ? [
             'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            `${process.env['LOCALAPPDATA']}\\Google\\Chrome\\Application\\chrome.exe`,
-        ];
-        const executablePath = chromePaths.find(p => { try {
-            fs_1.default.accessSync(p);
-            return true;
-        }
-        catch (_a) {
-            return false;
-        } });
-        if (!executablePath)
-            throw new Error('Chrome/Chromium não encontrado — instale Google Chrome ou execute: npx playwright install chromium');
-        if (isElectronProcess()) {
-            console.log('[Browser] Launching Google Chrome via CDP bridge (Electron)...', executablePath);
-            cdpBrowser = yield connectViaBridge(executablePath, userDataDir, CDP_PORT);
-        }
-        else {
-            console.log('[Browser] Launching Google Chrome direto (Node.js puro)...', executablePath);
-            cdpBrowser = yield launchDirectCDP(executablePath, userDataDir, CDP_PORT);
-        }
-        const contexts = cdpBrowser.contexts();
-        context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
-        yield context.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        });
-        if (context.pages().length === 0)
-            yield context.newPage();
-        activePageIndex = 0;
-        setupPageListeners();
-        console.log('[Browser] Google Chrome conectado via CDP bridge');
-        startHeartbeat();
+            `${process.env['LOCALAPPDATA'] ?? ''}\\Google\\Chrome\\Application\\chrome.exe`,
+        ]
+        : process.platform === 'darwin'
+            ? [
+                '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                '/Applications/Chromium.app/Contents/MacOS/Chromium',
+                `${process.env['HOME'] ?? ''}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+            ]
+            : [
+                '/usr/bin/google-chrome',
+                '/usr/bin/google-chrome-stable',
+                '/usr/bin/chromium',
+                '/usr/bin/chromium-browser',
+                '/snap/bin/chromium',
+            ];
+    const executablePath = chromePaths.find(p => { try {
+        fs_1.default.accessSync(p);
+        return true;
+    }
+    catch {
+        return false;
+    } });
+    if (!executablePath)
+        throw new Error('Chrome/Chromium não encontrado — instale Google Chrome ou execute: npx playwright install chromium');
+    if (isElectronProcess()) {
+        console.log('[Browser] Launching Google Chrome via CDP bridge (Electron)...', executablePath);
+        cdpBrowser = await connectViaBridge(executablePath, userDataDir, CDP_PORT);
+    }
+    else {
+        console.log('[Browser] Launching Google Chrome direto (Node.js puro)...', executablePath);
+        cdpBrowser = await launchDirectCDP(executablePath, userDataDir, CDP_PORT);
+    }
+    const contexts = cdpBrowser.contexts();
+    context = contexts[0] ?? await cdpBrowser.newContext();
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
+    if (context.pages().length === 0)
+        await context.newPage();
+    activePageIndex = 0;
+    setupPageListeners();
+    console.log('[Browser] Google Chrome conectado via CDP bridge');
+    startHeartbeat();
 }
 /** Verifica se o Chrome que lançamos (via chrome.pid) ainda está vivo e respondendo no CDP_PORT */
-function isOwnChromeUp(userDataDir) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const pidFile = path_1.default.join(userDataDir, 'chrome.pid');
+async function isOwnChromeUp(userDataDir) {
+    const pidFile = path_1.default.join(userDataDir, 'chrome.pid');
+    try {
+        if (!fs_1.default.existsSync(pidFile))
+            return false;
+        const pid = parseInt(fs_1.default.readFileSync(pidFile, 'utf8').trim(), 10);
+        if (!pid || isNaN(pid))
+            return false;
+        // Verifica se o processo ainda existe
         try {
-            if (!fs_1.default.existsSync(pidFile))
-                return false;
-            const pid = parseInt(fs_1.default.readFileSync(pidFile, 'utf8').trim(), 10);
-            if (!pid || isNaN(pid))
-                return false;
-            // Verifica se o processo ainda existe
-            try {
-                process.kill(pid, 0);
-            }
-            catch (_a) {
-                return false;
-            }
-            // Verifica se responde no CDP
-            yield new Promise((resolve, reject) => {
-                const req = http_1.default.get(`http://127.0.0.1:${CDP_PORT}/json/version`, res => {
-                    res.statusCode === 200 ? resolve() : reject();
-                    res.resume();
-                });
-                req.on('error', reject);
-                req.setTimeout(1000, () => { req.destroy(); reject(); });
-            });
-            return true;
+            process.kill(pid, 0);
         }
-        catch (_b) {
+        catch {
             return false;
         }
-    });
+        // Verifica se responde no CDP
+        await new Promise((resolve, reject) => {
+            const req = http_1.default.get(`http://127.0.0.1:${CDP_PORT}/json/version`, res => {
+                res.statusCode === 200 ? resolve() : reject();
+                res.resume();
+            });
+            req.on('error', reject);
+            req.setTimeout(1000, () => { req.destroy(); reject(); });
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 function getBrowserContext() {
     if (!context)
@@ -620,7 +609,6 @@ function getBrowserContext() {
 }
 /** Retorna a Page ativa (rastreia aba ativa por índice) */
 function getActivePage() {
-    var _a, _b;
     if (!context)
         return null;
     const pages = context.pages();
@@ -631,7 +619,7 @@ function getActivePage() {
         activePageIndex = pages.length - 1;
     if (activePageIndex < 0)
         activePageIndex = 0;
-    return (_b = (_a = pages[activePageIndex]) !== null && _a !== void 0 ? _a : pages[0]) !== null && _b !== void 0 ? _b : null;
+    return pages[activePageIndex] ?? pages[0] ?? null;
 }
 /** Define qual aba é a ativa por índice */
 function setActivePage(index) {
@@ -663,57 +651,54 @@ function setupPageListeners() {
         activePageIndex = 0;
     });
 }
-function ensureBrowser() {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        if (!context) {
-            console.log('[Browser] Não estava inicializado — inicializando agora...');
-            yield initBrowser();
+async function ensureBrowser() {
+    if (!context) {
+        console.log('[Browser] Não estava inicializado — inicializando agora...');
+        await initBrowser();
+        return;
+    }
+    // P2.3: Se o bridge morreu mas Chrome pode estar vivo, tenta reconectar via proxy-only
+    if (bridgeDied && isElectronProcess()) {
+        console.log('[Browser] Bridge morreu — tentando reconectar sem matar Chrome...');
+        bridgeDied = false;
+        try {
+            cdpBrowser = await connectViaBridgeProxyOnly(CDP_PORT);
+            const contexts = cdpBrowser.contexts();
+            context = contexts[0] ?? await cdpBrowser.newContext();
+            if (context.pages().length === 0)
+                await context.newPage();
+            activePageIndex = 0;
+            setupPageListeners();
+            startHeartbeat();
+            console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)');
             return;
         }
-        // P2.3: Se o bridge morreu mas Chrome pode estar vivo, tenta reconectar via proxy-only
-        if (bridgeDied && isElectronProcess()) {
-            console.log('[Browser] Bridge morreu — tentando reconectar sem matar Chrome...');
-            bridgeDied = false;
-            try {
-                cdpBrowser = yield connectViaBridgeProxyOnly(CDP_PORT);
-                const contexts = cdpBrowser.contexts();
-                context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
-                if (context.pages().length === 0)
-                    yield context.newPage();
-                activePageIndex = 0;
-                setupPageListeners();
-                startHeartbeat();
-                console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)');
-                return;
-            }
-            catch (e) {
-                console.warn('[Browser] Recovery do bridge falhou, reinit completo:', e.message);
-                context = null;
-                cdpBrowser = null;
-                activePageIndex = 0;
-                yield initBrowser();
-                return;
-            }
-        }
-        // Health check: testa se a conexão CDP está realmente viva
-        try {
-            const pages = context.pages();
-            if (pages.length > 0) {
-                yield pages[0].evaluate(() => true);
-            }
-            else {
-                yield context.newPage();
-            }
-        }
         catch (e) {
-            console.warn('[Browser] Conexão morta detectada — reinicializando...', e.message);
+            console.warn('[Browser] Recovery do bridge falhou, reinit completo:', e.message);
             context = null;
             cdpBrowser = null;
             activePageIndex = 0;
-            yield initBrowser();
+            await initBrowser();
+            return;
         }
-    });
+    }
+    // Health check: testa se a conexão CDP está realmente viva
+    try {
+        const pages = context.pages();
+        if (pages.length > 0) {
+            await pages[0].evaluate(() => true);
+        }
+        else {
+            await context.newPage();
+        }
+    }
+    catch (e) {
+        console.warn('[Browser] Conexão morta detectada — reinicializando...', e.message);
+        context = null;
+        cdpBrowser = null;
+        activePageIndex = 0;
+        await initBrowser();
+    }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Overlay visual no Chrome
@@ -732,70 +717,64 @@ const OVERLAY_CSS = `
 function injectOverlay(text, done = false) {
     void _injectOverlay(text, done);
 }
-function _injectOverlay(text, done) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const page = getActivePage();
-            if (!page)
-                return;
-            yield page.evaluate(({ text, done, css }) => {
-                var _a, _b;
-                const ID = '__lex_overlay__';
-                let el = document.getElementById(ID);
-                if (!el) {
-                    el = document.createElement('div');
-                    el.id = ID;
-                    el.setAttribute('style', css);
-                    (_a = document.body) === null || _a === void 0 ? void 0 : _a.appendChild(el);
-                }
-                if (done) {
-                    el.style.borderColor = 'rgba(52,211,153,0.6)';
-                    el.innerHTML = `<span style="color:#34d399;margin-right:7px;font-size:14px">✓</span>${text}`;
-                    setTimeout(() => { var _a; (_a = document.getElementById('__lex_overlay__')) === null || _a === void 0 ? void 0 : _a.remove(); }, 2500);
-                }
-                else {
-                    el.style.borderColor = 'rgba(96,165,250,0.4)';
-                    el.innerHTML = `<span style="color:#60a5fa;margin-right:7px;font-size:14px;display:inline-block;animation:__lex_spin 1s linear infinite">⟳</span>${text}`;
-                    if (!document.getElementById('__lex_style__')) {
-                        const s = document.createElement('style');
-                        s.id = '__lex_style__';
-                        s.textContent = `@keyframes __lex_spin{to{transform:rotate(360deg)}} @keyframes __lex_ripple{0%{transform:scale(0.3);opacity:0.9}100%{transform:scale(2.5);opacity:0}}`;
-                        (_b = document.head) === null || _b === void 0 ? void 0 : _b.appendChild(s);
-                    }
-                }
-            }, { text, done, css: OVERLAY_CSS });
-        }
-        catch ( /* page navegou — ignorar */_a) { /* page navegou — ignorar */ }
-    });
-}
-function showCursorAt(x, y) {
-    void _showCursorAt(x, y);
-}
-function _showCursorAt(x, y) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const page = getActivePage();
-            if (!page)
-                return;
-            yield page.evaluate(({ x, y }) => {
-                var _a, _b, _c;
+async function _injectOverlay(text, done) {
+    try {
+        const page = getActivePage();
+        if (!page)
+            return;
+        await page.evaluate(({ text, done, css }) => {
+            const ID = '__lex_overlay__';
+            let el = document.getElementById(ID);
+            if (!el) {
+                el = document.createElement('div');
+                el.id = ID;
+                el.setAttribute('style', css);
+                document.body?.appendChild(el);
+            }
+            if (done) {
+                el.style.borderColor = 'rgba(52,211,153,0.6)';
+                el.innerHTML = `<span style="color:#34d399;margin-right:7px;font-size:14px">✓</span>${text}`;
+                setTimeout(() => { document.getElementById('__lex_overlay__')?.remove(); }, 2500);
+            }
+            else {
+                el.style.borderColor = 'rgba(96,165,250,0.4)';
+                el.innerHTML = `<span style="color:#60a5fa;margin-right:7px;font-size:14px;display:inline-block;animation:__lex_spin 1s linear infinite">⟳</span>${text}`;
                 if (!document.getElementById('__lex_style__')) {
                     const s = document.createElement('style');
                     s.id = '__lex_style__';
                     s.textContent = `@keyframes __lex_spin{to{transform:rotate(360deg)}} @keyframes __lex_ripple{0%{transform:scale(0.3);opacity:0.9}100%{transform:scale(2.5);opacity:0}}`;
-                    (_a = document.head) === null || _a === void 0 ? void 0 : _a.appendChild(s);
+                    document.head?.appendChild(s);
                 }
-                const dot = document.createElement('div');
-                dot.setAttribute('style', `position:fixed;left:${x - 6}px;top:${y - 6}px;width:12px;height:12px;border-radius:50%;background:#60a5fa;pointer-events:none;z-index:2147483646;box-shadow:0 0 8px rgba(96,165,250,0.9);`);
-                const ring = document.createElement('div');
-                ring.setAttribute('style', `position:fixed;left:${x - 20}px;top:${y - 20}px;width:40px;height:40px;border-radius:50%;border:2px solid rgba(96,165,250,0.8);pointer-events:none;z-index:2147483646;animation:__lex_ripple 0.7s ease-out forwards;`);
-                (_b = document.body) === null || _b === void 0 ? void 0 : _b.appendChild(dot);
-                (_c = document.body) === null || _c === void 0 ? void 0 : _c.appendChild(ring);
-                setTimeout(() => { dot.remove(); ring.remove(); }, 750);
-            }, { x, y });
-        }
-        catch ( /* ignorar */_a) { /* ignorar */ }
-    });
+            }
+        }, { text, done, css: OVERLAY_CSS });
+    }
+    catch { /* page navegou — ignorar */ }
+}
+function showCursorAt(x, y) {
+    void _showCursorAt(x, y);
+}
+async function _showCursorAt(x, y) {
+    try {
+        const page = getActivePage();
+        if (!page)
+            return;
+        await page.evaluate(({ x, y }) => {
+            if (!document.getElementById('__lex_style__')) {
+                const s = document.createElement('style');
+                s.id = '__lex_style__';
+                s.textContent = `@keyframes __lex_spin{to{transform:rotate(360deg)}} @keyframes __lex_ripple{0%{transform:scale(0.3);opacity:0.9}100%{transform:scale(2.5);opacity:0}}`;
+                document.head?.appendChild(s);
+            }
+            const dot = document.createElement('div');
+            dot.setAttribute('style', `position:fixed;left:${x - 6}px;top:${y - 6}px;width:12px;height:12px;border-radius:50%;background:#60a5fa;pointer-events:none;z-index:2147483646;box-shadow:0 0 8px rgba(96,165,250,0.9);`);
+            const ring = document.createElement('div');
+            ring.setAttribute('style', `position:fixed;left:${x - 20}px;top:${y - 20}px;width:40px;height:40px;border-radius:50%;border:2px solid rgba(96,165,250,0.8);pointer-events:none;z-index:2147483646;animation:__lex_ripple 0.7s ease-out forwards;`);
+            document.body?.appendChild(dot);
+            document.body?.appendChild(ring);
+            setTimeout(() => { dot.remove(); ring.remove(); }, 750);
+        }, { x, y });
+    }
+    catch { /* ignorar */ }
 }
 let elementRefMap = [];
 let elementRefUrl = '';
@@ -806,8 +785,7 @@ function storeElementRefs(refs, url) {
 }
 /** Resolve ref numérico para ElementRef */
 function resolveElementRef(ref) {
-    var _a;
-    return (_a = elementRefMap[ref]) !== null && _a !== void 0 ? _a : null;
+    return elementRefMap[ref] ?? null;
 }
 /** Verifica se os refs estão potencialmente stale (URL mudou) */
 function isRefMapStale(currentUrl) {
@@ -852,7 +830,7 @@ function resolveTarget(params) {
                     console.log(`[ElementRef] Warning: refs podem estar stale (URL mudou desde get_state)`);
                 }
             }
-            catch (_a) { }
+            catch { }
             console.log(`[ResolveTarget] ref:${params.ref} → ${refInfo.selector} ("${refInfo.text}")`);
             return { selector: refInfo.selector, source: 'ref', refInfo };
         }
@@ -876,83 +854,73 @@ function resolveTarget(params) {
 // Helpers de ação com iframe awareness
 // ─────────────────────────────────────────────────────────────────────────────
 /** Tenta fill no main frame e depois em todos os iframes */
-function fillInFrames(page, selector, value) {
-    return __awaiter(this, void 0, void 0, function* () {
+async function fillInFrames(page, selector, value) {
+    try {
+        await page.fill(selector, value, { timeout: 3000 });
+        return;
+    }
+    catch { }
+    for (const frame of page.frames()) {
         try {
-            yield page.fill(selector, value, { timeout: 3000 });
+            await frame.fill(selector, value, { timeout: 3000 });
             return;
         }
-        catch (_a) { }
-        for (const frame of page.frames()) {
-            try {
-                yield frame.fill(selector, value, { timeout: 3000 });
-                return;
-            }
-            catch (_b) { }
-        }
-        throw new Error(`fill: elemento não encontrado — ${selector}`);
-    });
+        catch { }
+    }
+    throw new Error(`fill: elemento não encontrado — ${selector}`);
 }
 /** Tenta click no main frame e depois em todos os iframes */
-function clickInFrames(page, selector) {
-    return __awaiter(this, void 0, void 0, function* () {
+async function clickInFrames(page, selector) {
+    try {
+        await page.click(selector, { timeout: 3000 });
+        return;
+    }
+    catch { }
+    for (const frame of page.frames()) {
         try {
-            yield page.click(selector, { timeout: 3000 });
+            await frame.click(selector, { timeout: 3000 });
             return;
         }
-        catch (_a) { }
-        for (const frame of page.frames()) {
-            try {
-                yield frame.click(selector, { timeout: 3000 });
-                return;
-            }
-            catch (_b) { }
-        }
-        throw new Error(`click: elemento não encontrado — ${selector}`);
-    });
+        catch { }
+    }
+    throw new Error(`click: elemento não encontrado — ${selector}`);
 }
 /** Tenta type no main frame: foca o elemento e digita keystroke-by-keystroke */
-function typeInFrames(page, selector, text, options) {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        const delay = (_a = options === null || options === void 0 ? void 0 : options.delay) !== null && _a !== void 0 ? _a : 30;
+async function typeInFrames(page, selector, text, options) {
+    const delay = options?.delay ?? 30;
+    try {
+        await page.click(selector, { timeout: 3000 });
+        await page.keyboard.type(text, { delay });
+        return;
+    }
+    catch { }
+    for (const frame of page.frames()) {
         try {
-            yield page.click(selector, { timeout: 3000 });
-            yield page.keyboard.type(text, { delay });
+            await frame.click(selector, { timeout: 3000 });
+            await page.keyboard.type(text, { delay });
             return;
         }
-        catch (_b) { }
-        for (const frame of page.frames()) {
-            try {
-                yield frame.click(selector, { timeout: 3000 });
-                yield page.keyboard.type(text, { delay });
-                return;
-            }
-            catch (_c) { }
-        }
-        throw new Error(`type: elemento não encontrado — ${selector}`);
-    });
+        catch { }
+    }
+    throw new Error(`type: elemento não encontrado — ${selector}`);
 }
 /** Tenta waitForSelector no main frame e depois em todos os iframes */
-function waitForSelectorInFrames(page, selector, options) {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b;
-        const timeout = (_a = options === null || options === void 0 ? void 0 : options.timeout) !== null && _a !== void 0 ? _a : 10000;
-        const state = (_b = options === null || options === void 0 ? void 0 : options.state) !== null && _b !== void 0 ? _b : 'visible';
+async function waitForSelectorInFrames(page, selector, options) {
+    const timeout = options?.timeout ?? 10000;
+    const state = options?.state ?? 'visible';
+    try {
+        await page.waitForSelector(selector, { timeout, state });
+        return;
+    }
+    catch { }
+    for (const frame of page.frames()) {
         try {
-            yield page.waitForSelector(selector, { timeout, state });
+            await frame.waitForSelector(selector, { timeout: Math.min(timeout, 3000), state });
             return;
         }
-        catch (_c) { }
-        for (const frame of page.frames()) {
-            try {
-                yield frame.waitForSelector(selector, { timeout: Math.min(timeout, 3000), state });
-                return;
-            }
-            catch (_d) { }
-        }
-        throw new Error(`wait: elemento não apareceu — ${selector} (timeout: ${timeout}ms)`);
-    });
+        catch { }
+    }
+    throw new Error(`wait: elemento não apareceu — ${selector} (timeout: ${timeout}ms)`);
 }
 /**
  * Click inteligente com waterfall de estratégias:
@@ -961,106 +929,103 @@ function waitForSelectorInFrames(page, selector, options) {
  * 3. Busca por texto visível do elemento (fallback text-based)
  * 4. Localiza bounding box e clica por coordenadas
  */
-function smartClick(page, selector, options) {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b;
-        const duplo = (_a = options === null || options === void 0 ? void 0 : options.duplo) !== null && _a !== void 0 ? _a : false;
-        const timeout = (_b = options === null || options === void 0 ? void 0 : options.timeout) !== null && _b !== void 0 ? _b : 3000;
-        const doClick = (target, sel) => __awaiter(this, void 0, void 0, function* () {
-            if (duplo)
-                yield target.dblclick(sel, { timeout });
-            else
-                yield target.click(sel, { timeout });
-        });
-        // ── Strategy 1: Seletor direto (iframe-aware) ──
+async function smartClick(page, selector, options) {
+    const duplo = options?.duplo ?? false;
+    const timeout = options?.timeout ?? 3000;
+    const doClick = async (target, sel) => {
+        if (duplo)
+            await target.dblclick(sel, { timeout });
+        else
+            await target.click(sel, { timeout });
+    };
+    // ── Strategy 1: Seletor direto (iframe-aware) ──
+    try {
+        await doClick(page, selector);
+        return { success: true, strategy: 'selector', selector };
+    }
+    catch { }
+    for (const frame of page.frames()) {
+        if (frame === page.mainFrame())
+            continue;
         try {
-            yield doClick(page, selector);
+            await doClick(frame, selector);
             return { success: true, strategy: 'selector', selector };
         }
-        catch (_c) { }
-        for (const frame of page.frames()) {
-            if (frame === page.mainFrame())
-                continue;
-            try {
-                yield doClick(frame, selector);
-                return { success: true, strategy: 'selector', selector };
-            }
-            catch (_d) { }
-        }
-        // ── Strategy 2: Wait 500ms + retry (DOM loading) ──
-        yield page.waitForTimeout(500);
+        catch { }
+    }
+    // ── Strategy 2: Wait 500ms + retry (DOM loading) ──
+    await page.waitForTimeout(500);
+    try {
+        await doClick(page, selector);
+        return { success: true, strategy: 'retry', selector };
+    }
+    catch { }
+    for (const frame of page.frames()) {
+        if (frame === page.mainFrame())
+            continue;
         try {
-            yield doClick(page, selector);
+            await doClick(frame, selector);
             return { success: true, strategy: 'retry', selector };
         }
-        catch (_e) { }
-        for (const frame of page.frames()) {
-            if (frame === page.mainFrame())
-                continue;
+        catch { }
+    }
+    // ── Strategy 3: Texto visível (extrai texto do seletor e busca) ──
+    // Se o seletor contém texto (ex: has-text, value=, etc), tenta variantes
+    const textMatch = selector.match(/has-text\("([^"]+)"\)/) ||
+        selector.match(/value[*]?="([^"]+)"/) ||
+        selector.match(/placeholder[*]?="([^"]+)"/);
+    if (textMatch) {
+        const text = textMatch[1];
+        const textSelectors = [
+            `text="${text}"`,
+            `*:has-text("${text}"):visible`,
+            `button:has-text("${text}")`,
+            `a:has-text("${text}")`,
+            `input[value*="${text}"]`,
+        ];
+        for (const textSel of textSelectors) {
             try {
-                yield doClick(frame, selector);
-                return { success: true, strategy: 'retry', selector };
+                await doClick(page, textSel);
+                return { success: true, strategy: 'text', selector: textSel };
             }
-            catch (_f) { }
-        }
-        // ── Strategy 3: Texto visível (extrai texto do seletor e busca) ──
-        // Se o seletor contém texto (ex: has-text, value=, etc), tenta variantes
-        const textMatch = selector.match(/has-text\("([^"]+)"\)/) ||
-            selector.match(/value[*]?="([^"]+)"/) ||
-            selector.match(/placeholder[*]?="([^"]+)"/);
-        if (textMatch) {
-            const text = textMatch[1];
-            const textSelectors = [
-                `text="${text}"`,
-                `*:has-text("${text}"):visible`,
-                `button:has-text("${text}")`,
-                `a:has-text("${text}")`,
-                `input[value*="${text}"]`,
-            ];
-            for (const textSel of textSelectors) {
+            catch { }
+            for (const frame of page.frames()) {
+                if (frame === page.mainFrame())
+                    continue;
                 try {
-                    yield doClick(page, textSel);
+                    await doClick(frame, textSel);
                     return { success: true, strategy: 'text', selector: textSel };
                 }
-                catch (_g) { }
-                for (const frame of page.frames()) {
-                    if (frame === page.mainFrame())
-                        continue;
-                    try {
-                        yield doClick(frame, textSel);
-                        return { success: true, strategy: 'text', selector: textSel };
-                    }
-                    catch (_h) { }
-                }
+                catch { }
             }
         }
-        // ── Strategy 4: Bounding box → coordenadas ──
-        // Tenta localizar o elemento (pode existir mas não ser clickable) e pegar centro
-        for (const target of [page, ...page.frames()]) {
-            try {
-                const el = yield target.$(selector);
-                if (!el)
-                    continue;
-                const box = yield el.boundingBox();
-                if (box && box.width > 0 && box.height > 0) {
-                    const x = Math.round(box.x + box.width / 2);
-                    const y = Math.round(box.y + box.height / 2);
-                    showCursorAt(x, y);
-                    if (duplo)
-                        yield page.mouse.dblclick(x, y);
-                    else
-                        yield page.mouse.click(x, y);
-                    return { success: true, strategy: 'coordinates', selector, coordinates: { x, y } };
-                }
+    }
+    // ── Strategy 4: Bounding box → coordenadas ──
+    // Tenta localizar o elemento (pode existir mas não ser clickable) e pegar centro
+    for (const target of [page, ...page.frames()]) {
+        try {
+            const el = await target.$(selector);
+            if (!el)
+                continue;
+            const box = await el.boundingBox();
+            if (box && box.width > 0 && box.height > 0) {
+                const x = Math.round(box.x + box.width / 2);
+                const y = Math.round(box.y + box.height / 2);
+                showCursorAt(x, y);
+                if (duplo)
+                    await page.mouse.dblclick(x, y);
+                else
+                    await page.mouse.click(x, y);
+                return { success: true, strategy: 'coordinates', selector, coordinates: { x, y } };
             }
-            catch (_j) { }
         }
-        return {
-            success: false,
-            strategy: 'none',
-            error: `Todas as estratégias falharam para: ${selector}`
-        };
-    });
+        catch { }
+    }
+    return {
+        success: false,
+        strategy: 'none',
+        error: `Todas as estratégias falharam para: ${selector}`
+    };
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // runBrowserTask — loop de visão + DOM (iframe-aware)
@@ -1089,147 +1054,144 @@ Responda SOMENTE com um objeto JSON (sem markdown, sem explicação):
   "direction": "down",
   "description": "descrição curta do que está fazendo"
 }`;
-function runBrowserTask(instruction_1) {
-    return __awaiter(this, arguments, void 0, function* (instruction, maxSteps = 10, onStep) {
-        var _a, _b, _c, _d;
-        yield ensureBrowser();
-        const { callAIWithVision } = yield Promise.resolve().then(() => __importStar(require('./ai-handler')));
-        const { getActiveConfig } = yield Promise.resolve().then(() => __importStar(require('./provider-config')));
-        const history = [];
-        for (let step = 0; step < maxSteps; step++) {
-            const page = getActivePage();
-            if (!page)
-                throw new Error('Browser page not available');
-            // Captura screenshot
-            let base64;
-            try {
-                const buf = yield page.screenshot({ type: 'jpeg', quality: 70 });
-                base64 = buf.toString('base64');
-            }
-            catch (_e) {
-                yield new Promise(r => setTimeout(r, 1000));
-                continue;
-            }
-            // URL atual
-            let currentUrl = '';
-            try {
-                currentUrl = page.url();
-            }
-            catch ( /* ignorar */_f) { /* ignorar */ }
-            // Extrai elementos DOM de TODOS os frames (main + iframes do PJe)
-            let domSummary = '';
-            try {
-                const allFrameElements = yield Promise.all(page.frames().map(frame => frame.evaluate((frameUrl) => {
-                    const results = [];
-                    document.querySelectorAll('input, textarea, select, button, [role="button"], [role="searchbox"]').forEach((el) => {
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width === 0 || rect.height === 0)
-                            return;
-                        const entry = {
-                            tag: el.tagName.toLowerCase(),
-                            type: el.type || '',
-                            id: el.id || '',
-                            name: el.name || '',
-                            placeholder: el.placeholder || '',
-                            text: (el.textContent || el.value || '').trim().slice(0, 60),
-                            x: Math.round(rect.x + rect.width / 2),
-                            y: Math.round(rect.y + rect.height / 2),
-                            frame: frameUrl !== window.location.href ? frameUrl.split('/').pop() : '',
-                        };
-                        entry.sel = el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : '';
-                        results.push(entry);
-                    });
-                    return results;
-                }, frame.url()).catch(() => [])));
-                const elements = allFrameElements.flat().slice(0, 25);
-                if (elements.length > 0) {
-                    domSummary = '\nElementos DOM interativos (todos os frames):\n' + elements
-                        .map(e => `  [${e.tag}${e.type ? '/' + e.type : ''}${e.frame ? ' @iframe:' + e.frame : ''}] sel="${e.sel || '?'}" placeholder="${e.placeholder}" text="${e.text}" @(${e.x},${e.y})`)
-                        .join('\n');
-                }
-            }
-            catch ( /* ignorar */_g) { /* ignorar */ }
-            const context = [
-                history.length > 0 ? `Ações anteriores: ${history.slice(-4).join(' → ')}` : '',
-                currentUrl ? `URL atual: ${currentUrl}` : '',
-            ].filter(Boolean).join('\n') + domSummary;
-            // Pergunta ao LLM o que fazer
-            let response;
-            try {
-                response = yield callAIWithVision({
-                    system: VISION_AGENT_SYSTEM,
-                    user: `Tarefa: ${instruction}\nPasso: ${step + 1}/${maxSteps}${context ? '\n' + context : ''}\n\nQual é a próxima ação?`,
-                    imageBase64: base64,
-                    mediaType: 'image/jpeg',
-                    maxTokens: 400,
-                    model: getActiveConfig().visionModel,
-                });
-            }
-            catch (e) {
-                throw new Error(`Vision LLM falhou: ${e.message}`);
-            }
-            // Extrai JSON da resposta
-            let action;
-            try {
-                const match = response.match(/\{[\s\S]*\}/);
-                if (!match)
-                    throw new Error('sem JSON na resposta');
-                action = JSON.parse(match[0]);
-            }
-            catch (_h) {
-                history.push(`[erro parse: ${response.slice(0, 60)}]`);
-                continue;
-            }
-            const desc = String(action.description || action.action || 'ação');
-            onStep === null || onStep === void 0 ? void 0 : onStep(desc);
-            injectOverlay(desc);
-            history.push(desc);
-            // Executa ação (com iframe awareness no fill e click_sel)
-            try {
-                switch (String(action.action)) {
-                    case 'done': {
-                        const msg = String(action.text || 'Tarefa concluída');
-                        injectOverlay(msg.slice(0, 80), true);
-                        return msg;
-                    }
-                    case 'goto':
-                        yield page.goto(String(action.url), { waitUntil: 'domcontentloaded', timeout: 15000 });
-                        break;
-                    case 'fill':
-                        yield fillInFrames(page, String(action.selector), String((_a = action.text) !== null && _a !== void 0 ? _a : ''));
-                        break;
-                    case 'click_sel':
-                        yield clickInFrames(page, String(action.selector));
-                        break;
-                    case 'click':
-                        showCursorAt(Number(action.x), Number(action.y));
-                        yield page.mouse.click(Number(action.x), Number(action.y));
-                        break;
-                    case 'type':
-                        yield page.keyboard.type(String((_b = action.text) !== null && _b !== void 0 ? _b : ''), { delay: 40 });
-                        break;
-                    case 'press':
-                        yield page.keyboard.press(String((_c = action.key) !== null && _c !== void 0 ? _c : 'Enter'));
-                        break;
-                    case 'wait':
-                        yield new Promise(r => { var _a; return setTimeout(r, Number((_a = action.ms) !== null && _a !== void 0 ? _a : 1000)); });
-                        break;
-                    case 'scroll': {
-                        const dir = String((_d = action.direction) !== null && _d !== void 0 ? _d : 'down');
-                        const delta = dir === 'up' ? -400 : 400;
-                        yield page.evaluate((dy) => window.scrollBy(0, dy), delta);
-                        break;
-                    }
-                }
-            }
-            catch (e) {
-                history.push(`[erro ação: ${e.message}]`);
-            }
-            yield new Promise(r => setTimeout(r, 600));
+async function runBrowserTask(instruction, maxSteps = 10, onStep) {
+    await ensureBrowser();
+    const { callAIWithVision } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
+    const { getActiveConfig } = await Promise.resolve().then(() => __importStar(require('./provider-config')));
+    const history = [];
+    for (let step = 0; step < maxSteps; step++) {
+        const page = getActivePage();
+        if (!page)
+            throw new Error('Browser page not available');
+        // Captura screenshot
+        let base64;
+        try {
+            const buf = await page.screenshot({ type: 'jpeg', quality: 70 });
+            base64 = buf.toString('base64');
         }
-        injectOverlay('Max steps atingido', true);
-        return 'Tarefa executada no browser';
-    });
+        catch {
+            await new Promise(r => setTimeout(r, 1000));
+            continue;
+        }
+        // URL atual
+        let currentUrl = '';
+        try {
+            currentUrl = page.url();
+        }
+        catch { /* ignorar */ }
+        // Extrai elementos DOM de TODOS os frames (main + iframes do PJe)
+        let domSummary = '';
+        try {
+            const allFrameElements = await Promise.all(page.frames().map(frame => frame.evaluate((frameUrl) => {
+                const results = [];
+                document.querySelectorAll('input, textarea, select, button, [role="button"], [role="searchbox"]').forEach((el) => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0)
+                        return;
+                    const entry = {
+                        tag: el.tagName.toLowerCase(),
+                        type: el.type || '',
+                        id: el.id || '',
+                        name: el.name || '',
+                        placeholder: el.placeholder || '',
+                        text: (el.textContent || el.value || '').trim().slice(0, 60),
+                        x: Math.round(rect.x + rect.width / 2),
+                        y: Math.round(rect.y + rect.height / 2),
+                        frame: frameUrl !== window.location.href ? frameUrl.split('/').pop() : '',
+                    };
+                    entry.sel = el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : '';
+                    results.push(entry);
+                });
+                return results;
+            }, frame.url()).catch(() => [])));
+            const elements = allFrameElements.flat().slice(0, 25);
+            if (elements.length > 0) {
+                domSummary = '\nElementos DOM interativos (todos os frames):\n' + elements
+                    .map(e => `  [${e.tag}${e.type ? '/' + e.type : ''}${e.frame ? ' @iframe:' + e.frame : ''}] sel="${e.sel || '?'}" placeholder="${e.placeholder}" text="${e.text}" @(${e.x},${e.y})`)
+                    .join('\n');
+            }
+        }
+        catch { /* ignorar */ }
+        const context = [
+            history.length > 0 ? `Ações anteriores: ${history.slice(-4).join(' → ')}` : '',
+            currentUrl ? `URL atual: ${currentUrl}` : '',
+        ].filter(Boolean).join('\n') + domSummary;
+        // Pergunta ao LLM o que fazer
+        let response;
+        try {
+            response = await callAIWithVision({
+                system: VISION_AGENT_SYSTEM,
+                user: `Tarefa: ${instruction}\nPasso: ${step + 1}/${maxSteps}${context ? '\n' + context : ''}\n\nQual é a próxima ação?`,
+                imageBase64: base64,
+                mediaType: 'image/jpeg',
+                maxTokens: 400,
+                model: getActiveConfig().visionModel,
+            });
+        }
+        catch (e) {
+            throw new Error(`Vision LLM falhou: ${e.message}`);
+        }
+        // Extrai JSON da resposta
+        let action;
+        try {
+            const match = response.match(/\{[\s\S]*\}/);
+            if (!match)
+                throw new Error('sem JSON na resposta');
+            action = JSON.parse(match[0]);
+        }
+        catch {
+            history.push(`[erro parse: ${response.slice(0, 60)}]`);
+            continue;
+        }
+        const desc = String(action.description || action.action || 'ação');
+        onStep?.(desc);
+        injectOverlay(desc);
+        history.push(desc);
+        // Executa ação (com iframe awareness no fill e click_sel)
+        try {
+            switch (String(action.action)) {
+                case 'done': {
+                    const msg = String(action.text || 'Tarefa concluída');
+                    injectOverlay(msg.slice(0, 80), true);
+                    return msg;
+                }
+                case 'goto':
+                    await page.goto(String(action.url), { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    break;
+                case 'fill':
+                    await fillInFrames(page, String(action.selector), String(action.text ?? ''));
+                    break;
+                case 'click_sel':
+                    await clickInFrames(page, String(action.selector));
+                    break;
+                case 'click':
+                    showCursorAt(Number(action.x), Number(action.y));
+                    await page.mouse.click(Number(action.x), Number(action.y));
+                    break;
+                case 'type':
+                    await page.keyboard.type(String(action.text ?? ''), { delay: 40 });
+                    break;
+                case 'press':
+                    await page.keyboard.press(String(action.key ?? 'Enter'));
+                    break;
+                case 'wait':
+                    await new Promise(r => setTimeout(r, Number(action.ms ?? 1000)));
+                    break;
+                case 'scroll': {
+                    const dir = String(action.direction ?? 'down');
+                    const delta = dir === 'up' ? -400 : 400;
+                    await page.evaluate((dy) => window.scrollBy(0, dy), delta);
+                    break;
+                }
+            }
+        }
+        catch (e) {
+            history.push(`[erro ação: ${e.message}]`);
+        }
+        await new Promise(r => setTimeout(r, 600));
+    }
+    injectOverlay('Max steps atingido', true);
+    return 'Tarefa executada no browser';
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Heartbeat — mantém sessão PJe viva a cada 6h
@@ -1237,7 +1199,7 @@ function runBrowserTask(instruction_1) {
 const HEARTBEAT_TIMEOUT = 30000; // 30s — evita travar em CDP hang
 function startHeartbeat() {
     stopHeartbeat();
-    heartbeatTimer = setInterval(() => __awaiter(this, void 0, void 0, function* () {
+    heartbeatTimer = setInterval(async () => {
         try {
             const page = getActivePage();
             if (!page)
@@ -1245,21 +1207,21 @@ function startHeartbeat() {
             const url = page.url();
             if (!url.includes('.jus.br') && !url.includes('pje'))
                 return;
-            yield Promise.race([
-                page.evaluate((u) => __awaiter(this, void 0, void 0, function* () {
+            await Promise.race([
+                page.evaluate(async (u) => {
                     try {
-                        yield fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' });
+                        await fetch(u, { method: 'GET', credentials: 'include', cache: 'no-cache' });
                     }
-                    catch ( /* ignora */_a) { /* ignora */ }
-                }), url),
+                    catch { /* ignora */ }
+                }, url),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('heartbeat timeout')), HEARTBEAT_TIMEOUT))
             ]);
             console.log('[Browser] Heartbeat PJe —', new Date().toLocaleTimeString('pt-BR'));
         }
         catch (err) {
-            console.warn('[Browser] Heartbeat falhou:', (err === null || err === void 0 ? void 0 : err.message) || err);
+            console.warn('[Browser] Heartbeat falhou:', err?.message || err);
         }
-    }), 6 * 60 * 60 * 1000);
+    }, 6 * 60 * 60 * 1000);
 }
 function stopHeartbeat() {
     if (heartbeatTimer) {
@@ -1267,176 +1229,165 @@ function stopHeartbeat() {
         heartbeatTimer = null;
     }
 }
-function closeBrowser() {
-    return __awaiter(this, void 0, void 0, function* () {
-        stopHeartbeat();
-        // Caso launchPersistentContext: fecha o context (fecha o browser junto)
-        if (context && !cdpBrowser) {
-            try {
-                yield context.close();
-            }
-            catch ( /* ignorar */_a) { /* ignorar */ }
-            context = null;
+async function closeBrowser() {
+    stopHeartbeat();
+    // Caso launchPersistentContext: fecha o context (fecha o browser junto)
+    if (context && !cdpBrowser) {
+        try {
+            await context.close();
         }
-        // Caso CDP: fecha conexão CDP e mata processo
-        if (cdpBrowser) {
-            try {
-                yield cdpBrowser.close();
-            }
-            catch ( /* ignorar */_b) { /* ignorar */ }
-            cdpBrowser = null;
-            context = null;
+        catch { /* ignorar */ }
+        context = null;
+    }
+    // Caso CDP: fecha conexão CDP e mata processo
+    if (cdpBrowser) {
+        try {
+            await cdpBrowser.close();
         }
-        // Mata o CDP bridge
-        if (bridgeProc && !bridgeProc.killed) {
-            try {
-                bridgeProc.kill();
-            }
-            catch ( /* ignorar */_c) { /* ignorar */ }
-            bridgeProc = null;
-            bridgePort = null;
+        catch { /* ignorar */ }
+        cdpBrowser = null;
+        context = null;
+    }
+    // Mata o CDP bridge
+    if (bridgeProc && !bridgeProc.killed) {
+        try {
+            bridgeProc.kill();
         }
-        if (chromeProc && !chromeProc.killed) {
-            try {
-                if (process.platform === 'win32') {
-                    const { exec } = yield Promise.resolve().then(() => __importStar(require('child_process')));
-                    exec(`taskkill /PID ${chromeProc.pid} /F /T`);
-                }
-                else {
-                    chromeProc.kill('SIGTERM');
-                }
+        catch { /* ignorar */ }
+        bridgeProc = null;
+        bridgePort = null;
+    }
+    if (chromeProc && !chromeProc.killed) {
+        try {
+            if (process.platform === 'win32') {
+                const { exec } = await Promise.resolve().then(() => __importStar(require('child_process')));
+                exec(`taskkill /PID ${chromeProc.pid} /F /T`);
             }
-            catch ( /* ignorar */_d) { /* ignorar */ }
-            chromeProc = null;
+            else {
+                chromeProc.kill('SIGTERM');
+            }
         }
-        activePageIndex = 0;
-        console.log('[Browser] Chromium encerrado');
-    });
+        catch { /* ignorar */ }
+        chromeProc = null;
+    }
+    activePageIndex = 0;
+    console.log('[Browser] Chromium encerrado');
 }
 /**
  * Desconecta Playwright do CDP sem matar Chrome nem bridge.
  * Usado pelo BrowserLock para liberar a porta CDP para browser-use.
  */
-function disconnectPlaywright() {
-    return __awaiter(this, void 0, void 0, function* () {
-        stopHeartbeat();
-        if (cdpBrowser) {
-            try {
-                yield cdpBrowser.close();
-            }
-            catch ( /* ignorar */_a) { /* ignorar */ }
-            cdpBrowser = null;
-            context = null;
+async function disconnectPlaywright() {
+    stopHeartbeat();
+    if (cdpBrowser) {
+        try {
+            await cdpBrowser.close();
         }
-        activePageIndex = 0;
-        console.log('[Browser] Playwright desconectado (Chrome + bridge continuam)');
-    });
+        catch { /* ignorar */ }
+        cdpBrowser = null;
+        context = null;
+    }
+    activePageIndex = 0;
+    console.log('[Browser] Playwright desconectado (Chrome + bridge continuam)');
 }
 /**
  * Reconecta Playwright ao Chrome via bridge proxy-only.
  * Reutiliza a lógica de recovery do bridgeDied.
  * Usado pelo BrowserLock após browser-use terminar.
  */
-function reconnectPlaywright() {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a;
-        if (cdpBrowser) {
-            console.log('[Browser] Playwright já conectado — skip reconnect');
-            return;
-        }
-        console.log('[Browser] Reconectando Playwright ao Chrome...');
-        if (isElectronProcess()) {
-            cdpBrowser = yield connectViaBridgeProxyOnly(CDP_PORT);
-        }
-        else {
-            cdpBrowser = yield connectDirectCDP(CDP_PORT);
-        }
-        const contexts = cdpBrowser.contexts();
-        context = (_a = contexts[0]) !== null && _a !== void 0 ? _a : yield cdpBrowser.newContext();
-        if (context.pages().length === 0)
-            yield context.newPage();
-        activePageIndex = 0;
-        setupPageListeners();
-        startHeartbeat();
-        console.log('[Browser] Playwright reconectado');
-    });
+async function reconnectPlaywright() {
+    if (cdpBrowser) {
+        console.log('[Browser] Playwright já conectado — skip reconnect');
+        return;
+    }
+    console.log('[Browser] Reconectando Playwright ao Chrome...');
+    if (isElectronProcess()) {
+        cdpBrowser = await connectViaBridgeProxyOnly(CDP_PORT);
+    }
+    else {
+        cdpBrowser = await connectDirectCDP(CDP_PORT);
+    }
+    const contexts = cdpBrowser.contexts();
+    context = contexts[0] ?? await cdpBrowser.newContext();
+    if (context.pages().length === 0)
+        await context.newPage();
+    activePageIndex = 0;
+    setupPageListeners();
+    startHeartbeat();
+    console.log('[Browser] Playwright reconectado');
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // killPreviousChrome — encerra Chrome anterior graciosamente (salva sessão/cookies)
 // ─────────────────────────────────────────────────────────────────────────────
-function killPreviousChrome(userDataDir) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // 1. Kill by PID file
-        const pidFile = path_1.default.join(userDataDir, 'chrome.pid');
-        try {
-            if (fs_1.default.existsSync(pidFile)) {
-                const pid = parseInt(fs_1.default.readFileSync(pidFile, 'utf8').trim(), 10);
-                if (pid && !isNaN(pid)) {
-                    try {
-                        process.kill(pid, 0); // check if alive
-                        if (process.platform === 'win32') {
-                            const { execSync } = yield Promise.resolve().then(() => __importStar(require('child_process')));
-                            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
-                        }
-                        else {
-                            process.kill(pid, 'SIGKILL');
-                        }
-                        console.log('[Browser] Chrome anterior encerrado (PID:', pid, '+ filhos)');
-                    }
-                    catch ( /* already dead */_a) { /* already dead */ }
-                }
+async function killPreviousChrome(userDataDir) {
+    // 1. Kill by PID file
+    const pidFile = path_1.default.join(userDataDir, 'chrome.pid');
+    try {
+        if (fs_1.default.existsSync(pidFile)) {
+            const pid = parseInt(fs_1.default.readFileSync(pidFile, 'utf8').trim(), 10);
+            if (pid && !isNaN(pid)) {
                 try {
-                    fs_1.default.unlinkSync(pidFile);
+                    process.kill(pid, 0); // check if alive
+                    if (process.platform === 'win32') {
+                        const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
+                        execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
+                    }
+                    else {
+                        process.kill(pid, 'SIGKILL');
+                    }
+                    console.log('[Browser] Chrome anterior encerrado (PID:', pid, '+ filhos)');
                 }
-                catch ( /* ok */_b) { /* ok */ }
+                catch { /* already dead */ }
             }
+            try {
+                fs_1.default.unlinkSync(pidFile);
+            }
+            catch { /* ok */ }
         }
-        catch ( /* ignorar */_c) { /* ignorar */ }
-        // 2. Kill whatever is listening on CDP_PORT (orphan Chrome from previous session)
-        yield killProcessOnPort(CDP_PORT);
-        yield new Promise(r => setTimeout(r, 1500));
-    });
+    }
+    catch { /* ignorar */ }
+    // 2. Kill whatever is listening on CDP_PORT (orphan Chrome from previous session)
+    await killProcessOnPort(CDP_PORT);
+    await new Promise(r => setTimeout(r, 1500));
 }
 /** Encontra e mata o processo escutando na porta CDP (orphan Chrome) */
-function killProcessOnPort(port) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            // Check if anything is listening
-            yield new Promise((resolve, reject) => {
-                const req = http_1.default.get(`http://127.0.0.1:${port}/json/version`, res => {
-                    res.resume();
-                    resolve();
-                });
-                req.on('error', reject);
-                req.setTimeout(1000, () => { req.destroy(); reject(new Error('timeout')); });
+async function killProcessOnPort(port) {
+    try {
+        // Check if anything is listening
+        await new Promise((resolve, reject) => {
+            const req = http_1.default.get(`http://127.0.0.1:${port}/json/version`, res => {
+                res.resume();
+                resolve();
             });
-            // Something is on this port — find ALL PIDs via netstat and kill entire process tree
-            const { execSync } = yield Promise.resolve().then(() => __importStar(require('child_process')));
-            try {
-                const out = execSync('netstat -aon', { encoding: 'utf8', timeout: 5000 });
-                const lines = out.split('\n').filter(l => l.includes(`:${port}`) && l.includes('LISTEN'));
-                const pids = [...new Set(lines.map(l => { var _a; return (_a = l.match(/\s(\d+)\s*$/)) === null || _a === void 0 ? void 0 : _a[1]; }).filter(Boolean).map(Number))];
-                for (const pid of pids) {
-                    try {
-                        // /T mata a árvore inteira (browser + GPU + helpers) — evita mutex residual no Windows
-                        if (process.platform === 'win32') {
-                            execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
-                        }
-                        else {
-                            process.kill(pid, 'SIGKILL');
-                        }
-                        console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, '+ filhos)');
+            req.on('error', reject);
+            req.setTimeout(1000, () => { req.destroy(); reject(new Error('timeout')); });
+        });
+        // Something is on this port — find ALL PIDs via netstat and kill entire process tree
+        const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
+        try {
+            const out = execSync('netstat -aon', { encoding: 'utf8', timeout: 5000 });
+            const lines = out.split('\n').filter(l => l.includes(`:${port}`) && l.includes('LISTEN'));
+            const pids = [...new Set(lines.map(l => l.match(/\s(\d+)\s*$/)?.[1]).filter(Boolean).map(Number))];
+            for (const pid of pids) {
+                try {
+                    // /T mata a árvore inteira (browser + GPU + helpers) — evita mutex residual no Windows
+                    if (process.platform === 'win32') {
+                        execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
                     }
-                    catch ( /* already dead */_a) { /* already dead */ }
+                    else {
+                        process.kill(pid, 'SIGKILL');
+                    }
+                    console.log('[Browser] Orphan Chrome morto na porta', port, '(PID:', pid, '+ filhos)');
                 }
-                if (pids.length > 0)
-                    yield new Promise(r => setTimeout(r, 1500));
+                catch { /* already dead */ }
             }
-            catch ( /* netstat failed */_b) { /* netstat failed */ }
+            if (pids.length > 0)
+                await new Promise(r => setTimeout(r, 1500));
         }
-        catch (_c) {
-            // Nothing on port — good
-        }
-    });
+        catch { /* netstat failed */ }
+    }
+    catch {
+        // Nothing on port — good
+    }
 }
 //# sourceMappingURL=browser-manager.js.map

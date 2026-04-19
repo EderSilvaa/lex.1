@@ -274,6 +274,9 @@ export async function startBackend(userDataDir: string): Promise<void> {
             const serverPath = path.join(__dirname, 'backend', 'server.js');
 
             // Env limpo — sem variáveis do Electron
+            const electronRuntime = (process.versions as NodeJS.ProcessVersions & { electron?: string }).electron;
+            const backendCommand = electronRuntime ? process.execPath : 'node';
+
             const env = { ...process.env };
             delete env['ELECTRON_RUN_AS_NODE'];
             delete env['ELECTRON_NO_ATTACH_CONSOLE'];
@@ -281,14 +284,17 @@ export async function startBackend(userDataDir: string): Promise<void> {
             for (const key of Object.keys(env)) {
                 if (key.startsWith('CRASHPAD_') || key.startsWith('BREAKPAD_')) delete env[key];
             }
+            if (electronRuntime) {
+                env['ELECTRON_RUN_AS_NODE'] = '1';
+            }
 
             env['LEX_BACKEND_PORT'] = String(BACKEND_PORT);
             env['LEX_USER_DATA'] = userDataDir;
 
-            if (!silentMode) console.log('[BackendClient] Spawnando backend...', serverPath);
+            if (!silentMode) console.log('[BackendClient] Spawnando backend...', backendCommand, serverPath);
             emitBackendStatus('starting');
 
-            backendProc = spawn('node', [serverPath], {
+            backendProc = spawn(backendCommand, [serverPath], {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 env,
                 detached: false,
@@ -549,4 +555,3 @@ export async function stopBackend(): Promise<void> {
 export function isBackendAlive(): boolean {
     return connected && ws?.readyState === WebSocket.OPEN;
 }
-

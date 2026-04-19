@@ -1,0 +1,72 @@
+Sim. Foi chamado. Com certeza.
+
+A requisição anterior passou por este caminho:
+
+pje_consultar
+→ runBrowserUseTask
+→ Python C:\Python312\python.exe
+→ dist-electron/browser/browser-use-runner.py
+→ browser_use.Agent(...)
+O log prova:
+
+[BrowserUse] Disponível: true
+[BrowserUse] Python path: C:\Python312\python.exe
+[BrowserUse] Iniciando: "... PJe do TJPA ..."
+[BrowserUse] provider=anthropic, model=claude-3-5-sonnet-20241022
+[BrowserLock] Desconectando Playwright...
+[BrowserLock] Lock adquirido por browser-use...
+[BrowserUse:stderr] INFO [Agent] Found URL in task: https://pje.tjpa.jus.br/pje/Processo/ConsultaProcesso/listView.seam, adding as initial action...
+Então ele não foi ignorado. Ele entrou no browser-use.
+
+O que não aconteceu:
+
+steps=0
+lastResult=""
+Timeout após 600s
+Isso significa: o browser-use foi iniciado, viu a URL, mas não chegou a produzir o primeiro step do agente. Ele não retornou uma ação tipo “vou clicar”, “vou preencher”, “vou observar”. Nada.
+
+Eu isolei as hipóteses:
+
+CDP/Chrome funciona.
+BrowserSession.start() do browser-use funciona.
+Navegação via browser-use para a URL do PJe funciona.
+Leitura de DOM pelo browser-use funciona.
+O PJe em si não foi o bloqueio principal nesse ponto.
+O mais provável é que ele travou na primeira chamada de LLM dentro do browser-use, antes do callback register_new_step_callback.
+
+Tem dois sinais fortes:
+
+O runner está usando:
+provider=anthropic
+model=claude-3-5-sonnet-20241022
+Esse modelo está vindo do visionModel da Lex. Pode estar velho/incompatível/lento para o browser-use atual. O pacote instalado é browser-use 0.12.2, e ele internamente tem timeout de LLM, retries, judge, planning etc. Se essa chamada fica presa/retryando, a Lex não recebe step nenhum.
+
+O wrapper da Lex só mata depois de 600s:
+const DEFAULT_TIMEOUT = 600_000;
+E o executor da skill também usa 600s para categoria pje. Então quando o browser-use fica mudo, a UX vira “ficou parado por 10 minutos”.
+
+Tem ainda um problema de observabilidade: o runner só emite JSON quando o browser-use callback dispara. Se o browser-use está em “pré-step” ou “chamando LLM”, a Lex não sabe dizer nada além de silêncio.
+
+Minha leitura técnica agora:
+
+O browser-use foi chamado e conseguiu inicializar, mas ficou preso antes do primeiro step operacional, muito provavelmente na primeira inferência do LLM/modelo configurado.
+
+O conserto certo para diagnosticar e depois estabilizar:
+
+adicionar eventos no runner Python:
+runner_started
+browser_session_starting
+browser_session_started
+initial_actions_starting
+initial_actions_done
+step_start
+llm_call_start
+llm_call_timeout
+passar explicitamente:
+llm_timeout=45
+step_timeout=60
+talvez use_judge=False no discovery inicial
+parar de usar timeout externo de 600s sem heartbeat;
+trocar o modelo browser-use para um modelo atual/confiável, ou pelo menos testar claude-haiku-4-5-20251001 vs o claude-3-5-sonnet-20241022;
+se passar 60s s
+em primeiro step, abortar e cair para fallback/instrumentação, não deixar o usuário olhando para o nada.

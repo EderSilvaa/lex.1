@@ -218,7 +218,7 @@ export interface SkillRegistry {
 // EVENTS (para streaming UI)
 // ============================================================================
 
-export type AgentEvent =
+export type AgentEvent = (
     | { type: 'started'; runId: string; objetivo: string }
     | { type: 'thinking'; pensamento: string; iteracao: number }
     | { type: 'criticizing'; decision: CriticDecision; iteracao: number }
@@ -233,7 +233,8 @@ export type AgentEvent =
     | { type: 'streaming_start' }
     | { type: 'token'; token: string }
     | { type: 'privacy_stats'; stats: Array<{ category: string; count: number }> }
-    | { type: 'orchestrator'; data: OrchestratorEvent };
+    | { type: 'orchestrator'; data: OrchestratorEvent }
+) & { runId?: string };
 
 // ============================================================================
 // PLANNING & ORCHESTRATION (Phase 1 AIOS)

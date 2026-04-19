@@ -10,7 +10,9 @@
       "WebSearch",
       "WebFetch(domain:diegocastroadvogado.com.br)",
       "Bash(curl -sL https://drive.google.com/drive/folders/1ZEkKmi3yDoJfCDokduNLKku6L_2hxiMX)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e ':*)"
     ],
     "deny": [],
     "ask": []

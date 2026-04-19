@@ -65,7 +65,9 @@ const EventItem: React.FC<{ entry: MessageEntry }> = ({ entry }) => {
     if (entry.kind === 'user') {
         return (
             <Box marginTop={1}>
-                <Text bold>{`> \\${entry.text}`}</Text>
+                <Text color="white" backgroundColor="gray" bold>
+                    {`  › ${entry.text}  `}
+                </Text>
             </Box>
         );
     }

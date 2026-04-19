@@ -37,6 +37,7 @@ import {
     shouldMaskPII, shouldUseLocalModel,
 } from '../privacy';
 import type { PIIVault } from '../privacy';
+import { currentTraceId, withTrace } from '../observer/trace-context';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -162,10 +163,22 @@ function normalizeCnjInText(text: string): string {
 }
 
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
+    const normalizedGoal = normalizeCnjInText(opts.objetivo);
+    if (!currentTraceId()) {
+        return withTrace(
+            { goal: normalizedGoal, sessionId: opts.sessionId },
+            () => runAgentLoopInTrace(opts, normalizedGoal),
+        );
+    }
+    return runAgentLoopInTrace(opts, normalizedGoal);
+}
+
+async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Promise<string> {
     const { objetivo: objetivoRaw, config = {}, tenantConfig, sessionId, runId: requestedRunId, agentSpec, parentAbort } = opts;
-    const objetivo = normalizeCnjInText(objetivoRaw);
+    void objetivoRaw;
     const cfg = { ...DEFAULT_CONFIG, ...config, ...(agentSpec?.configOverrides || {}) };
     const runId = requestedRunId || randomUUID();
+    const emitRun = (event: AgentEvent) => emit({ ...event, runId });
     const abort = new AbortController();
 
     // P0 Fix 4: Encadeia parent abort → child abort
@@ -260,7 +273,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
     log(cfg.verbose, `Max iterações: ${cfg.maxIterations}`);
     log(cfg.verbose, `═══════════════════════════════════════════`);
 
-    emit({ type: 'started', runId, objetivo });
+    emitRun({ type: 'started', runId, objetivo });
 
     // Analytics: rastreia mensagem e provider
     const analytics = getAnalytics();
@@ -276,7 +289,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
             log(cfg.verbose, `✅ Resposta encontrada no cache!`);
             state.status = 'completed';
             state.endTime = Date.now();
-            emit({ type: 'completed', resposta: cached, passos: 0, duracao: Date.now() - state.startTime });
+            emitRun({ type: 'completed', resposta: cached, passos: 0, duracao: Date.now() - state.startTime });
             activeRuns.delete(runId);
             parentCleanup?.();
             return cached;
@@ -298,7 +311,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                 state.status = 'cancelled';
                 state.endTime = Date.now();
                 log(cfg.verbose, `🚫 Cancelado pelo usuário`);
-                emit({ type: 'cancelled' });
+                emitRun({ type: 'cancelled' });
                 activeRuns.delete(runId);
                 const cancelMsg = 'Operação cancelada pelo usuário.';
                 if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', cancelMsg);
@@ -309,7 +322,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
             if (state.iteracao >= cfg.maxIterations) {
                 log(cfg.verbose, `⚠️ Atingiu limite de ${cfg.maxIterations} iterações`);
                 state.status = 'timeout';
-                emit({ type: 'timeout' });
+                emitRun({ type: 'timeout' });
                 activeRuns.delete(runId);
                 const timeoutMsg = formatTimeoutResponse(state);
                 if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', timeoutMsg);
@@ -319,7 +332,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
             if (Date.now() - state.startTime > cfg.timeoutMs) {
                 log(cfg.verbose, `⚠️ Timeout: ${cfg.timeoutMs}ms`);
                 state.status = 'timeout';
-                emit({ type: 'timeout' });
+                emitRun({ type: 'timeout' });
                 activeRuns.delete(runId);
                 const timeoutMsg = formatTimeoutResponse(state);
                 if (activeSessionId) sessionManager.addMessage(activeSessionId, 'assistant', timeoutMsg);
@@ -337,13 +350,13 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
             const thinkStart = Date.now();
 
             // Sinaliza UI para criar bubble vazia antes de receber tokens
-            emit({ type: 'streaming_start' });
+            emitRun({ type: 'streaming_start' });
 
             // Callback de token: emitido apenas para tokens do campo "resposta" do JSON
             // PII Vault: unmask tokens antes de emitir para a UI
             const onStreamToken = (token: string) => {
                 const unmasked = vault ? unmask(vault, token) : token;
-                emit({ type: 'token', token: unmasked });
+                emitRun({ type: 'token', token: unmasked });
             };
 
             const decisao = await think(state, cfg, onStreamToken, agentSpec);
@@ -361,7 +374,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
             };
             state.passos.push(thinkStep);
 
-            emit({ type: 'thinking', pensamento: decisao.pensamento, iteracao: state.iteracao });
+            emitRun({ type: 'thinking', pensamento: decisao.pensamento, iteracao: state.iteracao });
 
             log(cfg.verbose, `💭 Pensamento: ${decisao.pensamento.substring(0, 100)}...`);
             log(cfg.verbose, `📋 Decisão: ${decisao.tipo}`);
@@ -393,7 +406,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         const stats = getVaultStats(vault);
                         if (stats.totalMasked > 0) {
                             log(cfg.verbose, `🔒 PII mascaradas: ${stats.totalMasked} entidades`);
-                            emit({
+                            emitRun({
                                 type: 'privacy_stats',
                                 stats: getVaultSummary(vault)
                             });
@@ -439,7 +452,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         }
                     }
 
-                    emit({
+                    emitRun({
                         type: 'completed',
                         resposta: decisao.resposta!,
                         passos: state.iteracao,
@@ -486,7 +499,23 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
 
                     // Brain: incrementa dream session count
                     if (brain) {
-                        try { brain.incrementDreamSessionCount(); }
+                        try {
+                            const dreamCount = brain.incrementDreamSessionCount();
+                            if (dreamCount >= 5) {
+                                setTimeout(() => {
+                                    void import('../brain/dream')
+                                        .then(({ runDream, shouldRunDream }) => {
+                                            if (!shouldRunDream(brain, 5)) return;
+                                            return runDream(brain, {
+                                                allowPrune: false,
+                                                allowCompaction: false,
+                                                renderMarkdown: false,
+                                            });
+                                        })
+                                        .catch(e => console.warn('[Agent] Auto Dream falhou:', e?.message || e));
+                                }, 2000);
+                            }
+                        }
                         catch (e) { /* non-critical */ }
                     }
 
@@ -506,7 +535,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
 
                     log(cfg.verbose, `❓ Aguardando usuário: ${decisao.pergunta}`);
 
-                    emit({
+                    emitRun({
                         type: 'waiting_user',
                         pergunta: decisao.pergunta!,
                         ...(decisao.opcoes ? { opcoes: decisao.opcoes } : {})
@@ -544,7 +573,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                     if (loopDetected) {
                         state.status = 'waiting_user';
                         const question = `Detectei que estou repetindo ações (${loopDetected}). Quer tentar uma abordagem diferente ou devo tentar novamente?`;
-                        emit({ type: 'waiting_user', pergunta: question, opcoes: ['Tente novamente', 'Tente outra abordagem', 'Cancelar'] });
+                        emitRun({ type: 'waiting_user', pergunta: question, opcoes: ['Tente novamente', 'Tente outra abordagem', 'Cancelar'] });
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
                         }
@@ -561,7 +590,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         // Critic bloqueou → pergunta ao usuário
                         if (criticResult.blocked) {
                             state.status = 'waiting_user';
-                            emit({
+                            emitRun({
                                 type: 'waiting_user',
                                 pergunta: criticResult.blocked,
                                 opcoes: ['Sim, confirmar', 'Cancelar']
@@ -599,7 +628,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                     };
                     state.passos.push(actStep);
 
-                    emit({ type: 'acting', skill: skillName, parametros: params });
+                    emitRun({ type: 'acting', skill: skillName, parametros: params });
 
                     // ════════════════════════════════════════════════════
                     // FASE 3: ACT (Execução)
@@ -613,7 +642,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         resultado = await cfg.hooks.afterToolCall(skillName, resultado);
                     }
 
-                    emit({ type: 'tool_result', skill: skillName, resultado });
+                    emitRun({ type: 'tool_result', skill: skillName, resultado });
 
                     // Analytics: rastreia uso da skill
                     analytics.trackSkill(skillName, resultado.sucesso);
@@ -639,14 +668,14 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
                         ? `Skill ${skillName} executada com sucesso`
                         : `Skill ${skillName} falhou: ${resultado.erro}`;
 
-                    emit({ type: 'observing', observacao });
+                    emitRun({ type: 'observing', observacao });
 
                     log(cfg.verbose, `👁️ ${observacao}`);
 
                     if (shouldPauseForUserAction(resultado)) {
                         state.status = 'waiting_user';
                         const question = extractUserActionQuestion(resultado);
-                        emit({ type: 'waiting_user', pergunta: question });
+                        emitRun({ type: 'waiting_user', pergunta: question });
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
                         }
@@ -670,7 +699,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<string> {
         state.endTime = Date.now();
 
         log(true, `❌ Erro: ${error.message}`);
-        emit({ type: 'error', erro: error.message, recuperavel: false });
+        emitRun({ type: 'error', erro: error.message, recuperavel: false });
 
         // Hook: onError
         if (cfg.hooks?.onError) {
@@ -918,11 +947,12 @@ async function applyCritic(
         duracao: criticDuration
     });
 
-    emit({ type: 'criticizing', decision: criticDecision, iteracao: state.iteracao });
+    emit({ type: 'criticizing', decision: criticDecision, iteracao: state.iteracao, runId: state.id });
     emit({
         type: 'thinking',
         pensamento: `[Critic] ${criticDecision.reason}`,
-        iteracao: state.iteracao
+        iteracao: state.iteracao,
+        runId: state.id
     });
 
     // Hook
@@ -952,7 +982,12 @@ async function applyCritic(
     const thinkDecision = { tipo: 'skill' as const, pensamento: '', skill: finalSkill, parametros: finalParams };
     if (requiresDualValidation(thinkDecision)) {
         log(cfg.verbose, `Dual-Agent: validando ação de alto risco "${finalSkill}"...`);
-        emit({ type: 'thinking', pensamento: `[Dual-Agent] Validando ação de alto risco: ${finalSkill}`, iteracao: state.iteracao });
+        emit({
+            type: 'thinking',
+            pensamento: `[Dual-Agent] Validando ação de alto risco: ${finalSkill}`,
+            iteracao: state.iteracao,
+            runId: state.id
+        });
 
         try {
             const validation = await validateWithDualAgent({

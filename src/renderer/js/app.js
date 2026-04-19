@@ -26,6 +26,9 @@ let browserAutoExpandLastAt = 0;
 const BROWSER_AUTO_EXPAND_COOLDOWN_MS = 5000;
 let backendStatusUiLastAt = 0;
 let backendErrorUiLastAt = 0;
+const LONG_MESSAGE_CHAR_THRESHOLD = 1600;
+const LONG_MESSAGE_LINE_THRESHOLD = 14;
+const LONG_MESSAGE_PREVIEW_CHARS = 900;
 
 function requestBrowserAutoExpand(source, force = false) {
     if (!window.lexApi?.focusBrowser) return;
@@ -343,8 +346,13 @@ function finalizeStreamingBubble(msgDiv, fullText) {
     if (!body) return;
 
     const rawText = typeof fullText === 'string' ? fullText : String(fullText || '');
-    const htmlContent = renderMarkdownSafe(rawText);
-    body.innerHTML = `<div class="msg-content markdown-body">${htmlContent}</div>`;
+    if (shouldCollapseMessage(rawText, 'ai', false)) {
+        body.innerHTML = renderLongMessageContent(rawText, 'ai');
+        setupLongMessageToggle(msgDiv);
+    } else {
+        const htmlContent = renderMarkdownSafe(rawText);
+        body.innerHTML = `<div class="msg-content markdown-body">${htmlContent}</div>`;
+    }
 
     smartScrollToBottom();
 }
@@ -592,6 +600,60 @@ function renderMarkdownSafe(markdownText) {
     const source = typeof markdownText === 'string' ? markdownText : String(markdownText || '');
     const html = window.marked ? window.marked.parse(source) : escapeHtml(source);
     return sanitizeHtml(html);
+}
+
+function getMessageTextStats(text) {
+    const source = typeof text === 'string' ? text : String(text || '');
+    return {
+        chars: source.length,
+        lines: source.split(/\r?\n/).length,
+    };
+}
+
+function shouldCollapseMessage(text, type, isRawHtml) {
+    if (isRawHtml || type === 'loading') return false;
+    const stats = getMessageTextStats(text);
+    return stats.chars > LONG_MESSAGE_CHAR_THRESHOLD || stats.lines > LONG_MESSAGE_LINE_THRESHOLD;
+}
+
+function makeMessagePreview(text) {
+    const source = typeof text === 'string' ? text : String(text || '');
+    const trimmed = source.trim();
+    if (trimmed.length <= LONG_MESSAGE_PREVIEW_CHARS) return trimmed;
+    return trimmed.slice(0, LONG_MESSAGE_PREVIEW_CHARS).trimEnd() + '...';
+}
+
+function renderLongMessageContent(fullText, type) {
+    const stats = getMessageTextStats(fullText);
+    const preview = makeMessagePreview(fullText);
+    const previewHtml = escapeHtml(preview).replace(/\r?\n/g, '<br>');
+    const fullHtml = renderMarkdownSafe(fullText);
+    const meta = `${stats.chars.toLocaleString('pt-BR')} caracteres`;
+    const id = `longmsg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return `
+        <div class="msg-content markdown-body long-message is-collapsed" id="${id}" data-long-message>
+            <div class="long-message-preview">${previewHtml}</div>
+            <div class="long-message-full">${fullHtml}</div>
+            <div class="long-message-footer">
+                <span>${meta}</span>
+                <button type="button" class="long-message-toggle" aria-expanded="false">Expandir</button>
+            </div>
+        </div>
+    `;
+}
+
+function setupLongMessageToggle(msgDiv) {
+    const container = msgDiv?.querySelector?.('[data-long-message]');
+    const button = container?.querySelector?.('.long-message-toggle');
+    if (!container || !button) return;
+
+    button.addEventListener('click', () => {
+        const collapsed = container.classList.toggle('is-collapsed');
+        button.textContent = collapsed ? 'Expandir' : 'Recolher';
+        button.setAttribute('aria-expanded', String(!collapsed));
+        smartScrollToBottom(false);
+    });
 }
 
 // Initialize agent events immediately (preload exposes lexApi before DOM is ready)
@@ -1137,6 +1199,27 @@ navItems.forEach(item => {
     });
 });
 
+function showTerminalView() {
+    Object.values(views).forEach(v => { if (v) v.classList.add('hidden'); });
+    if (views['nav-terminal']) views['nav-terminal'].classList.remove('hidden');
+    navItems.forEach(n => n.classList.remove('active'));
+    document.getElementById('nav-terminal')?.classList.add('active');
+    if (typeof initTerminalView === 'function') initTerminalView();
+    setTimeout(() => {
+        if (typeof fitActiveTerminal === 'function') fitActiveTerminal();
+    }, 80);
+}
+
+function waitForTerminalLayout() {
+    return new Promise(resolve => {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setTimeout(resolve, 80);
+            });
+        });
+    });
+}
+
 // Initialize: Ensure Terminal is visible by default (chat widget is hidden)
 if (views['nav-terminal']) {
     views['nav-terminal'].classList.remove('hidden');
@@ -1287,19 +1370,23 @@ function addMessageToUI(text, type, isRawHtml) {
             displayText = cleanedText.replace(/<thinking>[\s\S]*?<\/thinking>/, '').trim();
         }
 
-        const htmlContent = renderMarkdownSafe(displayText);
+        const shouldCollapse = shouldCollapseMessage(displayText, type, isRawHtml);
+        const htmlContent = shouldCollapse ? '' : renderMarkdownSafe(displayText);
         const safeThinkingContent = escapeHtml(thinkingContent);
 
         if (thinkingContent) {
             messageHtml += `<div class="thinking-container"><details class="thinking-accordion"><summary class="thinking-summary">Processo de pensamento</summary><div class="thinking-content">${safeThinkingContent}</div></details></div>`;
         }
-        messageHtml += `<div class="msg-content markdown-body">${htmlContent}</div>`;
+        messageHtml += shouldCollapse
+            ? renderLongMessageContent(displayText, type)
+            : `<div class="msg-content markdown-body">${htmlContent}</div>`;
     }
 
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${type}`;
     msgDiv.id = type === 'loading' ? `msg-${Date.now()}` : '';
     msgDiv.innerHTML = `<div class="message-body">${messageHtml}</div>`;
+    setupLongMessageToggle(msgDiv);
 
     messageList.appendChild(msgDiv);
     // Mensagem do usuário: força scroll; IA/sistema: smart scroll
@@ -2450,7 +2537,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Conversations
     renderConvList();
-    document.getElementById('btn-new-conv')?.addEventListener('click', newConversation);
+    if (window.lexApi?.onConversationsUpdated) {
+        window.lexApi.onConversationsUpdated(() => renderConvList());
+    }
+    window.addEventListener('lex-terminal-session-change', (event) => {
+        const session = event.detail || {};
+        if (session.mode !== 'lex' || !session.sessionId) return;
+        const sameConversation = session.sessionId === convId;
+        convId = session.sessionId;
+        currentSessionId = session.sessionId;
+        if (!sameConversation) {
+            convTitle = null;
+            convMessages = [];
+        }
+        renderConvList();
+    });
+    document.getElementById('btn-new-conv')?.addEventListener('click', handleNewConversationClick);
 });
 
 // ============================================================================
@@ -2512,34 +2614,17 @@ async function renderConvList() {
             e.stopPropagation();
             const id = btn.dataset.id;
             await window.lexApi.deleteConversation(id);
-            if (id === convId) newConversation();
+            if (id === convId) handleNewConversationClick();
             else renderConvList();
         });
     });
 }
 
 async function switchConversation(id) {
-    if (id === convId) return;
     if (convMessages.length > 0) await saveCurrentConversation();
 
     const conv = await window.lexApi.loadConversation(id);
     if (!conv) return;
-
-    // Limpa estado de streaming/agente antes de trocar
-    stopStreamingRenderLoop();
-    currentStreamingMsg = null;
-    streamingRawText = '';
-    streamingDirty = false;
-    isAgentWaitingUser = false;
-    hideStopBtn();
-
-    // Clear UI
-    const msgList = document.getElementById('chat-messages');
-    if (msgList) msgList.innerHTML = '';
-    agentThinkingElement = null;
-    if (mainChatContainer) mainChatContainer.classList.remove('has-messages');
-    const greeting = document.querySelector('.greeting-section');
-    if (greeting) greeting.style.display = '';
 
     // Restore state
     convId = conv.id;
@@ -2547,18 +2632,20 @@ async function switchConversation(id) {
     convTitle = conv.title;
     convMessages = conv.messages || [];
 
-    // Seed agent session with history for context
-    if (window.lexApi?.seedSession && convMessages.length > 0) {
+    // Conversas antigas do chat podem precisar semear o contexto antes de abrir no terminal.
+    if (conv.source !== 'terminal' && window.lexApi?.seedSession && convMessages.length > 0) {
         await window.lexApi.seedSession(conv.id, convMessages);
     }
 
-    // Render saved messages (suppress tracking/auto-save)
-    if (convMessages.length > 0) {
-        if (mainChatContainer) mainChatContainer.classList.add('has-messages');
-        if (greeting) greeting.style.display = 'none';
-        for (const msg of convMessages) {
-            addMessageToUI(msg.content, msg.role === 'user' ? 'user' : 'ai');
-        }
+    showTerminalView();
+    await waitForTerminalLayout();
+    if (typeof createTerminalSession === 'function') {
+        await createTerminalSession({
+            mode: 'lex',
+            sessionId: conv.id,
+            displayName: conv.title || 'LEX',
+            initialMessages: convMessages,
+        });
     }
 
     renderConvList();
@@ -2584,6 +2671,17 @@ async function newConversation() {
     convMessages = [];
 
     await renderConvList();
+}
+
+async function handleNewConversationClick() {
+    showTerminalView();
+    await waitForTerminalLayout();
+    if (typeof createTerminalSession === 'function') {
+        await createTerminalSession({ mode: 'lex' });
+        return;
+    }
+
+    await newConversation();
 }
 
 function addAutomationCardToUI() {

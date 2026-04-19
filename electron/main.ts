@@ -475,6 +475,62 @@ function saveApiKey(providerId: ProviderId, key: string): void {
     store.set('apiKeys', apiKeys);
 }
 
+function normalizeConversationContent(content: any): string {
+    if (typeof content === 'string') return content.trim();
+    if (content == null) return '';
+    try {
+        return JSON.stringify(content);
+    } catch {
+        return String(content);
+    }
+}
+
+function makeConversationTitle(content: string): string {
+    return content.replace(/\s+/g, ' ').slice(0, 50) || 'Nova conversa';
+}
+
+function persistTerminalConversationMessage(payload: any): void {
+    if (!store || payload?.source !== 'terminal') return;
+
+    const id = String(payload.conversationId || payload.sessionId || '').trim();
+    const role = payload.role === 'assistant' ? 'assistant' : payload.role === 'user' ? 'user' : null;
+    const content = normalizeConversationContent(payload.content);
+    if (!id || !role || !content) return;
+
+    const timestamp = Number(payload.timestamp) || Date.now();
+    const convs = (store.get('conversations', {}) as Record<string, any>) || {};
+    const existing = convs[id] || {};
+    const messages = Array.isArray(existing.messages) ? existing.messages : [];
+    const isNew = !convs[id];
+
+    convs[id] = {
+        id,
+        title: existing.title || (role === 'user' ? makeConversationTitle(content) : 'Nova conversa'),
+        createdAt: existing.createdAt || timestamp,
+        updatedAt: timestamp,
+        source: 'terminal',
+        messages: [
+            ...messages,
+            {
+                role,
+                content,
+                timestamp,
+                source: 'terminal',
+                runId: typeof payload.runId === 'string' ? payload.runId : undefined,
+            },
+        ],
+    };
+
+    store.set('conversations', convs);
+    if (isNew) getAnalytics().trackConversation();
+    mainWindow?.webContents.send('conversations-updated', {
+        id,
+        title: convs[id].title,
+        updatedAt: convs[id].updatedAt,
+        messageCount: convs[id].messages.length,
+    });
+}
+
 async function initStore() {
     // @ts-ignore
     const { default: Store } = await import('electron-store');
@@ -1270,9 +1326,9 @@ app.whenReady().then(async () => {
             }
         });
 
-        ipcMain.handle('terminal-write', async (_, { sessionId, data }) => {
+        ipcMain.handle('terminal-write', async (_, { sessionId, data, paste }) => {
             try {
-                ptyMgr.write(sessionId, data);
+                ptyMgr.write(sessionId, data, { paste });
                 return { success: true };
             } catch (err: any) {
                 return { success: false, error: err.message };
@@ -1313,8 +1369,10 @@ app.whenReady().then(async () => {
                     cwd: app.getAppPath(),
                     cols: opts.cols,
                     rows: opts.rows,
+                    mode: 'lex',
                     env: {
                         LEX_IN_ELECTRON: '1',
+                        LEX_CONVERSATION_ID: opts.sessionId,
                         NODE_OPTIONS: '--max-old-space-size=4096',
                     },
                 });
@@ -1376,6 +1434,11 @@ app.whenReady().then(async () => {
         });
 
         // CLI → UI: navegar para aba e/ou abrir recurso específico
+        // Terminal transcript -> sidebar conversation persistence
+        backendEvents.on('conversation-message', (payload: any) => {
+            persistTerminalConversationMessage(payload);
+        });
+
         backendEvents.on('ui-navigate', ({ tab, payload }: { tab?: string; payload?: any }) => {
             if (mainWindow) {
                 if (tab) mainWindow.webContents.send('navigate-to', tab);
@@ -1650,6 +1713,12 @@ ipcMain.handle('conversations-save', async (_event, conv) => {
     convs[conv.id] = conv;
     store?.set('conversations', convs);
     if (isNew) getAnalytics().trackConversation();
+    mainWindow?.webContents.send('conversations-updated', {
+        id: conv.id,
+        title: conv.title,
+        updatedAt: conv.updatedAt,
+        messageCount: conv.messages?.length || 0,
+    });
     return { success: true };
 });
 
@@ -1870,8 +1939,10 @@ ipcMain.handle('browser-focus', async () => {
         }
     }
 
+    // Fallback local: NÃO chama ensureBrowser() — se Chrome não está aberto, não tem o que focar.
+    // ensureBrowser() aqui causava Chrome abrindo aleatoriamente sempre que o renderer
+    // recebia um evento de skill PJe (requestBrowserAutoExpand).
     try {
-        await ensureBrowser();
         const page = getActivePage();
         if (page) {
             try {
@@ -2724,20 +2795,89 @@ ipcMain.handle('brain-get-stats', async () => {
     return brain.getStats();
 });
 
+ipcMain.handle('brain-dashboard', async (_event, opts?: { windowDays?: number; topFlowsLimit?: number }) => {
+    const brain = getBrainSafe();
+    if (!brain) return null;
+    const { getDashboardOverview } = await import('./brain/dashboard');
+    return getDashboardOverview(brain, {
+        windowDays: opts?.windowDays ?? 7,
+        topFlowsLimit: opts?.topFlowsLimit ?? 10,
+    });
+});
+
+ipcMain.handle('brain-trace', async (_event, traceId: string) => {
+    const brain = getBrainSafe();
+    if (!brain) return null;
+    const { getTrace } = await import('./brain/trace-query');
+    return getTrace(brain, traceId);
+});
+
+ipcMain.handle('brain-detect-flows', async () => {
+    const brain = getBrainSafe();
+    if (!brain) return { error: 'brain não inicializado' };
+    const { detectFlows } = await import('./brain/flow-detector');
+    return detectFlows(brain);
+});
+
+ipcMain.handle('brain-get-preference', async (_event, key: string, fallback?: any) => {
+    const brain = getBrainSafe();
+    if (!brain) return fallback;
+    return brain.getPreference(key, fallback);
+});
+
+ipcMain.handle('brain-set-preference', async (_event, key: string, value: any) => {
+    const brain = getBrainSafe();
+    if (!brain) return { ok: false, error: 'brain não inicializado' };
+    brain.setPreference(key, value);
+    return { ok: true };
+});
+
+ipcMain.handle('brain-export-patterns', async () => {
+    try {
+        const { exportBrain } = await import('./brain/brain-export');
+        const brain = getBrain();
+        return await exportBrain(brain, { mode: 'patterns' });
+    } catch (err: any) {
+        return { error: err?.message || String(err) };
+    }
+});
+
 ipcMain.handle('brain-get-node', async (_event, nodeId: string) => {
     const brain = getBrainSafe();
     if (!brain) return null;
     return brain.getNode(nodeId);
 });
 
-ipcMain.handle('brain-run-dream', async () => {
+ipcMain.handle('brain-run-dream', async (_event, opts?: any) => {
     try {
         const { runDream } = await import('./brain/dream');
         const brain = getBrain();
-        return await runDream(brain);
+        return await runDream(brain, opts || {});
     } catch (err: any) {
         console.error('[Brain] Dream falhou:', err);
         return { error: err.message };
+    }
+});
+
+ipcMain.handle('brain-dream-history', async () => {
+    try {
+        const { getDreamHistory } = await import('./brain/dream');
+        const brain = getBrain();
+        return getDreamHistory(brain);
+    } catch (err: any) {
+        console.error('[Brain] Dream history falhou:', err);
+        return [];
+    }
+});
+
+ipcMain.handle('brain-restore-dream-snapshot', async (_event, snapshotPath: string) => {
+    try {
+        const { restoreDreamSnapshot } = await import('./brain/dream');
+        const brain = getBrain();
+        return restoreDreamSnapshot(brain, snapshotPath);
+    } catch (err: any) {
+        console.error('[Brain] Dream restore falhou:', err);
+        return { ok: false, snapshotPath, restoredAt: new Date().toISOString(), nodesRestored: 0, edgesRestored: 0, error: err.message };
     }
 });
 

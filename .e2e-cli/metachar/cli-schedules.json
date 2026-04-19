@@ -1,0 +1,13 @@
+{
+  "schedules": [
+    {
+      "id": "a8152353",
+      "goal": "cliente C&A 100% urgente",
+      "cron": "0 8 * * *",
+      "name": "cliente C&A 100% urgente",
+      "createdAt": 1776110730900,
+      "enabled": true,
+      "osTaskName": "LEX_a8152353"
+    }
+  ]
+}

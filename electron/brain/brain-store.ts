@@ -16,8 +16,10 @@ import type {
 
 export class BrainStore {
     readonly db: Database.Database;
+    readonly dbPath: string;
 
     constructor(dbPath: string) {
+        this.dbPath = dbPath;
         this.db = new Database(dbPath);
         applySchema(this.db);
         runMigrations(this.db);

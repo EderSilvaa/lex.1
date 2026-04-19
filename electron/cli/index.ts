@@ -15,6 +15,7 @@ import { parseArgs, parseLexUrl, HELP_TEXT } from './args';
 import { resolveUserDataDir } from './user-data';
 import { runOneShot } from './one-shot';
 import { runRepl } from './repl';
+import { runReplSimple } from './repl-simple';
 import { runConfigCommand, bootstrapConfig, checkProviderReady } from './config';
 import { renderError } from './output';
 import * as fs from 'fs';
@@ -104,6 +105,10 @@ async function main(): Promise<number> {
             return 1;
         }
         return runOneShot({ objetivo: args.objetivo, userDataDir });
+    }
+
+    if (args.simple) {
+        return runReplSimple({ userDataDir, inElectron: true });
     }
 
     return runRepl({ userDataDir, inElectron: args.inElectron });

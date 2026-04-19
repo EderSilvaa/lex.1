@@ -64,6 +64,12 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     saveConversation: (conv) => electron_1.ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id) => electron_1.ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId, messages) => electron_1.ipcRenderer.invoke('session-seed', sessionId, messages),
+    onConversationsUpdated: (cb) => {
+        electron_1.ipcRenderer.on('conversations-updated', (_, summary) => cb(summary));
+    },
+    offConversationsUpdated: () => {
+        electron_1.ipcRenderer.removeAllListeners('conversations-updated');
+    },
     // Analytics
     getAnalyticsSummary: () => electron_1.ipcRenderer.invoke('analytics-summary'),
     trackMessage: () => electron_1.ipcRenderer.invoke('analytics-track-message'),
@@ -71,7 +77,7 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     ragIndexWorkspace: () => electron_1.ipcRenderer.invoke('rag-index-workspace'),
     ragStats: () => electron_1.ipcRenderer.invoke('rag-stats'),
     // RAG — Legislação (baixa códigos do Planalto e indexa)
-    ragDownloadLegislacao: (forcar) => electron_1.ipcRenderer.invoke('rag-download-legislacao', forcar !== null && forcar !== void 0 ? forcar : false),
+    ragDownloadLegislacao: (forcar) => electron_1.ipcRenderer.invoke('rag-download-legislacao', forcar ?? false),
     ragLegislacaoStats: () => electron_1.ipcRenderer.invoke('rag-legislacao-stats'),
     onRagLegislacaoProgress: (cb) => electron_1.ipcRenderer.on('rag-legislacao-progress', (_, msg) => cb(msg)),
     offRagLegislacaoProgress: () => electron_1.ipcRenderer.removeAllListeners('rag-legislacao-progress'),
@@ -166,10 +172,19 @@ electron_1.contextBridge.exposeInMainWorld('brainApi', {
     search: (query, types, limit) => electron_1.ipcRenderer.invoke('brain-search', { query, types, limit }),
     getStats: () => electron_1.ipcRenderer.invoke('brain-get-stats'),
     getNode: (nodeId) => electron_1.ipcRenderer.invoke('brain-get-node', nodeId),
-    runDream: () => electron_1.ipcRenderer.invoke('brain-run-dream'),
+    runDream: (opts) => electron_1.ipcRenderer.invoke('brain-run-dream', opts),
+    getDreamHistory: () => electron_1.ipcRenderer.invoke('brain-dream-history'),
+    restoreDreamSnapshot: (snapshotPath) => electron_1.ipcRenderer.invoke('brain-restore-dream-snapshot', snapshotPath),
     exportBrain: () => electron_1.ipcRenderer.invoke('brain-export'),
+    exportPatterns: () => electron_1.ipcRenderer.invoke('brain-export-patterns'),
     importBrain: (zipPath) => electron_1.ipcRenderer.invoke('brain-import', zipPath),
     renderMarkdown: () => electron_1.ipcRenderer.invoke('brain-render-markdown'),
+    // Observer dashboard & aprendizado
+    getDashboard: (opts) => electron_1.ipcRenderer.invoke('brain-dashboard', opts),
+    getTrace: (traceId) => electron_1.ipcRenderer.invoke('brain-trace', traceId),
+    detectFlows: () => electron_1.ipcRenderer.invoke('brain-detect-flows'),
+    getPreference: (key, fallback) => electron_1.ipcRenderer.invoke('brain-get-preference', key, fallback),
+    setPreference: (key, value) => electron_1.ipcRenderer.invoke('brain-set-preference', key, value),
 });
 electron_1.contextBridge.exposeInMainWorld('datajudApi', {
     // Profile
@@ -247,8 +262,9 @@ electron_1.contextBridge.exposeInMainWorld('docKnowledgeApi', {
     offImportProgress: () => electron_1.ipcRenderer.removeAllListeners('doc-kb-import-progress'),
 });
 electron_1.contextBridge.exposeInMainWorld('terminalApi', {
-    create: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create', Object.assign({ sessionId }, opts)),
-    write: (sessionId, data) => electron_1.ipcRenderer.invoke('terminal-write', { sessionId, data }),
+    create: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
+    createLex: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
+    write: (sessionId, data, opts) => electron_1.ipcRenderer.invoke('terminal-write', { sessionId, data, ...opts }),
     resize: (sessionId, cols, rows) => electron_1.ipcRenderer.invoke('terminal-resize', { sessionId, cols, rows }),
     kill: (sessionId) => electron_1.ipcRenderer.invoke('terminal-kill', sessionId),
     listSessions: () => electron_1.ipcRenderer.invoke('terminal-list-sessions'),
@@ -263,5 +279,9 @@ electron_1.contextBridge.exposeInMainWorld('updaterApi', {
     onUpdateAvailable: (cb) => electron_1.ipcRenderer.on('update-available', () => cb()),
     onUpdateDownloaded: (cb) => electron_1.ipcRenderer.on('update-downloaded', () => cb()),
     installNow: () => electron_1.ipcRenderer.invoke('update-install-now'),
+});
+electron_1.contextBridge.exposeInMainWorld('appNav', {
+    onNavigateTo: (cb) => electron_1.ipcRenderer.on('navigate-to', (_, viewId) => cb(viewId)),
+    onUiPayload: (cb) => electron_1.ipcRenderer.on('ui-payload', (_, payload) => cb(payload)),
 });
 //# sourceMappingURL=preload.js.map

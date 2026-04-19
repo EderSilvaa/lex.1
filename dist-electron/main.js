@@ -32,26 +32,6 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __rest = (this && this.__rest) || function (s, e) {
-    var t = {};
-    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
-        t[p] = s[p];
-    if (s != null && typeof Object.getOwnPropertySymbols === "function")
-        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
-            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
-                t[p[i]] = s[p[i]];
-        }
-    return t;
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
@@ -195,10 +175,9 @@ function sanitizeFileName(fileName) {
         .slice(0, 120);
 }
 function normalizeStepString(value) {
-    return String(value !== null && value !== void 0 ? value : '').trim().slice(0, MAX_STEP_STRING_LENGTH);
+    return String(value ?? '').trim().slice(0, MAX_STEP_STRING_LENGTH);
 }
 function sanitizeExecutionPlan(plan) {
-    var _a;
     if (!plan || typeof plan !== 'object' || !Array.isArray(plan.steps)) {
         return { ok: false, error: 'Plano inválido: steps ausente' };
     }
@@ -208,8 +187,8 @@ function sanitizeExecutionPlan(plan) {
     const sanitizedSteps = [];
     for (let i = 0; i < plan.steps.length; i++) {
         const rawStep = plan.steps[i];
-        const stepType = normalizeStepString(rawStep === null || rawStep === void 0 ? void 0 : rawStep.type);
-        const order = Number.isFinite(rawStep === null || rawStep === void 0 ? void 0 : rawStep.order) ? Number(rawStep.order) : i + 1;
+        const stepType = normalizeStepString(rawStep?.type);
+        const order = Number.isFinite(rawStep?.order) ? Number(rawStep.order) : i + 1;
         if (!stepType) {
             return { ok: false, error: `Plano inválido: passo ${i + 1} sem tipo` };
         }
@@ -240,8 +219,8 @@ function sanitizeExecutionPlan(plan) {
             const selectors = [];
             for (let idx = 0; idx < Math.min(selectorsToUse.length, MAX_READ_SELECTORS); idx++) {
                 const item = selectorsToUse[idx];
-                const key = normalizeStepString((item === null || item === void 0 ? void 0 : item.key) || `field_${idx + 1}`);
-                const selector = normalizeStepString(item === null || item === void 0 ? void 0 : item.selector);
+                const key = normalizeStepString(item?.key || `field_${idx + 1}`);
+                const selector = normalizeStepString(item?.selector);
                 if (selector) {
                     selectors.push({ key, selector });
                 }
@@ -256,7 +235,7 @@ function sanitizeExecutionPlan(plan) {
         }
         if (stepType === 'saveFile') {
             const fileName = sanitizeFileName(normalizeStepString(rawStep.fileName));
-            const content = String((_a = rawStep.content) !== null && _a !== void 0 ? _a : '');
+            const content = String(rawStep.content ?? '');
             if (!fileName)
                 return { ok: false, error: `Plano inválido: saveFile sem fileName (passo ${order})` };
             if (!content || content.length > MAX_SAVEFILE_CONTENT_LENGTH) {
@@ -396,12 +375,11 @@ OBS: Se o usuário pedir para pesquisar algo (ex: "busque decisões sobre X"), a
     return instrucoes[tipo] || instrucoes['conversa_geral'] || '';
 }
 function criarPromptJuridico(contexto, pergunta) {
-    var _a;
     const tipoConversa = detectarTipoConversa(pergunta);
     // Usa o prompt-layer para personalidade e comportamento (mesmo sistema do agent loop)
     let systemPrompt;
     try {
-        const tenantConfig = (_a = agentModule === null || agentModule === void 0 ? void 0 : agentModule.getDefaultTenantConfig) === null || _a === void 0 ? void 0 : _a.call(agentModule);
+        const tenantConfig = agentModule?.getDefaultTenantConfig?.();
         if (tenantConfig) {
             const { buildPromptLayerSystem } = require('./agent/prompt-layer');
             systemPrompt = buildPromptLayerSystem(tenantConfig);
@@ -410,7 +388,7 @@ function criarPromptJuridico(contexto, pergunta) {
             systemPrompt = obterPromptBase(tipoConversa);
         }
     }
-    catch (_b) {
+    catch {
         systemPrompt = obterPromptBase(tipoConversa);
     }
     // Contexto do processo (se houver)
@@ -424,42 +402,38 @@ function criarPromptJuridico(contexto, pergunta) {
 /**
  * Sincroniza o provider ativo no runtime (ai-handler + env vars).
  */
-function syncProvider(providerId, apiKey, agentModel, visionModel) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const preset = provider_config_1.PROVIDER_PRESETS[providerId];
-        const resolvedAgent = agentModel || preset.defaultAgentModel;
-        const resolvedVision = visionModel || preset.defaultVisionModel;
-        const config = {
-            providerId,
-            apiKey,
-            agentModel: resolvedAgent,
-            visionModel: resolvedVision,
-        };
-        const { initAI } = yield Promise.resolve().then(() => __importStar(require('./ai-handler')));
-        initAI(config);
-        // Sincroniza config com o backend (se conectado)
-        (0, backend_client_1.syncConfigToBackend)(config);
-    });
+async function syncProvider(providerId, apiKey, agentModel, visionModel) {
+    const preset = provider_config_1.PROVIDER_PRESETS[providerId];
+    const resolvedAgent = agentModel || preset.defaultAgentModel;
+    const resolvedVision = visionModel || preset.defaultVisionModel;
+    const config = {
+        providerId,
+        apiKey,
+        agentModel: resolvedAgent,
+        visionModel: resolvedVision,
+    };
+    const { initAI } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
+    initAI(config);
+    // Sincroniza config com o backend (se conectado)
+    (0, backend_client_1.syncConfigToBackend)(config);
 }
 /**
  * Reaplica estado do browser após alteração de provider/chave.
  * Se backend está vivo, reinit ocorre no processo backend (fonte da verdade do browser).
  * Fallback local mantém compatibilidade quando backend não está disponível.
  */
-function refreshBrowserRuntime(reason) {
-    return __awaiter(this, void 0, void 0, function* () {
-        if ((0, backend_client_1.isBackendAlive)()) {
-            try {
-                yield (0, backend_client_1.rpcCall)('browser-reinit');
-                console.log(`[Browser] Reinit no backend concluído (${reason})`);
-                return;
-            }
-            catch (err) {
-                console.warn(`[Browser] Falha ao reinit no backend (${reason}), usando fallback local:`, (err === null || err === void 0 ? void 0 : err.message) || err);
-            }
+async function refreshBrowserRuntime(reason) {
+    if ((0, backend_client_1.isBackendAlive)()) {
+        try {
+            await (0, backend_client_1.rpcCall)('browser-reinit');
+            console.log(`[Browser] Reinit no backend concluído (${reason})`);
+            return;
         }
-        (0, browser_manager_1.reInitBrowser)().catch(e => console.error(`[Browser] Erro ao re-inicializar localmente (${reason}):`, e));
-    });
+        catch (err) {
+            console.warn(`[Browser] Falha ao reinit no backend (${reason}), usando fallback local:`, err?.message || err);
+        }
+    }
+    (0, browser_manager_1.reInitBrowser)().catch(e => console.error(`[Browser] Erro ao re-inicializar localmente (${reason}):`, e));
 }
 /**
  * Carrega chave do store para um provider.
@@ -493,75 +467,127 @@ function saveApiKey(providerId, key) {
     apiKeys[providerId] = key ? (0, crypto_store_1.encryptApiKey)(key) : '';
     store.set('apiKeys', apiKeys);
 }
-function initStore() {
-    return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b, _c;
-        // @ts-ignore
-        const { default: Store } = yield Promise.resolve().then(() => __importStar(require('electron-store')));
-        store = new Store();
-        // ── Migração legada: anthropicKey → apiKeys.anthropic ──
-        const legacyRaw = String(store.get('anthropicKey', '') || '').trim();
-        if (legacyRaw) {
-            const legacyKey = (0, crypto_store_1.safeDecrypt)(legacyRaw);
-            if (legacyKey) {
-                saveApiKey('anthropic', legacyKey);
-                store.delete('anthropicKey');
-            }
-        }
-        // ── Carrega config do provider ──
-        const savedProvider = store.get('aiProvider', null);
-        const providerId = (_a = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.providerId) !== null && _a !== void 0 ? _a : 'anthropic';
-        const apiKey = loadApiKey(providerId);
-        const preset = provider_config_1.PROVIDER_PRESETS[providerId];
-        // Migra modelos removidos/legacy para defaults atuais
-        const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
-        const REMOVED_OPENROUTER_MODELS = [
-            'mistralai/mistral-small-3.1-24b-instruct:free',
-            'meta-llama/llama-4-maverick:free',
-            'microsoft/phi-4-multimodal-instruct:free',
-            'google/gemma-4-27b-it:free',
-            'deepseek/deepseek-v3-0324:free',
-            'deepseek/deepseek-r1-0528:free',
-        ];
-        const savedVision = (_b = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.visionModel) !== null && _b !== void 0 ? _b : preset.defaultVisionModel;
-        const savedAgent = (_c = savedProvider === null || savedProvider === void 0 ? void 0 : savedProvider.agentModel) !== null && _c !== void 0 ? _c : preset.defaultAgentModel;
-        const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
-            ? preset.defaultVisionModel
-            : REMOVED_OPENROUTER_MODELS.includes(savedVision)
-                ? preset.defaultVisionModel
-                : savedVision;
-        const agentModel = REMOVED_OPENROUTER_MODELS.includes(savedAgent)
-            ? preset.defaultAgentModel
-            : savedAgent;
-        if (visionModel !== savedVision || agentModel !== savedAgent) {
-            console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
-        }
-        yield syncProvider(providerId, apiKey, agentModel, visionModel);
+function normalizeConversationContent(content) {
+    if (typeof content === 'string')
+        return content.trim();
+    if (content == null)
+        return '';
+    try {
+        return JSON.stringify(content);
+    }
+    catch {
+        return String(content);
+    }
+}
+function makeConversationTitle(content) {
+    return content.replace(/\s+/g, ' ').slice(0, 50) || 'Nova conversa';
+}
+function persistTerminalConversationMessage(payload) {
+    if (!store || payload?.source !== 'terminal')
+        return;
+    const id = String(payload.conversationId || payload.sessionId || '').trim();
+    const role = payload.role === 'assistant' ? 'assistant' : payload.role === 'user' ? 'user' : null;
+    const content = normalizeConversationContent(payload.content);
+    if (!id || !role || !content)
+        return;
+    const timestamp = Number(payload.timestamp) || Date.now();
+    const convs = store.get('conversations', {}) || {};
+    const existing = convs[id] || {};
+    const messages = Array.isArray(existing.messages) ? existing.messages : [];
+    const isNew = !convs[id];
+    convs[id] = {
+        id,
+        title: existing.title || (role === 'user' ? makeConversationTitle(content) : 'Nova conversa'),
+        createdAt: existing.createdAt || timestamp,
+        updatedAt: timestamp,
+        source: 'terminal',
+        messages: [
+            ...messages,
+            {
+                role,
+                content,
+                timestamp,
+                source: 'terminal',
+                runId: typeof payload.runId === 'string' ? payload.runId : undefined,
+            },
+        ],
+    };
+    store.set('conversations', convs);
+    if (isNew)
+        (0, analytics_1.getAnalytics)().trackConversation();
+    mainWindow?.webContents.send('conversations-updated', {
+        id,
+        title: convs[id].title,
+        updatedAt: convs[id].updatedAt,
+        messageCount: convs[id].messages.length,
     });
+}
+async function initStore() {
+    // @ts-ignore
+    const { default: Store } = await Promise.resolve().then(() => __importStar(require('electron-store')));
+    store = new Store();
+    // ── Migração legada: anthropicKey → apiKeys.anthropic ──
+    const legacyRaw = String(store.get('anthropicKey', '') || '').trim();
+    if (legacyRaw) {
+        const legacyKey = (0, crypto_store_1.safeDecrypt)(legacyRaw);
+        if (legacyKey) {
+            saveApiKey('anthropic', legacyKey);
+            store.delete('anthropicKey');
+        }
+    }
+    // ── Carrega config do provider ──
+    const savedProvider = store.get('aiProvider', null);
+    const providerId = savedProvider?.providerId ?? 'anthropic';
+    const apiKey = loadApiKey(providerId);
+    const preset = provider_config_1.PROVIDER_PRESETS[providerId];
+    // Migra modelos removidos/legacy para defaults atuais
+    const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
+    const REMOVED_OPENROUTER_MODELS = [
+        'mistralai/mistral-small-3.1-24b-instruct:free',
+        'meta-llama/llama-4-maverick:free',
+        'microsoft/phi-4-multimodal-instruct:free',
+        'google/gemma-4-27b-it:free',
+        'deepseek/deepseek-v3-0324:free',
+        'deepseek/deepseek-r1-0528:free',
+    ];
+    const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
+    const savedAgent = savedProvider?.agentModel ?? preset.defaultAgentModel;
+    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
+        ? preset.defaultVisionModel
+        : REMOVED_OPENROUTER_MODELS.includes(savedVision)
+            ? preset.defaultVisionModel
+            : savedVision;
+    const agentModel = REMOVED_OPENROUTER_MODELS.includes(savedAgent)
+        ? preset.defaultAgentModel
+        : savedAgent;
+    if (visionModel !== savedVision || agentModel !== savedAgent) {
+        console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
+    }
+    await syncProvider(providerId, apiKey, agentModel, visionModel);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // IPC — Configuração de Provider/API Keys
 // ─────────────────────────────────────────────────────────────────────────────
 /** Define provider ativo + modelos. Re-inicia browser no backend quando disponível. */
-electron_1.ipcMain.handle('store-set-provider', (_event, cfg) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('store-set-provider', async (_event, cfg) => {
     if (!store)
         return { error: 'Store not initialized' };
     store.set('aiProvider', cfg);
     const apiKey = loadApiKey(cfg.providerId);
     console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0, 8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
-    yield syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
-    yield refreshBrowserRuntime('troca de provider');
+    await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
+    await refreshBrowserRuntime('troca de provider');
     return { success: true };
-}));
+});
 /** Retorna provider ativo + status da chave. A apiKey nunca é enviada ao renderer. */
-electron_1.ipcMain.handle('store-get-provider', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('store-get-provider', async () => {
     const cfg = (0, provider_config_1.getActiveConfig)();
     const hasKey = cfg.apiKey.length > 0;
-    const { apiKey: _omit } = cfg, safe = __rest(cfg, ["apiKey"]);
-    return Object.assign(Object.assign({}, safe), { hasKey });
-}));
+    const { apiKey: _omit, ...safe } = cfg;
+    return { ...safe, hasKey };
+});
 /** Salva chave API para um provider. */
-electron_1.ipcMain.handle('store-set-api-key', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { providerId, key }) {
+electron_1.ipcMain.handle('store-set-api-key', async (_event, { providerId, key }) => {
     if (!store)
         return { error: 'Store not initialized' };
     // Remove zero-width chars, BOM, e qualquer non-ASCII que colar junto
@@ -570,19 +596,19 @@ electron_1.ipcMain.handle('store-set-api-key', (_event_1, _a) => __awaiter(void 
     // Se é o provider ativo, re-sincroniza imediatamente
     const current = (0, provider_config_1.getActiveConfig)();
     if (current.providerId === providerId) {
-        yield syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        yield refreshBrowserRuntime('nova chave API');
+        await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
+        await refreshBrowserRuntime('nova chave API');
     }
     return { success: true, configured: normalizedKey.length > 0 };
-}));
+});
 /** Retorna status da chave para um provider. */
-electron_1.ipcMain.handle('store-get-api-key-status', (_event, providerId) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('store-get-api-key-status', async (_event, providerId) => {
     const key = loadApiKey(providerId);
     return {
         configured: key.length > 0,
         preview: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : '',
     };
-}));
+});
 /** Retorna catálogo de providers/modelos para a UI de configurações. */
 electron_1.ipcMain.handle('store-get-provider-presets', () => {
     return provider_config_1.PROVIDER_PRESETS;
@@ -614,7 +640,7 @@ electron_1.ipcMain.handle('privacy-get-effective-level', (_event, providerId) =>
     return (0, privacy_1.getEffectiveLevel)(providerId);
 });
 electron_1.ipcMain.handle('privacy-get-audit-summary', (_event, days) => {
-    return (0, privacy_1.getAuditSummary)(days !== null && days !== void 0 ? days : 7);
+    return (0, privacy_1.getAuditSummary)(days ?? 7);
 });
 // ── Training (PJe-Model dataset) ──────────────────────────────────────────
 electron_1.ipcMain.handle('training-stats', () => {
@@ -622,50 +648,50 @@ electron_1.ipcMain.handle('training-stats', () => {
         const { getStats } = require('./agent/training-collector');
         return getStats();
     }
-    catch (_a) {
+    catch {
         return { total: 0, today: 0, bySistema: {}, byTribunal: {}, bySkill: {}, oldestDate: '', newestDate: '' };
     }
 });
-electron_1.ipcMain.handle('training-export', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('training-export', async (_event, options) => {
     try {
         const userData = electron_1.app.getPath('userData');
         const trainingDir = require('path').join(userData, 'training');
         const { exportForFineTune } = require('./agent/training-exporter');
-        return yield exportForFineTune(trainingDir, options !== null && options !== void 0 ? options : {});
+        return await exportForFineTune(trainingDir, options ?? {});
     }
     catch (err) {
         return { success: false, outputPath: '', stats: {}, error: err.message };
     }
-}));
+});
 // ── Ollama (Modelo Local) ──────────────────────────────────────────────────
-electron_1.ipcMain.handle('ollama-status', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('ollama-status', async () => {
     try {
-        return yield (0, ollama_manager_1.getOllamaStatus)();
+        return await (0, ollama_manager_1.getOllamaStatus)();
     }
     catch (e) {
         console.error('[IPC] ollama-status error:', e.message);
         return { running: false, models: [], error: e.message };
     }
-}));
-electron_1.ipcMain.handle('ollama-list-models', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('ollama-list-models', async () => {
     try {
-        return yield (0, ollama_manager_1.listModels)();
+        return await (0, ollama_manager_1.listModels)();
     }
     catch (e) {
         console.error('[IPC] ollama-list-models error:', e.message);
         return [];
     }
-}));
-electron_1.ipcMain.handle('ollama-recommended', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('ollama-recommended', async () => {
     try {
-        return yield (0, ollama_manager_1.getRecommendedModelsWithStatus)();
+        return await (0, ollama_manager_1.getRecommendedModelsWithStatus)();
     }
     catch (e) {
         console.error('[IPC] ollama-recommended error:', e.message);
         return [];
     }
-}));
-electron_1.ipcMain.handle('ollama-pull', (_event, modelName) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('ollama-pull', async (_event, modelName) => {
     // Forward de progresso para o renderer
     const onProgress = (data) => {
         if (mainWindow)
@@ -689,22 +715,22 @@ electron_1.ipcMain.handle('ollama-pull', (_event, modelName) => __awaiter(void 0
     ollama_manager_1.ollamaEmitter.on('pull-complete', onComplete);
     ollama_manager_1.ollamaEmitter.on('pull-error', onError);
     return (0, ollama_manager_1.pullModel)(modelName);
-}));
-electron_1.ipcMain.handle('ollama-delete', (_event, modelName) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('ollama-delete', async (_event, modelName) => {
     return (0, ollama_manager_1.deleteModel)(modelName);
-}));
+});
 electron_1.ipcMain.handle('ollama-get-recommended-list', () => {
     return ollama_manager_1.RECOMMENDED_MODELS;
 });
-electron_1.ipcMain.handle('ollama-is-running', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('ollama-is-running', async () => {
     try {
-        return yield (0, ollama_manager_1.isOllamaRunning)();
+        return await (0, ollama_manager_1.isOllamaRunning)();
     }
-    catch (_a) {
+    catch {
         return false;
     }
-}));
-electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('ollama-download-installer', async () => {
     const url = process.platform === 'darwin'
         ? 'https://ollama.com/download/Ollama-darwin.zip'
         : 'https://ollama.com/download/OllamaSetup.exe';
@@ -714,7 +740,7 @@ electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, v
         // Notifica progresso
         if (mainWindow)
             mainWindow.webContents.send('ollama-install-progress', { status: 'downloading', percent: 0 });
-        const res = yield fetch(url);
+        const res = await fetch(url);
         if (!res.ok || !res.body)
             throw new Error(`HTTP ${res.status}`);
         const total = Number(res.headers.get('content-length') || 0);
@@ -722,7 +748,7 @@ electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, v
         const chunks = [];
         const reader = res.body.getReader();
         while (true) {
-            const { done, value } = yield reader.read();
+            const { done, value } = await reader.read();
             if (done)
                 break;
             chunks.push(Buffer.from(value));
@@ -738,7 +764,7 @@ electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, v
         if (mainWindow)
             mainWindow.webContents.send('ollama-install-progress', { status: 'opening', percent: 100 });
         // Abre o installer para o usuário
-        yield electron_1.shell.openPath(destPath);
+        await electron_1.shell.openPath(destPath);
         return { success: true, path: destPath };
     }
     catch (e) {
@@ -747,29 +773,28 @@ electron_1.ipcMain.handle('ollama-download-installer', () => __awaiter(void 0, v
             mainWindow.webContents.send('ollama-install-progress', { status: 'error', error: e.message });
         return { success: false, error: e.message };
     }
-}));
+});
 // ── Aliases legados (retrocompat com código antigo) ──
-electron_1.ipcMain.handle('store-set-anthropic-key', (_event, key) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('store-set-anthropic-key', async (_event, key) => {
     if (!store)
         return { error: 'Store not initialized' };
     const normalizedKey = String(key || '').trim();
     saveApiKey('anthropic', normalizedKey);
     const current = (0, provider_config_1.getActiveConfig)();
     if (current.providerId === 'anthropic') {
-        yield syncProvider('anthropic', normalizedKey, current.agentModel, current.visionModel);
+        await syncProvider('anthropic', normalizedKey, current.agentModel, current.visionModel);
     }
     return { success: true, configured: normalizedKey.length > 0 };
-}));
-electron_1.ipcMain.handle('store-get-anthropic-key-status', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('store-get-anthropic-key-status', async () => {
     const key = loadApiKey('anthropic');
     return {
         configured: key.length > 0,
         preview: key ? `${key.slice(0, 7)}...${key.slice(-4)}` : '',
     };
-}));
+});
 // AI Chat Handler
-electron_1.ipcMain.handle('ai-chat-send', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { message, context }) {
-    var _b;
+electron_1.ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
     if (!store)
         return { error: 'Store not initialized' };
     try {
@@ -777,8 +802,8 @@ electron_1.ipcMain.handle('ai-chat-send', (_event_1, _a) => __awaiter(void 0, [_
         const messageStr = message || '';
         const systemPrompt = criarPromptJuridico(context || {}, messageStr);
         console.log('🤖 System Prompt Type:', detectarTipoConversa(messageStr));
-        const { callAI } = yield Promise.resolve().then(() => __importStar(require('./ai-handler')));
-        const fullText = yield callAI({
+        const { callAI } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
+        const fullText = await callAI({
             system: systemPrompt,
             user: messageStr
         });
@@ -825,9 +850,14 @@ electron_1.ipcMain.handle('ai-chat-send', (_event_1, _a) => __awaiter(void 0, [_
                     throw e; // goes to outer catch
                 }
                 // Normalizing Response
-                aiPlan = Object.assign(Object.assign({}, parsed), { intent: Object.assign(Object.assign({}, (parsed.intent || {})), { 
+                aiPlan = {
+                    ...parsed,
+                    intent: {
+                        ...(parsed.intent || {}),
                         // Use specific 'response' field if available, otherwise description, otherwise raw text
-                        description: parsed.response || ((_b = parsed.intent) === null || _b === void 0 ? void 0 : _b.description) || fullText }) });
+                        description: parsed.response || parsed.intent?.description || fullText
+                    }
+                };
                 // If the AI just gave a 'response' text but no intent, assume informative
                 if (!aiPlan.intent.type) {
                     aiPlan.intent.type = 'informative';
@@ -848,7 +878,7 @@ electron_1.ipcMain.handle('ai-chat-send', (_event_1, _a) => __awaiter(void 0, [_
         console.error('AI Connection Failed:', error);
         return { error: error.message };
     }
-}));
+});
 function createTray() {
     tray = new electron_1.Tray(getAppIcon());
     tray.setToolTip('LEX — Assistente Jurídico (24/7)');
@@ -935,11 +965,19 @@ function createWindow() {
     }
     // Setup Agent event forwarding to renderer (async, no need to wait)
     setupAgentEventForwarding().catch(err => console.error('[Agent] Failed to setup events:', err));
+    // Deep-link: --view=<tab> abre direto na aba correta (ex: --view=brain)
+    const viewArg = process.argv.find(a => a.startsWith('--view='));
+    if (viewArg) {
+        const viewId = viewArg.split('=')[1];
+        mainWindow.webContents.once('did-finish-load', () => {
+            mainWindow?.webContents.send('navigate-to', viewId);
+        });
+    }
     // Modo 24/7: minimiza para bandeja em vez de fechar
     mainWindow.on('close', (event) => {
         if (trayModeActive) {
             event.preventDefault();
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.hide();
+            mainWindow?.hide();
         }
     });
     mainWindow.on('closed', () => {
@@ -948,10 +986,10 @@ function createWindow() {
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
 // File System Handlers
-electron_1.ipcMain.handle('files-select-folder', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('files-select-folder', async () => {
     if (!mainWindow)
         return null;
-    const result = yield electron_1.dialog.showOpenDialog(mainWindow, {
+    const result = await electron_1.dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory']
     });
     if (result.canceled)
@@ -962,14 +1000,14 @@ electron_1.ipcMain.handle('files-select-folder', () => __awaiter(void 0, void 0,
     const selectedPath = normalizeFsPath(firstPath);
     approvedWorkspaceSelections.add(selectedPath);
     return selectedPath;
-}));
-electron_1.ipcMain.handle('files-list', (_event, folderPath) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('files-list', async (_event, folderPath) => {
     try {
         const normalizedFolderPath = normalizeFsPath(folderPath);
         if (!isWorkspacePathAllowed(normalizedFolderPath)) {
             return [];
         }
-        const items = yield fs.promises.readdir(normalizedFolderPath, { withFileTypes: true });
+        const items = await fs.promises.readdir(normalizedFolderPath, { withFileTypes: true });
         // Filter and map
         const files = items
             .filter(item => !item.name.startsWith('.')) // Ignore hidden
@@ -990,10 +1028,9 @@ electron_1.ipcMain.handle('files-list', (_event, folderPath) => __awaiter(void 0
         console.error('Error listing files:', e);
         return [];
     }
-}));
+});
 // Lê arquivo e extrai texto (.txt, .docx, .pdf)
-electron_1.ipcMain.handle('files-read', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+electron_1.ipcMain.handle('files-read', async (_event, filePath) => {
     try {
         const normalizedFilePath = normalizeFsPath(filePath);
         if (!isPathApprovedForRead(normalizedFilePath)) {
@@ -1001,31 +1038,31 @@ electron_1.ipcMain.handle('files-read', (_event, filePath) => __awaiter(void 0, 
         }
         const ext = path.extname(normalizedFilePath).toLowerCase();
         if (ext === '.docx') {
-            const mammoth = yield Promise.resolve().then(() => __importStar(require('mammoth')));
-            const result = yield mammoth.extractRawText({ path: normalizedFilePath });
+            const mammoth = await Promise.resolve().then(() => __importStar(require('mammoth')));
+            const result = await mammoth.extractRawText({ path: normalizedFilePath });
             return { success: true, text: result.value, type: 'docx' };
         }
         if (ext === '.pdf') {
-            const pdfParseModule = yield Promise.resolve().then(() => __importStar(require('pdf-parse')));
-            const buffer = yield fs.promises.readFile(normalizedFilePath);
-            const pdfParseFn = (_a = pdfParseModule === null || pdfParseModule === void 0 ? void 0 : pdfParseModule.default) !== null && _a !== void 0 ? _a : pdfParseModule;
+            const pdfParseModule = await Promise.resolve().then(() => __importStar(require('pdf-parse')));
+            const buffer = await fs.promises.readFile(normalizedFilePath);
+            const pdfParseFn = pdfParseModule?.default ?? pdfParseModule;
             if (typeof pdfParseFn !== 'function') {
                 throw new Error('PDF parser unavailable');
             }
-            const data = yield pdfParseFn(buffer);
+            const data = await pdfParseFn(buffer);
             return { success: true, text: data.text, type: 'pdf' };
         }
         // .txt e outros arquivos de texto
-        const text = yield fs.promises.readFile(normalizedFilePath, 'utf8');
+        const text = await fs.promises.readFile(normalizedFilePath, 'utf8');
         return { success: true, text, type: 'text' };
     }
     catch (e) {
         console.error('[Files] Erro ao ler arquivo:', e);
         return { success: false, error: e.message };
     }
-}));
+});
 // Retorna file:// URL para preview de arquivos (PDF, imagens)
-electron_1.ipcMain.handle('files-get-url', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('files-get-url', async (_event, filePath) => {
     const normalizedFilePath = normalizeFsPath(filePath);
     if (!isPathApprovedForRead(normalizedFilePath)) {
         return null;
@@ -1033,13 +1070,13 @@ electron_1.ipcMain.handle('files-get-url', (_event, filePath) => __awaiter(void 
     // Converte caminho Windows para file:// URL
     const fileUrl = `file:///${normalizedFilePath.replace(/\\/g, '/').replace(/^\//, '')}`;
     return fileUrl;
-}));
+});
 // Seleciona arquivo (dialog)
-electron_1.ipcMain.handle('files-select-file', (_event, filters) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('files-select-file', async (_event, filters) => {
     if (!mainWindow)
         return null;
     const workspaces = getWorkspaceRoots();
-    const result = yield electron_1.dialog.showOpenDialog(mainWindow, {
+    const result = await electron_1.dialog.showOpenDialog(mainWindow, {
         properties: ['openFile'],
         defaultPath: workspaces[0] || electron_1.app.getPath('documents'),
         filters: filters || [
@@ -1057,9 +1094,9 @@ electron_1.ipcMain.handle('files-select-file', (_event, filters) => __awaiter(vo
     const selectedPath = normalizeFsPath(firstPath);
     approvedFileSelections.add(selectedPath);
     return selectedPath;
-}));
+});
 // Salva texto como .txt na pasta de documentos do escritório
-electron_1.ipcMain.handle('files-save-document', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { name, content }) {
+electron_1.ipcMain.handle('files-save-document', async (_event, { name, content }) => {
     try {
         if (!mainWindow)
             return { success: false, error: 'Janela não disponível' };
@@ -1071,7 +1108,7 @@ electron_1.ipcMain.handle('files-save-document', (_event_1, _a) => __awaiter(voi
         if (!primaryWorkspace) {
             return { success: false, error: 'Workspace autorizado invalido' };
         }
-        const result = yield electron_1.dialog.showSaveDialog(mainWindow, {
+        const result = await electron_1.dialog.showSaveDialog(mainWindow, {
             defaultPath: path.join(primaryWorkspace, path.basename(name || 'documento.txt')),
             filters: [
                 { name: 'Documento de Texto', extensions: ['txt'] },
@@ -1083,7 +1120,7 @@ electron_1.ipcMain.handle('files-save-document', (_event_1, _a) => __awaiter(voi
         if (!isWorkspacePathAllowed(result.filePath)) {
             return { success: false, error: 'Destino fora de workspace autorizado' };
         }
-        yield fs.promises.writeFile(result.filePath, content, 'utf8');
+        await fs.promises.writeFile(result.filePath, content, 'utf8');
         approvedFileSelections.add(normalizeFsPath(result.filePath));
         // Re-indexa RAG em background após salvar documento
         const wsRoots = getWorkspaceRoots();
@@ -1095,86 +1132,84 @@ electron_1.ipcMain.handle('files-save-document', (_event_1, _a) => __awaiter(voi
     catch (e) {
         return { success: false, error: e.message };
     }
-}));
+});
 // Escreve conteúdo em arquivo existente
-electron_1.ipcMain.handle('files-write', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { path: filePath, content }) {
+electron_1.ipcMain.handle('files-write', async (_event, { path: filePath, content }) => {
     try {
         const normalizedFilePath = normalizeFsPath(filePath);
         if (!isPathApprovedForWrite(normalizedFilePath)) {
             return { success: false, error: 'Acesso negado ao caminho fora de workspace autorizado' };
         }
-        yield fs.promises.writeFile(normalizedFilePath, content, 'utf8');
+        await fs.promises.writeFile(normalizedFilePath, content, 'utf8');
         return { success: true };
     }
     catch (e) {
         return { success: false, error: e.message };
     }
-}));
-function injectLexScripts(target) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const webContents = 'webContents' in target ? target.webContents : target;
-        const currentUrl = webContents.getURL();
-        console.log('Checking injection for:', currentUrl);
-        // Inject Polyfill FIRST
-        try {
-            const polyfillPath = path.join(__dirname, 'polyfill.js');
-            if (fs.existsSync(polyfillPath)) {
-                const polyfillContent = fs.readFileSync(polyfillPath, 'utf8');
-                yield webContents.executeJavaScript(polyfillContent);
-            }
-            else {
-                // If running from dist-electron, polyfill might be in ../electron/polyfill.js or we need to copy it
-                // Let's try to resolve it. If __dirname is dist-electron, polyfill.js might not be there unless copied.
-                // We should check ../electron/polyfill.js too
-                const polyfillSrcPath = path.join(__dirname, '../electron/polyfill.js');
-                if (fs.existsSync(polyfillSrcPath)) {
-                    const polyfillContent = fs.readFileSync(polyfillSrcPath, 'utf8');
-                    yield webContents.executeJavaScript(polyfillContent);
-                }
+});
+async function injectLexScripts(target) {
+    const webContents = 'webContents' in target ? target.webContents : target;
+    const currentUrl = webContents.getURL();
+    console.log('Checking injection for:', currentUrl);
+    // Inject Polyfill FIRST
+    try {
+        const polyfillPath = path.join(__dirname, 'polyfill.js');
+        if (fs.existsSync(polyfillPath)) {
+            const polyfillContent = fs.readFileSync(polyfillPath, 'utf8');
+            await webContents.executeJavaScript(polyfillContent);
+        }
+        else {
+            // If running from dist-electron, polyfill might be in ../electron/polyfill.js or we need to copy it
+            // Let's try to resolve it. If __dirname is dist-electron, polyfill.js might not be there unless copied.
+            // We should check ../electron/polyfill.js too
+            const polyfillSrcPath = path.join(__dirname, '../electron/polyfill.js');
+            if (fs.existsSync(polyfillSrcPath)) {
+                const polyfillContent = fs.readFileSync(polyfillSrcPath, 'utf8');
+                await webContents.executeJavaScript(polyfillContent);
             }
         }
-        catch (e) {
-            console.error('Error injecting polyfill:', e);
+    }
+    catch (e) {
+        console.error('Error injecting polyfill:', e);
+    }
+    // INJECT OVERLAY (The Steering Wheel)
+    try {
+        // CSS Injection
+        let overlayCssPath = path.join(__dirname, 'overlay.css');
+        if (!fs.existsSync(overlayCssPath)) {
+            // Fallback to source directory (Dev Mode)
+            overlayCssPath = path.join(__dirname, '../electron/overlay.css');
         }
-        // INJECT OVERLAY (The Steering Wheel)
-        try {
-            // CSS Injection
-            let overlayCssPath = path.join(__dirname, 'overlay.css');
-            if (!fs.existsSync(overlayCssPath)) {
-                // Fallback to source directory (Dev Mode)
-                overlayCssPath = path.join(__dirname, '../electron/overlay.css');
-            }
-            if (fs.existsSync(overlayCssPath)) {
-                const css = fs.readFileSync(overlayCssPath, 'utf8');
-                webContents.insertCSS(css);
-                console.log('✅ Overlay CSS Injected from:', overlayCssPath);
-            }
-            else {
-                console.error('❌ Overlay CSS not found at:', overlayCssPath);
-            }
-            // JS Injection
-            let overlayJsPath = path.join(__dirname, 'overlay.js');
-            if (!fs.existsSync(overlayJsPath)) {
-                // Fallback to source directory (Dev Mode)
-                overlayJsPath = path.join(__dirname, '../electron/overlay.js');
-            }
-            if (fs.existsSync(overlayJsPath)) {
-                const js = fs.readFileSync(overlayJsPath, 'utf8');
-                yield webContents.executeJavaScript(js);
-                console.log('✅ Overlay JS Injected from:', overlayJsPath);
-            }
-            else {
-                console.error('❌ Overlay JS not found at:', overlayJsPath);
-            }
+        if (fs.existsSync(overlayCssPath)) {
+            const css = fs.readFileSync(overlayCssPath, 'utf8');
+            webContents.insertCSS(css);
+            console.log('✅ Overlay CSS Injected from:', overlayCssPath);
         }
-        catch (e) {
-            console.error('Error injecting overlay:', e);
+        else {
+            console.error('❌ Overlay CSS not found at:', overlayCssPath);
         }
-    });
+        // JS Injection
+        let overlayJsPath = path.join(__dirname, 'overlay.js');
+        if (!fs.existsSync(overlayJsPath)) {
+            // Fallback to source directory (Dev Mode)
+            overlayJsPath = path.join(__dirname, '../electron/overlay.js');
+        }
+        if (fs.existsSync(overlayJsPath)) {
+            const js = fs.readFileSync(overlayJsPath, 'utf8');
+            await webContents.executeJavaScript(js);
+            console.log('✅ Overlay JS Injected from:', overlayJsPath);
+        }
+        else {
+            console.error('❌ Overlay JS not found at:', overlayJsPath);
+        }
+    }
+    catch (e) {
+        console.error('Error injecting overlay:', e);
+    }
 }
 const crawler_1 = require("./crawler");
 // ... (existing code)
-electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.app.whenReady().then(async () => {
     if (!singleInstanceLock)
         return;
     // Configura userDataDir para módulos desacoplados do Electron
@@ -1188,10 +1223,94 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     (0, privacy_1.initAuditLog)(userData);
     // Inicializa índice RAG (carrega índice persistido do disco)
     (0, doc_index_1.getDocIndex)().init(userData);
-    yield initStore();
+    await initStore();
     (0, supabase_client_1.initSupabase)(store);
     createWindow();
     (0, crawler_1.registerCrawlerHandlers)();
+    // Terminal embutido (xterm.js + node-pty)
+    // Registrado logo após createWindow — o renderer chama createLex nos primeiros 200ms.
+    try {
+        const { initTerminal, getPtyManager } = await Promise.resolve().then(() => __importStar(require('./terminal')));
+        initTerminal();
+        const ptyMgr = getPtyManager();
+        electron_1.ipcMain.handle('terminal-create', async (_, opts) => {
+            try {
+                await ptyMgr.createSession(opts.sessionId, opts);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
+        electron_1.ipcMain.handle('terminal-write', async (_, { sessionId, data, paste }) => {
+            try {
+                ptyMgr.write(sessionId, data, { paste });
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
+        electron_1.ipcMain.handle('terminal-resize', async (_, { sessionId, cols, rows }) => {
+            try {
+                ptyMgr.resize(sessionId, cols, rows);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
+        electron_1.ipcMain.handle('terminal-kill', async (_, sessionId) => {
+            try {
+                ptyMgr.killSession(sessionId);
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
+        electron_1.ipcMain.handle('terminal-list-sessions', async () => {
+            return { success: true, data: ptyMgr.listSessions() };
+        });
+        // Sessão especial: roda o LEX CLI dentro do PTY
+        electron_1.ipcMain.handle('terminal-create-lex', async (_, opts) => {
+            try {
+                const path = await Promise.resolve().then(() => __importStar(require('path')));
+                const cliEntry = path.join(electron_1.app.getAppPath(), 'bin', 'lex.js');
+                const shell = process.platform === 'win32' ? 'node.exe' : 'node';
+                await ptyMgr.createSession(opts.sessionId, {
+                    shell,
+                    args: [cliEntry, '--in-electron'],
+                    cwd: electron_1.app.getAppPath(),
+                    cols: opts.cols,
+                    rows: opts.rows,
+                    mode: 'lex',
+                    env: {
+                        LEX_IN_ELECTRON: '1',
+                        LEX_CONVERSATION_ID: opts.sessionId,
+                        NODE_OPTIONS: '--max-old-space-size=4096',
+                    },
+                });
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
+        // Forward PTY events para renderer
+        ptyMgr.on('data', (sessionId, data) => {
+            mainWindow?.webContents.send('terminal-data', { sessionId, data });
+        });
+        ptyMgr.on('exit', (sessionId, exitCode) => {
+            mainWindow?.webContents.send('terminal-exit', { sessionId, exitCode });
+        });
+        // Cleanup no quit
+        electron_1.app.on('before-quit', () => ptyMgr.killAll());
+        console.log('[Terminal] IPC handlers registrados');
+    }
+    catch (err) {
+        console.error('[Terminal] Falha ao inicializar:', err.message);
+    }
     (0, route_memory_1.initRouteMemory)(userData);
     (0, browser_1.initSelectorMemory)(userData);
     // Brain (SQLite FTS5 + grafo de conhecimento)
@@ -1207,7 +1326,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         const { initTrainingCollector } = require('./agent/training-collector');
         initTrainingCollector(userData);
     }
-    catch ( /* módulo não disponível */_a) { /* módulo não disponível */ }
+    catch { /* módulo não disponível */ }
     // Forward de eventos do backend → renderer (inicializa uma vez)
     if (!backendEventWiringReady) {
         backendEventWiringReady = true;
@@ -1222,8 +1341,21 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
                 mainWindow.webContents.send('backend-log', entry);
             }
         });
-        backend_client_1.backendEvents.on('backend-status', (status) => __awaiter(void 0, void 0, void 0, function* () {
-            const st = String((status === null || status === void 0 ? void 0 : status.status) || '');
+        // CLI → UI: navegar para aba e/ou abrir recurso específico
+        // Terminal transcript -> sidebar conversation persistence
+        backend_client_1.backendEvents.on('conversation-message', (payload) => {
+            persistTerminalConversationMessage(payload);
+        });
+        backend_client_1.backendEvents.on('ui-navigate', ({ tab, payload }) => {
+            if (mainWindow) {
+                if (tab)
+                    mainWindow.webContents.send('navigate-to', tab);
+                if (payload)
+                    mainWindow.webContents.send('ui-payload', payload);
+            }
+        });
+        backend_client_1.backendEvents.on('backend-status', async (status) => {
+            const st = String(status?.status || '');
             console.log('[Backend Status]', st, status);
             if (mainWindow) {
                 mainWindow.webContents.send('backend-status', status);
@@ -1231,20 +1363,20 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
             // Sempre que backend reconecta/reinicia, reaplica config ativa.
             if (st === 'connected' || st === 'restarted') {
                 try {
-                    yield (0, backend_client_1.syncConfigToBackend)((0, provider_config_1.getActiveConfig)());
+                    await (0, backend_client_1.syncConfigToBackend)((0, provider_config_1.getActiveConfig)());
                 }
                 catch (err) {
-                    console.warn('[Main] Falha ao re-sincronizar config após reconexão do backend:', (err === null || err === void 0 ? void 0 : err.message) || err);
+                    console.warn('[Main] Falha ao re-sincronizar config após reconexão do backend:', err?.message || err);
                 }
             }
-        }));
+        });
     }
     // Inicia backend Node.js separado (agent + browser + skills)
     try {
-        yield (0, backend_client_1.startBackend)(userData);
+        await (0, backend_client_1.startBackend)(userData);
         // Sincroniza config de provider/API key com o backend (já foi carregada no initStore)
         const cfg = (0, provider_config_1.getActiveConfig)();
-        yield (0, backend_client_1.syncConfigToBackend)(cfg);
+        await (0, backend_client_1.syncConfigToBackend)(cfg);
         console.log('[Main] Backend conectado e config sincronizada');
     }
     catch (err) {
@@ -1261,8 +1393,8 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     // Phase 3 AIOS: Inicializa plugins ANTES do scheduler
     // (scheduler pode executar goals que usam skills de plugins)
     try {
-        const { initPlugins } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
-        yield initPlugins();
+        const { initPlugins } = await Promise.resolve().then(() => __importStar(require('./plugins')));
+        await initPlugins();
         if (mainWindow)
             mainWindow.webContents.send('plugins-ready');
     }
@@ -1271,79 +1403,21 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     }
     // Phase 2 AIOS: Inicializa scheduler + notifications
     try {
-        const { initScheduler, setJobRunnerWindow } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const { setNotificationWindow, setTelegramUserId } = yield Promise.resolve().then(() => __importStar(require('./notifications')));
+        const { initScheduler, setJobRunnerWindow } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const { setNotificationWindow, setTelegramUserId } = await Promise.resolve().then(() => __importStar(require('./notifications')));
         setNotificationWindow(mainWindow);
         setJobRunnerWindow(mainWindow);
-        const telegramUserId = store === null || store === void 0 ? void 0 : store.get('telegramUserId', 0);
+        const telegramUserId = store?.get('telegramUserId', 0);
         if (telegramUserId)
             setTelegramUserId(telegramUserId);
-        yield initScheduler();
+        await initScheduler();
     }
     catch (err) {
         console.error('[Scheduler] Falha ao inicializar:', err.message);
     }
-    // Terminal embutido (xterm.js + node-pty)
-    try {
-        const { initTerminal, getPtyManager } = yield Promise.resolve().then(() => __importStar(require('./terminal')));
-        initTerminal();
-        const ptyMgr = getPtyManager();
-        electron_1.ipcMain.handle('terminal-create', (_, opts) => __awaiter(void 0, void 0, void 0, function* () {
-            try {
-                yield ptyMgr.createSession(opts.sessionId, opts);
-                return { success: true };
-            }
-            catch (err) {
-                return { success: false, error: err.message };
-            }
-        }));
-        electron_1.ipcMain.handle('terminal-write', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { sessionId, data }) {
-            try {
-                ptyMgr.write(sessionId, data);
-                return { success: true };
-            }
-            catch (err) {
-                return { success: false, error: err.message };
-            }
-        }));
-        electron_1.ipcMain.handle('terminal-resize', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { sessionId, cols, rows }) {
-            try {
-                ptyMgr.resize(sessionId, cols, rows);
-                return { success: true };
-            }
-            catch (err) {
-                return { success: false, error: err.message };
-            }
-        }));
-        electron_1.ipcMain.handle('terminal-kill', (_, sessionId) => __awaiter(void 0, void 0, void 0, function* () {
-            try {
-                ptyMgr.killSession(sessionId);
-                return { success: true };
-            }
-            catch (err) {
-                return { success: false, error: err.message };
-            }
-        }));
-        electron_1.ipcMain.handle('terminal-list-sessions', () => __awaiter(void 0, void 0, void 0, function* () {
-            return { success: true, data: ptyMgr.listSessions() };
-        }));
-        // Forward PTY events para renderer
-        ptyMgr.on('data', (sessionId, data) => {
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('terminal-data', { sessionId, data });
-        });
-        ptyMgr.on('exit', (sessionId, exitCode) => {
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('terminal-exit', { sessionId, exitCode });
-        });
-        // Cleanup no quit
-        electron_1.app.on('before-quit', () => ptyMgr.killAll());
-        console.log('[Terminal] IPC handlers registrados');
-    }
-    catch (err) {
-        console.error('[Terminal] Falha ao inicializar:', err.message);
-    }
     // Legal Store — base jurídica dinâmica (seed no primeiro uso)
     try {
-        const { initLegalStore } = yield Promise.resolve().then(() => __importStar(require('./legal/legal-store')));
+        const { initLegalStore } = await Promise.resolve().then(() => __importStar(require('./legal/legal-store')));
         initLegalStore();
     }
     catch (err) {
@@ -1351,17 +1425,17 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     }
     // DataJud Pipeline — data pipeline jurídica (async, não bloqueia boot)
     try {
-        const { initDataPipeline } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-        yield initDataPipeline();
+        const { initDataPipeline } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+        await initDataPipeline();
     }
     catch (err) {
         console.warn('[DataPipeline] Falha ao inicializar:', err.message);
     }
     // Knowledge Base de Documentos — schemas + exemplos + seed pipeline
     try {
-        const { initDocSchemaRegistry } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
-        const { initDocExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
-        const { seedIfEmpty } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-seed-pipeline')));
+        const { initDocSchemaRegistry } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+        const { initDocExamples } = await Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+        const { seedIfEmpty } = await Promise.resolve().then(() => __importStar(require('./legal/doc-seed-pipeline')));
         initDocSchemaRegistry();
         initDocExamples();
         const seedResult = seedIfEmpty();
@@ -1374,7 +1448,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
     }
     // Python embedded — setup async em background (não bloqueia boot)
     try {
-        const { initPythonEnv, getPythonEnv } = yield Promise.resolve().then(() => __importStar(require('./python')));
+        const { initPythonEnv, getPythonEnv } = await Promise.resolve().then(() => __importStar(require('./python')));
         initPythonEnv();
         getPythonEnv().setup()
             .then(() => {
@@ -1403,7 +1477,7 @@ electron_1.app.whenReady().then(() => __awaiter(void 0, void 0, void 0, function
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
             createWindow();
     });
-}));
+});
 function initAutoUpdater() {
     // Em dev não verifica atualizações
     if (!electron_1.app.isPackaged)
@@ -1411,10 +1485,10 @@ function initAutoUpdater() {
     electron_updater_1.autoUpdater.autoDownload = true;
     electron_updater_1.autoUpdater.autoInstallOnAppQuit = true;
     electron_updater_1.autoUpdater.on('update-available', () => {
-        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('update-available');
+        mainWindow?.webContents.send('update-available');
     });
     electron_updater_1.autoUpdater.on('update-downloaded', () => {
-        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('update-downloaded');
+        mainWindow?.webContents.send('update-downloaded');
     });
     electron_updater_1.autoUpdater.on('error', (err) => {
         console.error('[Updater]', err.message);
@@ -1428,126 +1502,128 @@ const LEGISLACAO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
  *  - A cada 24h: re-verifica e atualiza
  */
 function initLegislacaoSync() {
-    function runSync(label) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const userDataDir = electron_1.app.getPath('userData');
-            const pendentes = (0, legislacao_downloader_1.verificarDesatualizados)(userDataDir);
-            if (pendentes.length === 0) {
-                console.log(`[Legislação] ${label} — tudo em dia`);
-                return;
-            }
-            console.log(`[Legislação] ${label} — ${pendentes.length} arquivo(s) para atualizar`);
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('rag-legislacao-progress', `Atualizando legislação (${pendentes.length} arquivo(s))…`);
-            const result = yield (0, legislacao_downloader_1.downloadIncremental)(userDataDir, (msg) => {
-                console.log('[Legislação]', msg);
-                mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('rag-legislacao-progress', msg);
-            });
-            if (result.sucesso > 0) {
-                // Garante que a pasta está nos workspaces e re-indexa
-                const legDir = result.dir;
-                const workspaces = store.get('workspaces', []);
-                if (!workspaces.includes(legDir)) {
-                    workspaces.push(legDir);
-                    store.set('workspaces', workspaces);
-                }
-                yield (0, doc_index_1.getDocIndex)().indexarWorkspace([legDir, ...workspaces.filter(w => w !== legDir)]);
-                console.log(`[Legislação] ${result.sucesso} arquivo(s) atualizados e re-indexados`);
-            }
+    async function runSync(label) {
+        const userDataDir = electron_1.app.getPath('userData');
+        const pendentes = (0, legislacao_downloader_1.verificarDesatualizados)(userDataDir);
+        if (pendentes.length === 0) {
+            console.log(`[Legislação] ${label} — tudo em dia`);
+            return;
+        }
+        console.log(`[Legislação] ${label} — ${pendentes.length} arquivo(s) para atualizar`);
+        mainWindow?.webContents.send('rag-legislacao-progress', `Atualizando legislação (${pendentes.length} arquivo(s))…`);
+        const result = await (0, legislacao_downloader_1.downloadIncremental)(userDataDir, (msg) => {
+            console.log('[Legislação]', msg);
+            mainWindow?.webContents.send('rag-legislacao-progress', msg);
         });
+        if (result.sucesso > 0) {
+            // Garante que a pasta está nos workspaces e re-indexa
+            const legDir = result.dir;
+            const workspaces = store.get('workspaces', []);
+            if (!workspaces.includes(legDir)) {
+                workspaces.push(legDir);
+                store.set('workspaces', workspaces);
+            }
+            await (0, doc_index_1.getDocIndex)().indexarWorkspace([legDir, ...workspaces.filter(w => w !== legDir)]);
+            console.log(`[Legislação] ${result.sucesso} arquivo(s) atualizados e re-indexados`);
+        }
     }
     // Boot: aguarda 15s para não competir com a inicialização da janela
     setTimeout(() => runSync('boot').catch(e => console.error('[Legislação] Erro no boot sync:', e)), 15000);
     // Verificação diária
     setInterval(() => runSync('daily').catch(e => console.error('[Legislação] Erro no daily sync:', e)), LEGISLACAO_CHECK_INTERVAL_MS);
 }
-electron_1.app.on('window-all-closed', function () {
-    return __awaiter(this, void 0, void 0, function* () {
-        // Finaliza sessão de analytics
-        (0, analytics_1.getAnalytics)().endSession();
-        // Flush audit log de privacidade
-        yield (0, privacy_1.flushAuditLog)();
-        // Phase 2 AIOS: Para scheduler (limpa timers/watchers)
-        try {
-            const { stopScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-            stopScheduler();
+electron_1.app.on('window-all-closed', async function () {
+    // Finaliza sessão de analytics
+    (0, analytics_1.getAnalytics)().endSession();
+    // Flush audit log de privacidade
+    await (0, privacy_1.flushAuditLog)();
+    // Phase 2 AIOS: Para scheduler (limpa timers/watchers)
+    try {
+        const { stopScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+        stopScheduler();
+    }
+    catch { /* ignore */ }
+    // No modo 24/7 com tray ativo, não encerra o processo
+    if (trayModeActive)
+        return;
+    // Encerra backend (flush + close browser + sessions)
+    await (0, backend_client_1.stopBackend)();
+    // Fallback local caso backend não estivesse rodando
+    (0, route_memory_1.flush)();
+    (0, browser_1.flushSelectorMemory)();
+    try {
+        require('./agent/training-collector').flush();
+    }
+    catch { /* ok */ }
+    (0, brain_1.closeBrain)();
+    await (0, browser_manager_1.closeBrowser)();
+    try {
+        if (agentModule) {
+            const sm = agentModule.getSessionManager();
+            if (sm?.flush)
+                await sm.flush();
         }
-        catch ( /* ignore */_a) { /* ignore */ }
-        // No modo 24/7 com tray ativo, não encerra o processo
-        if (trayModeActive)
-            return;
-        // Encerra backend (flush + close browser + sessions)
-        yield (0, backend_client_1.stopBackend)();
-        // Fallback local caso backend não estivesse rodando
-        (0, route_memory_1.flush)();
-        (0, browser_1.flushSelectorMemory)();
-        try {
-            require('./agent/training-collector').flush();
-        }
-        catch ( /* ok */_b) { /* ok */ }
-        (0, brain_1.closeBrain)();
-        yield (0, browser_manager_1.closeBrowser)();
-        try {
-            if (agentModule) {
-                const sm = agentModule.getSessionManager();
-                if (sm === null || sm === void 0 ? void 0 : sm.flush)
-                    yield sm.flush();
-            }
-        }
-        catch (e) { /* non-critical */ }
-        if (process.platform !== 'darwin')
-            electron_1.app.quit();
-    });
+    }
+    catch (e) { /* non-critical */ }
+    if (process.platform !== 'darwin')
+        electron_1.app.quit();
 });
 // IPC Handlers
-electron_1.ipcMain.handle('save-history', (_event, messages) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('save-history', async (_event, messages) => {
     if (store)
         store.set('chatHistory', messages);
     return { success: true };
-}));
-electron_1.ipcMain.handle('get-history', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('get-history', async () => {
     return store ? store.get('chatHistory', []) : [];
-}));
+});
 // ============================================================================
 // CONVERSATIONS (multi-session persistence)
 // ============================================================================
-electron_1.ipcMain.handle('conversations-list', () => __awaiter(void 0, void 0, void 0, function* () {
-    const convs = (store === null || store === void 0 ? void 0 : store.get('conversations', {})) || {};
+electron_1.ipcMain.handle('conversations-list', async () => {
+    const convs = store?.get('conversations', {}) || {};
     return Object.values(convs)
-        .map((c) => { var _a; return ({ id: c.id, title: c.title, updatedAt: c.updatedAt, messageCount: ((_a = c.messages) === null || _a === void 0 ? void 0 : _a.length) || 0 }); })
+        .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, messageCount: c.messages?.length || 0 }))
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 50);
-}));
-electron_1.ipcMain.handle('conversations-save', (_event, conv) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('conversations-save', async (_event, conv) => {
     const MAX_CONV_SIZE = 2000000; // 2 MB por conversa
     if (!conv || typeof conv.id !== 'string')
         return { success: false, error: 'Conversa inválida.' };
     if (JSON.stringify(conv).length > MAX_CONV_SIZE)
         return { success: false, error: 'Conversa muito grande para salvar (limite 2 MB).' };
-    const convs = (store === null || store === void 0 ? void 0 : store.get('conversations', {})) || {};
+    const convs = store?.get('conversations', {}) || {};
     const isNew = !convs[conv.id];
     convs[conv.id] = conv;
-    store === null || store === void 0 ? void 0 : store.set('conversations', convs);
+    store?.set('conversations', convs);
     if (isNew)
         (0, analytics_1.getAnalytics)().trackConversation();
+    mainWindow?.webContents.send('conversations-updated', {
+        id: conv.id,
+        title: conv.title,
+        updatedAt: conv.updatedAt,
+        messageCount: conv.messages?.length || 0,
+    });
     return { success: true };
-}));
-electron_1.ipcMain.handle('conversations-load', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const convs = (store === null || store === void 0 ? void 0 : store.get('conversations', {})) || {};
+});
+electron_1.ipcMain.handle('conversations-load', async (_event, id) => {
+    const convs = store?.get('conversations', {}) || {};
     return convs[id] || null;
-}));
-electron_1.ipcMain.handle('conversations-delete', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const convs = (store === null || store === void 0 ? void 0 : store.get('conversations', {})) || {};
+});
+electron_1.ipcMain.handle('conversations-delete', async (_event, id) => {
+    const convs = store?.get('conversations', {}) || {};
     delete convs[id];
-    store === null || store === void 0 ? void 0 : store.set('conversations', convs);
+    store?.set('conversations', convs);
     return { success: true };
-}));
+});
 // Pre-seed agent session with saved messages (for context on conversation reload)
-electron_1.ipcMain.handle('session-seed', (_event, sessionId, messages) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('session-seed', async (_event, sessionId, messages) => {
     if (typeof sessionId !== 'string' || !sessionId)
         return { success: false, error: 'sessionId inválido.' };
     if (!Array.isArray(messages))
         return { success: false, error: 'messages inválido.' };
-    const agent = yield loadAgentModule();
+    const agent = await loadAgentModule();
     const sm = agent.getSessionManager();
     sm.getOrCreate(sessionId);
     for (const msg of messages.slice(-8)) {
@@ -1555,30 +1631,30 @@ electron_1.ipcMain.handle('session-seed', (_event, sessionId, messages) => __awa
         sm.addMessage(sessionId, role, msg.content);
     }
     return { success: true };
-}));
+});
 // ============================================================================
 // ANALYTICS
 // ============================================================================
-electron_1.ipcMain.handle('analytics-summary', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('analytics-summary', async () => {
     return (0, analytics_1.getAnalytics)().getSummary();
-}));
-electron_1.ipcMain.handle('analytics-track-message', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('analytics-track-message', async () => {
     (0, analytics_1.getAnalytics)().trackMessage();
     return { success: true };
-}));
-electron_1.ipcMain.handle('save-preferences', (_event, prefs) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('save-preferences', async (_event, prefs) => {
     if (store)
         store.set('userPreferences', prefs);
     return { success: true };
-}));
-electron_1.ipcMain.handle('get-preferences', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('get-preferences', async () => {
     return store ? store.get('userPreferences', {}) : {};
-}));
+});
 // Workspace Management
-electron_1.ipcMain.handle('workspace-get', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('workspace-get', async () => {
     return store ? getWorkspaceRoots() : [];
-}));
-electron_1.ipcMain.handle('workspace-add', (_event, path) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('workspace-add', async (_event, path) => {
     if (!store)
         return { success: false };
     const selectedPath = normalizeFsPath(path);
@@ -1593,8 +1669,8 @@ electron_1.ipcMain.handle('workspace-add', (_event, path) => __awaiter(void 0, v
     }
     startWorkspaceWatchers(); // Reinicia watchers com novo workspace
     return { success: true, workspaces };
-}));
-electron_1.ipcMain.handle('workspace-remove', (_event, path) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('workspace-remove', async (_event, path) => {
     if (!store)
         return { success: false };
     const selectedPath = normalizeFsPath(path);
@@ -1603,19 +1679,19 @@ electron_1.ipcMain.handle('workspace-remove', (_event, path) => __awaiter(void 0
     store.set('workspaces', workspaces);
     startWorkspaceWatchers(); // Reinicia watchers sem workspace removido
     return { success: true, workspaces };
-}));
+});
 /** Re-indexa todos os documentos dos workspaces para o RAG. */
-electron_1.ipcMain.handle('rag-index-workspace', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('rag-index-workspace', async () => {
     const workspaces = getWorkspaceRoots();
     if (workspaces.length === 0)
         return { success: false, error: 'Nenhum workspace configurado.' };
-    const result = yield (0, doc_index_1.getDocIndex)().indexarWorkspace(workspaces);
-    return Object.assign({ success: true }, result);
-}));
+    const result = await (0, doc_index_1.getDocIndex)().indexarWorkspace(workspaces);
+    return { success: true, ...result };
+});
 /** Retorna estatísticas do índice RAG atual. */
-electron_1.ipcMain.handle('rag-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('rag-stats', async () => {
     return (0, doc_index_1.getDocIndex)().getStats();
-}));
+});
 // ============================================================================
 // FILE WATCHER — auto re-indexa RAG quando arquivos mudam nos workspaces
 // ============================================================================
@@ -1625,19 +1701,19 @@ const RAG_DEBOUNCE_MS = 5000; // 5s debounce para agrupar mudanças rápidas
 function scheduleRagReindex() {
     if (ragReindexTimer)
         clearTimeout(ragReindexTimer);
-    ragReindexTimer = setTimeout(() => __awaiter(this, void 0, void 0, function* () {
+    ragReindexTimer = setTimeout(async () => {
         ragReindexTimer = null;
         const ws = getWorkspaceRoots();
         if (ws.length === 0)
             return;
         try {
-            const result = yield (0, doc_index_1.getDocIndex)().indexarWorkspace(ws);
+            const result = await (0, doc_index_1.getDocIndex)().indexarWorkspace(ws);
             console.log(`[FileWatcher] RAG re-indexado: ${result.chunks} chunks, ${result.arquivos} arquivos`);
         }
         catch (e) {
             console.warn('[FileWatcher] RAG re-index falhou:', e.message);
         }
-    }), RAG_DEBOUNCE_MS);
+    }, RAG_DEBOUNCE_MS);
 }
 const WATCHED_EXTENSIONS = new Set(['.txt', '.md', '.pdf', '.docx', '.doc']);
 function startWorkspaceWatchers() {
@@ -1646,7 +1722,7 @@ function startWorkspaceWatchers() {
         try {
             w.close();
         }
-        catch (_a) { }
+        catch { }
     }
     activeWatchers.length = 0;
     const workspaces = getWorkspaceRoots();
@@ -1672,11 +1748,11 @@ function startWorkspaceWatchers() {
     }
 }
 /** Baixa os códigos de legislação do Planalto e re-indexa o RAG. */
-electron_1.ipcMain.handle('rag-download-legislacao', (_e_1, ...args_1) => __awaiter(void 0, [_e_1, ...args_1], void 0, function* (_e, forcar = false) {
+electron_1.ipcMain.handle('rag-download-legislacao', async (_e, forcar = false) => {
     const userDataDir = electron_1.app.getPath('userData');
     const fn = forcar ? legislacao_downloader_1.downloadTudo : legislacao_downloader_1.downloadIncremental;
-    const result = yield fn(userDataDir, (msg) => {
-        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('rag-legislacao-progress', msg);
+    const result = await fn(userDataDir, (msg) => {
+        mainWindow?.webContents.send('rag-legislacao-progress', msg);
     });
     // Garante que a pasta de legislação está nos workspaces
     const legDir = result.dir;
@@ -1685,145 +1761,139 @@ electron_1.ipcMain.handle('rag-download-legislacao', (_e_1, ...args_1) => __awai
         workspaces.push(legDir);
         store.set('workspaces', workspaces);
     }
-    const indexResult = yield (0, doc_index_1.getDocIndex)().indexarWorkspace([legDir, ...workspaces.filter(w => w !== legDir)]);
-    return Object.assign(Object.assign({}, result), { indexResult });
-}));
+    const indexResult = await (0, doc_index_1.getDocIndex)().indexarWorkspace([legDir, ...workspaces.filter(w => w !== legDir)]);
+    return { ...result, indexResult };
+});
 /** Retorna estatísticas dos arquivos de legislação já baixados. */
-electron_1.ipcMain.handle('rag-legislacao-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('rag-legislacao-stats', async () => {
     return (0, legislacao_downloader_1.getLegislacaoStats)(electron_1.app.getPath('userData'));
-}));
+});
 // Check PJe status via browser
-electron_1.ipcMain.handle('check-pje', () => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
+electron_1.ipcMain.handle('check-pje', async () => {
     if ((0, backend_client_1.isBackendAlive)()) {
         try {
-            const backendStatus = yield (0, backend_client_1.rpcCall)('browser-check-pje');
+            const backendStatus = await (0, backend_client_1.rpcCall)('browser-check-pje');
             return backendStatus;
         }
         catch (err) {
-            console.warn('[check-pje] Falha ao consultar backend, usando fallback local:', (err === null || err === void 0 ? void 0 : err.message) || err);
+            console.warn('[check-pje] Falha ao consultar backend, usando fallback local:', err?.message || err);
         }
     }
     try {
         const page = (0, browser_manager_1.getActivePage)();
-        const url = (_a = page === null || page === void 0 ? void 0 : page.url()) !== null && _a !== void 0 ? _a : null;
+        const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
         // Detecta tribunal pela URL (ex: pje.tjpa.jus.br → TJPA, pje.trt8.jus.br → TRT8)
         let tribunalAtivo = null;
         if (isPje && url) {
             const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
-            if (match === null || match === void 0 ? void 0 : match[1])
+            if (match?.[1])
                 tribunalAtivo = match[1].toUpperCase();
         }
         // Tribunal preferido salvo na memória do usuário
         const mem = (0, memory_1.getMemory)();
-        const [memoriaData, usuario] = yield Promise.all([mem.carregar(), mem.getUsuario()]);
-        const pref = ((_b = memoriaData.preferencias) === null || _b === void 0 ? void 0 : _b['tribunal_preferido']) || usuario.tribunal_preferido || null;
+        const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
+        const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
         return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
     }
-    catch (_c) {
+    catch {
         return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
     }
-}));
+});
 // Tenta trazer a aba de automação do browser para frente.
-electron_1.ipcMain.handle('browser-focus', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('browser-focus', async () => {
     if ((0, backend_client_1.isBackendAlive)()) {
         try {
-            return yield (0, backend_client_1.rpcCall)('browser-focus');
+            return await (0, backend_client_1.rpcCall)('browser-focus');
         }
         catch (err) {
-            console.warn('[browser-focus] Falha ao focar via backend, usando fallback local:', (err === null || err === void 0 ? void 0 : err.message) || err);
+            console.warn('[browser-focus] Falha ao focar via backend, usando fallback local:', err?.message || err);
         }
     }
+    // Fallback local: NÃO chama ensureBrowser() — se Chrome não está aberto, não tem o que focar.
+    // ensureBrowser() aqui causava Chrome abrindo aleatoriamente sempre que o renderer
+    // recebia um evento de skill PJe (requestBrowserAutoExpand).
     try {
-        yield (0, browser_manager_1.ensureBrowser)();
         const page = (0, browser_manager_1.getActivePage)();
         if (page) {
             try {
-                yield page.bringToFront();
+                await page.bringToFront();
             }
             catch (err) {
-                console.warn('[browser-focus] bringToFront falhou (fallback local):', (err === null || err === void 0 ? void 0 : err.message) || err);
+                console.warn('[browser-focus] bringToFront falhou (fallback local):', err?.message || err);
             }
         }
-        const status = yield (() => __awaiter(void 0, void 0, void 0, function* () {
-            var _a, _b;
+        const status = await (async () => {
             const active = (0, browser_manager_1.getActivePage)();
-            const url = (_a = active === null || active === void 0 ? void 0 : active.url()) !== null && _a !== void 0 ? _a : null;
+            const url = active?.url() ?? null;
             const isPje = typeof url === 'string' && url.includes('pje.');
             let tribunalAtivo = null;
             if (isPje && url) {
                 const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
-                if (match === null || match === void 0 ? void 0 : match[1])
+                if (match?.[1])
                     tribunalAtivo = match[1].toUpperCase();
             }
             const mem = (0, memory_1.getMemory)();
-            const [memoriaData, usuario] = yield Promise.all([mem.carregar(), mem.getUsuario()]);
-            const pref = ((_b = memoriaData.preferencias) === null || _b === void 0 ? void 0 : _b['tribunal_preferido']) || usuario.tribunal_preferido || null;
+            const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
+            const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
             return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
-        }))();
+        })();
         return { ok: !!page, status };
     }
     catch (err) {
-        return { ok: false, error: (err === null || err === void 0 ? void 0 : err.message) || String(err) };
+        return { ok: false, error: err?.message || String(err) };
     }
-}));
+});
 // ============================================================================
 // LEX AGENT LOOP INTEGRATION
 // ============================================================================
 // Initialize agent on app ready
 let agentInitialized = false;
-function loadAgentModule() {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (!agentModule) {
-            console.log('[Agent] Loading module...');
-            agentModule = yield Promise.resolve().then(() => __importStar(require('./agent')));
-            console.log('[Agent] Module loaded');
-        }
-        return agentModule;
-    });
+async function loadAgentModule() {
+    if (!agentModule) {
+        console.log('[Agent] Loading module...');
+        agentModule = await Promise.resolve().then(() => __importStar(require('./agent')));
+        console.log('[Agent] Module loaded');
+    }
+    return agentModule;
 }
-function ensureAgentInitialized() {
-    return __awaiter(this, void 0, void 0, function* () {
-        const agent = yield loadAgentModule();
-        if (!agentInitialized) {
-            yield agent.initializeAgent();
-            // Injeta dialog nativo do Electron para confirmação de ações perigosas
-            const confirmFn = (titulo, detalhe) => __awaiter(this, void 0, void 0, function* () {
-                const { response } = yield electron_1.dialog.showMessageBox({
-                    type: 'warning',
-                    buttons: ['Cancelar', 'Executar'],
-                    defaultId: 0,
-                    cancelId: 0,
-                    title: titulo,
-                    message: titulo,
-                    detail: detalhe,
-                    noLink: true
-                });
-                return response === 1;
+async function ensureAgentInitialized() {
+    const agent = await loadAgentModule();
+    if (!agentInitialized) {
+        await agent.initializeAgent();
+        // Injeta dialog nativo do Electron para confirmação de ações perigosas
+        const confirmFn = async (titulo, detalhe) => {
+            const { response } = await electron_1.dialog.showMessageBox({
+                type: 'warning',
+                buttons: ['Cancelar', 'Executar'],
+                defaultId: 0,
+                cancelId: 0,
+                title: titulo,
+                message: titulo,
+                detail: detalhe,
+                noLink: true
             });
-            const { setConfirmDialog } = yield Promise.resolve().then(() => __importStar(require('./skills/os/sistema')));
-            setConfirmDialog(confirmFn);
-            agentInitialized = true;
-        }
-        return agent;
-    });
+            return response === 1;
+        };
+        const { setConfirmDialog } = await Promise.resolve().then(() => __importStar(require('./skills/os/sistema')));
+        setConfirmDialog(confirmFn);
+        agentInitialized = true;
+    }
+    return agent;
 }
 // Forward agent events to renderer (com guard contra listeners duplicados)
 let agentEventForwardingActive = false;
-function setupAgentEventForwarding() {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (agentEventForwardingActive)
-            return;
-        agentEventForwardingActive = true;
-        const agent = yield loadAgentModule();
-        agent.agentEmitter.removeAllListeners('agent-event');
-        agent.agentEmitter.on('agent-event', (event) => {
-            console.log('[Agent Event]', event.type);
-            if (mainWindow) {
-                mainWindow.webContents.send('agent-event', event);
-            }
-        });
+async function setupAgentEventForwarding() {
+    if (agentEventForwardingActive)
+        return;
+    agentEventForwardingActive = true;
+    const agent = await loadAgentModule();
+    agent.agentEmitter.removeAllListeners('agent-event');
+    agent.agentEmitter.on('agent-event', (event) => {
+        console.log('[Agent Event]', event.type);
+        if (mainWindow) {
+            mainWindow.webContents.send('agent-event', event);
+        }
     });
 }
 function normalizeIntentText(raw) {
@@ -1993,32 +2063,31 @@ function parseSemanticModeResponse(raw) {
         : (text.includes('{') && text.includes('}') ? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1) : text);
     try {
         const parsed = JSON.parse(candidate);
-        const mode = String((parsed === null || parsed === void 0 ? void 0 : parsed.mode) || '').toLowerCase();
-        const confidenceRaw = Number(parsed === null || parsed === void 0 ? void 0 : parsed.confidence);
+        const mode = String(parsed?.mode || '').toLowerCase();
+        const confidenceRaw = Number(parsed?.confidence);
         const confidence = Number.isFinite(confidenceRaw)
             ? Math.max(0, Math.min(1, confidenceRaw))
             : undefined;
-        const reason = String((parsed === null || parsed === void 0 ? void 0 : parsed.reason) || 'semantic_router').trim();
+        const reason = String(parsed?.reason || 'semantic_router').trim();
         if (mode === 'agent') {
-            return Object.assign({ useAgent: true, reason, source: 'semantic' }, (confidence !== undefined ? { confidence } : {}));
+            return { useAgent: true, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
         }
         if (mode === 'chat') {
-            return Object.assign({ useAgent: false, reason, source: 'semantic' }, (confidence !== undefined ? { confidence } : {}));
+            return { useAgent: false, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
         }
         return null;
     }
-    catch (_a) {
+    catch {
         return null;
     }
 }
-function semanticRouteForObjective(objetivoRaw, activeUrl) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const objective = String(objetivoRaw || '').trim();
-        if (!objective)
-            return null;
-        try {
-            const { callAI } = yield Promise.resolve().then(() => __importStar(require('./ai-handler')));
-            const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico com acesso ao PJe (sistema judicial), ao Windows/PC e ao sistema de arquivos.
+async function semanticRouteForObjective(objetivoRaw, activeUrl) {
+    const objective = String(objetivoRaw || '').trim();
+    if (!objective)
+        return null;
+    try {
+        const { callAI } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
+        const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico com acesso ao PJe (sistema judicial), ao Windows/PC e ao sistema de arquivos.
 
 Decida o modo:
 - "agent": quando a mensagem pede ACAO em qualquer sistema — PJe judicial, Windows/PC, arquivos, browser, mouse/teclado. Exemplos: abrir, acessar, navegar, clicar, listar, controlar, executar, ver a tela, mover arquivo, consultar processo, preencher formulario. Inclui perguntas de capacidade ("consegue X?", "pode Y?") quando X e uma acao.
@@ -2029,56 +2098,52 @@ Regras:
 - Se a mensagem parecer pedido de acao em qualquer sistema (nao so PJe), use "agent".
 - Responda APENAS JSON valido:
 {"mode":"agent|chat","confidence":0.0,"reason":"curto"}`;
-            const user = JSON.stringify({
-                objective,
-                activeUrl: activeUrl || null,
-                pjeActive: Boolean(activeUrl && /pje\./i.test(activeUrl || ''))
-            });
-            const response = yield callAI({
-                system,
-                user,
-                temperature: 0,
-                maxTokens: 140,
-                // Usa o agentModel do provider ativo (não hardcodar modelo específico)
-            });
-            return parseSemanticModeResponse(response);
-        }
-        catch (error) {
-            console.warn('[Router] Semantic routing failed:', (error === null || error === void 0 ? void 0 : error.message) || error);
-            return null;
-        }
-    });
+        const user = JSON.stringify({
+            objective,
+            activeUrl: activeUrl || null,
+            pjeActive: Boolean(activeUrl && /pje\./i.test(activeUrl || ''))
+        });
+        const response = await callAI({
+            system,
+            user,
+            temperature: 0,
+            maxTokens: 140,
+            // Usa o agentModel do provider ativo (não hardcodar modelo específico)
+        });
+        return parseSemanticModeResponse(response);
+    }
+    catch (error) {
+        console.warn('[Router] Semantic routing failed:', error?.message || error);
+        return null;
+    }
 }
-function shouldUseAgentLoopForObjective(objetivoRaw, activeUrl) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const heuristic = heuristicRouteForObjective(objetivoRaw, activeUrl);
-        if (heuristic.decided) {
-            return {
-                useAgent: heuristic.useAgent,
-                reason: heuristic.reason,
-                source: 'heuristic'
-            };
-        }
-        const semantic = yield semanticRouteForObjective(objetivoRaw, activeUrl);
-        if (semantic) {
-            return semantic;
-        }
+async function shouldUseAgentLoopForObjective(objetivoRaw, activeUrl) {
+    const heuristic = heuristicRouteForObjective(objetivoRaw, activeUrl);
+    if (heuristic.decided) {
         return {
-            useAgent: false,
-            reason: 'fallback_chat',
-            source: 'fallback'
+            useAgent: heuristic.useAgent,
+            reason: heuristic.reason,
+            source: 'heuristic'
         };
-    });
+    }
+    const semantic = await semanticRouteForObjective(objetivoRaw, activeUrl);
+    if (semantic) {
+        return semantic;
+    }
+    return {
+        useAgent: false,
+        reason: 'fallback_chat',
+        source: 'fallback'
+    };
 }
-electron_1.ipcMain.handle('agent-should-handle', (_event, objetivo) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
+electron_1.ipcMain.handle('agent-should-handle', async (_event, objetivo) => {
     let activeUrl = null;
     try {
-        activeUrl = (_b = (_a = (0, browser_manager_1.getActivePage)()) === null || _a === void 0 ? void 0 : _a.url()) !== null && _b !== void 0 ? _b : null;
+        activeUrl = (0, browser_manager_1.getActivePage)()?.url() ?? null;
     }
-    catch (_c) { }
-    return yield shouldUseAgentLoopForObjective(objetivo, activeUrl);
-}));
+    catch { }
+    return await shouldUseAgentLoopForObjective(objetivo, activeUrl);
+});
 // ============================================================================
 // TELEGRAM BOT (Modo 24/7)
 // ============================================================================
@@ -2097,41 +2162,37 @@ function loadTelegramToken() {
     }
     return (0, crypto_store_1.safeDecrypt)(raw);
 }
-function initTelegramBotIfConfigured() {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (!store)
-            return;
-        const enabled = store.get('telegramEnabled', false);
-        if (!enabled)
-            return;
-        const token = loadTelegramToken();
-        const userId = store.get('telegramUserId', 0);
-        if (!token || !userId)
-            return;
-        try {
-            yield (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
-            (0, user_input_1.setNotifyFn)((prompt) => (0, telegram_bot_1.sendMessage)(userId, prompt));
-            trayModeActive = true;
-            if (!tray)
-                createTray();
-            console.log('[Telegram] Bot iniciado automaticamente (modo 24/7 ativo)');
-        }
-        catch (e) {
-            console.error('[Telegram] Falha ao iniciar bot:', e.message);
-        }
-    });
+async function initTelegramBotIfConfigured() {
+    if (!store)
+        return;
+    const enabled = store.get('telegramEnabled', false);
+    if (!enabled)
+        return;
+    const token = loadTelegramToken();
+    const userId = store.get('telegramUserId', 0);
+    if (!token || !userId)
+        return;
+    try {
+        await (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
+        (0, user_input_1.setNotifyFn)((prompt) => (0, telegram_bot_1.sendMessage)(userId, prompt));
+        trayModeActive = true;
+        if (!tray)
+            createTray();
+        console.log('[Telegram] Bot iniciado automaticamente (modo 24/7 ativo)');
+    }
+    catch (e) {
+        console.error('[Telegram] Falha ao iniciar bot:', e.message);
+    }
 }
-function runAgentForTelegram(text, sessionId) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const agent = yield ensureAgentInitialized();
-        const tenantConfig = agent.getDefaultTenantConfig();
-        const objetivoFinal = injectDisambiguationIfNeeded(text);
-        return yield agent.runAgentLoop({
-            objetivo: objetivoFinal,
-            config: { maxIterations: 8, timeoutMs: 120000 },
-            tenantConfig,
-            sessionId,
-        });
+async function runAgentForTelegram(text, sessionId) {
+    const agent = await ensureAgentInitialized();
+    const tenantConfig = agent.getDefaultTenantConfig();
+    const objetivoFinal = injectDisambiguationIfNeeded(text);
+    return await agent.runAgentLoop({
+        objetivo: objetivoFinal,
+        config: { maxIterations: 8, timeoutMs: 120000 },
+        tenantConfig,
+        sessionId,
     });
 }
 /** Retorna config do Telegram (sem o token completo) */
@@ -2150,7 +2211,7 @@ electron_1.ipcMain.handle('telegram-get-config', () => {
     };
 });
 /** Salva token + userId do Telegram */
-electron_1.ipcMain.handle('telegram-set-config', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { token, userId }) {
+electron_1.ipcMain.handle('telegram-set-config', async (_event, { token, userId }) => {
     if (!store)
         return { error: 'Store não inicializado' };
     const normalizedToken = String(token || '').trim();
@@ -2158,9 +2219,9 @@ electron_1.ipcMain.handle('telegram-set-config', (_event_1, _a) => __awaiter(voi
     store.set('telegramToken', normalizedToken ? (0, crypto_store_1.encryptApiKey)(normalizedToken) : '');
     store.set('telegramUserId', normalizedUserId);
     return { success: true };
-}));
+});
 /** Ativa o modo 24/7 (liga o bot + tray) */
-electron_1.ipcMain.handle('telegram-enable', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('telegram-enable', async () => {
     if (!store)
         return { error: 'Store não inicializado' };
     const token = loadTelegramToken();
@@ -2169,7 +2230,7 @@ electron_1.ipcMain.handle('telegram-enable', () => __awaiter(void 0, void 0, voi
         return { error: 'Configure o token e o ID do usuário antes de ativar.' };
     }
     try {
-        yield (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
+        await (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
         (0, user_input_1.setNotifyFn)((prompt) => (0, telegram_bot_1.sendMessage)(userId, prompt));
         store.set('telegramEnabled', true);
         refreshTrayMenu();
@@ -2178,24 +2239,24 @@ electron_1.ipcMain.handle('telegram-enable', () => __awaiter(void 0, void 0, voi
     catch (e) {
         return { error: `Falha ao iniciar bot: ${e.message}` };
     }
-}));
+});
 /** Desativa o modo 24/7 (desliga o bot + remove comportamento de tray) */
-electron_1.ipcMain.handle('telegram-disable', () => __awaiter(void 0, void 0, void 0, function* () {
-    yield (0, telegram_bot_1.stopBot)();
+electron_1.ipcMain.handle('telegram-disable', async () => {
+    await (0, telegram_bot_1.stopBot)();
     if (store)
         store.set('telegramEnabled', false);
     refreshTrayMenu();
     return { success: true, running: false };
-}));
+});
 /** Retorna status em tempo real */
 electron_1.ipcMain.handle('telegram-get-status', () => ({
     running: (0, telegram_bot_1.isBotRunning)(),
     trayActive: trayModeActive
 }));
 // IPC: Run Agent Loop — proxy para backend (com fallback local)
-electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('agent-run', async (_event, objetivo, config, sessionId) => {
     // Verificar licença antes de executar
-    const license = yield (0, license_1.checkLicense)();
+    const license = await (0, license_1.checkLicense)();
     if (license.status === 'not_authenticated') {
         return { success: false, error: 'not_authenticated' };
     }
@@ -2206,12 +2267,12 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
     const objetivoNorm = objetivo.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/\b(\d{20})\b/g, (_, d) => `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16, 20)}`);
     console.log('[Agent] CNJ normalize:', objetivo, '->', objetivoNorm);
     const objetivoFinal = injectDisambiguationIfNeeded(objetivoNorm);
-    const maxIter = Math.min(Math.max(Number(config === null || config === void 0 ? void 0 : config.maxIterations) || 5, 1), 10);
-    const timeoutMs = Math.min(Math.max(Number(config === null || config === void 0 ? void 0 : config.timeoutMs) || 300000, 10000), 600000);
+    const maxIter = Math.min(Math.max(Number(config?.maxIterations) || 5, 1), 10);
+    const timeoutMs = Math.min(Math.max(Number(config?.timeoutMs) || 300000, 10000), 600000);
     // Tenta via backend (processo separado)
     if ((0, backend_client_1.isBackendAlive)()) {
         try {
-            const resposta = yield (0, backend_client_1.rpcCall)('agent-run', {
+            const resposta = await (0, backend_client_1.rpcCall)('agent-run', {
                 objetivo: objetivoFinal,
                 config: { maxIterations: maxIter, timeoutMs },
                 sessionId: sessionId || AGENT_SESSION_ID,
@@ -2225,9 +2286,9 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
     }
     // Fallback: executa localmente (compatibilidade)
     try {
-        const agent = yield ensureAgentInitialized();
+        const agent = await ensureAgentInitialized();
         const tenantConfig = agent.getDefaultTenantConfig();
-        const resposta = yield agent.runAgentLoop({
+        const resposta = await agent.runAgentLoop({
             objetivo: objetivoFinal,
             config: { maxIterations: maxIter, timeoutMs },
             tenantConfig,
@@ -2239,39 +2300,38 @@ electron_1.ipcMain.handle('agent-run', (_event, objetivo, config, sessionId) => 
         console.error('[Agent Local] Erro:', error);
         return { success: false, error: error.message };
     }
-}));
+});
 // IPC: Cancel Agent Loop — proxy para backend (com fallback local)
-electron_1.ipcMain.handle('agent-cancel', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('agent-cancel', async () => {
     if ((0, backend_client_1.isBackendAlive)()) {
         try {
-            yield (0, backend_client_1.rpcCall)('agent-cancel');
+            await (0, backend_client_1.rpcCall)('agent-cancel');
             return { success: true };
         }
-        catch ( /* fallback */_a) { /* fallback */ }
+        catch { /* fallback */ }
     }
-    const agent = yield loadAgentModule();
+    const agent = await loadAgentModule();
     agent.cancelAgentLoop();
     return { success: true };
-}));
+});
 // ============================================================================
 // IPC: Plan & Orchestrator (Phase 1 AIOS)
 // ============================================================================
-electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
-    const license = yield (0, license_1.checkLicense)();
+electron_1.ipcMain.handle('ai-plan-execute', async (_event, payload) => {
+    const license = await (0, license_1.checkLicense)();
     if (license.status === 'not_authenticated') {
         return { success: false, error: 'not_authenticated' };
     }
     if (license.status === 'trial_expired') {
         return { success: false, error: 'trial_expired' };
     }
-    const raw = payload !== null && payload !== void 0 ? payload : {};
-    const sessionId = (raw === null || raw === void 0 ? void 0 : raw.sessionId) || AGENT_SESSION_ID;
-    const isLegacyPlan = Array.isArray(raw === null || raw === void 0 ? void 0 : raw.steps);
-    const inferredGoal = String((raw === null || raw === void 0 ? void 0 : raw.goal)
-        || ((_a = raw === null || raw === void 0 ? void 0 : raw.intent) === null || _a === void 0 ? void 0 : _a.description)
-        || ((_b = raw === null || raw === void 0 ? void 0 : raw.intent) === null || _b === void 0 ? void 0 : _b.objective)
-        || (raw === null || raw === void 0 ? void 0 : raw.description)
+    const raw = payload ?? {};
+    const sessionId = raw?.sessionId || AGENT_SESSION_ID;
+    const isLegacyPlan = Array.isArray(raw?.steps);
+    const inferredGoal = String(raw?.goal
+        || raw?.intent?.description
+        || raw?.intent?.objective
+        || raw?.description
         || '').trim();
     // Legacy executePlan(sendChat.plan): executar no backend para evitar cair no browser/local do main.
     if (isLegacyPlan && inferredGoal) {
@@ -2279,7 +2339,7 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void
         const fallbackCfg = { maxIterations: 8, timeoutMs: 300000 };
         if ((0, backend_client_1.isBackendAlive)()) {
             try {
-                const resposta = yield (0, backend_client_1.rpcCall)('agent-run', {
+                const resposta = await (0, backend_client_1.rpcCall)('agent-run', {
                     objetivo: objetivoFinal,
                     config: fallbackCfg,
                     sessionId,
@@ -2287,13 +2347,13 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void
                 return { success: true, result: resposta, mode: 'backend-agent' };
             }
             catch (error) {
-                console.warn('[ai-plan-execute] Falha no backend para plano legado, usando fallback local:', (error === null || error === void 0 ? void 0 : error.message) || error);
+                console.warn('[ai-plan-execute] Falha no backend para plano legado, usando fallback local:', error?.message || error);
             }
         }
         try {
-            const agent = yield ensureAgentInitialized();
+            const agent = await ensureAgentInitialized();
             const tenantConfig = agent.getDefaultTenantConfig();
-            const resposta = yield agent.runAgentLoop({
+            const resposta = await agent.runAgentLoop({
                 objetivo: objetivoFinal,
                 config: fallbackCfg,
                 tenantConfig,
@@ -2302,16 +2362,16 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void
             return { success: true, result: resposta, mode: 'local-agent' };
         }
         catch (error) {
-            return { success: false, error: (error === null || error === void 0 ? void 0 : error.message) || String(error) };
+            return { success: false, error: error?.message || String(error) };
         }
     }
-    const goal = String((raw === null || raw === void 0 ? void 0 : raw.goal) || '').trim();
+    const goal = String(raw?.goal || '').trim();
     if (!goal) {
         return { success: false, error: 'goal ausente no payload' };
     }
     try {
-        yield ensureAgentInitialized();
-        const { Orchestrator } = yield Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
+        await ensureAgentInitialized();
+        const { Orchestrator } = await Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
         const orchestrator = new Orchestrator();
         _activeOrchestratorRef = orchestrator;
         _activeOrchestratorState = null;
@@ -2357,9 +2417,9 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void
                 }
                 _activeOrchestratorRef = null;
             }
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('agent-event', { type: 'orchestrator', data: evt });
+            mainWindow?.webContents.send('agent-event', { type: 'orchestrator', data: evt });
         });
-        const result = yield orchestrator.execute(goal, sessionId);
+        const result = await orchestrator.execute(goal, sessionId);
         return { success: true, result };
     }
     catch (error) {
@@ -2367,18 +2427,18 @@ electron_1.ipcMain.handle('ai-plan-execute', (_event, payload) => __awaiter(void
         console.error('[Orchestrator] Erro:', error.message);
         return { success: false, error: error.message };
     }
-}));
+});
 // ============================================================================
 // IPC: Orchestrator — estado em tempo real + cancel
 // ============================================================================
 electron_1.ipcMain.handle('orchestrator-get-state', () => _activeOrchestratorState);
-electron_1.ipcMain.handle('orchestrator-cancel', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('orchestrator-cancel', async () => {
     if (!_activeOrchestratorRef)
         return { success: false, error: 'Nenhuma execução ativa' };
-    yield _activeOrchestratorRef.cancel();
+    await _activeOrchestratorRef.cancel();
     _activeOrchestratorRef = null;
     return { success: true };
-}));
+});
 electron_1.ipcMain.handle('orchestrator-pause', () => {
     if (!_activeOrchestratorRef)
         return { success: false, error: 'Nenhuma execução ativa' };
@@ -2392,276 +2452,344 @@ electron_1.ipcMain.handle('orchestrator-resume', () => {
     return { success: true };
 });
 electron_1.ipcMain.handle('orchestrator-is-paused', () => {
-    var _a;
-    return { paused: (_a = _activeOrchestratorRef === null || _activeOrchestratorRef === void 0 ? void 0 : _activeOrchestratorRef.isPaused) !== null && _a !== void 0 ? _a : false };
+    return { paused: _activeOrchestratorRef?.isPaused ?? false };
 });
 // ============================================================================
 // IPC: Checkpoints (P3a AIOS — retomada de planos interrompidos)
 // ============================================================================
-electron_1.ipcMain.handle('checkpoint-list-pending', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { listPendingCheckpoints } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+electron_1.ipcMain.handle('checkpoint-list-pending', async () => {
+    const { listPendingCheckpoints } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
     return listPendingCheckpoints();
-}));
-electron_1.ipcMain.handle('checkpoint-resume', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { planId }) {
+});
+electron_1.ipcMain.handle('checkpoint-resume', async (_event, { planId }) => {
     try {
-        const { loadCheckpoint, restorePlanFromCheckpoint } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+        const { loadCheckpoint, restorePlanFromCheckpoint } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
         const checkpoint = loadCheckpoint(planId);
         if (!checkpoint)
             return { success: false, error: 'Checkpoint não encontrado' };
-        yield ensureAgentInitialized();
-        const { Orchestrator } = yield Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
+        await ensureAgentInitialized();
+        const { Orchestrator } = await Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
         const orchestrator = new Orchestrator();
         orchestrator.on('event', (evt) => {
-            mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('agent-event', {
+            mainWindow?.webContents.send('agent-event', {
                 type: 'orchestrator',
                 data: evt,
             });
         });
-        const result = yield orchestrator.execute(checkpoint.goal, AGENT_SESSION_ID);
+        const result = await orchestrator.execute(checkpoint.goal, AGENT_SESSION_ID);
         return { success: true, result };
     }
     catch (error) {
         console.error('[Checkpoint] Erro ao retomar:', error.message);
         return { success: false, error: error.message };
     }
-}));
-electron_1.ipcMain.handle('checkpoint-remove', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { planId }) {
-    const { removeCheckpoint } = yield Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
+});
+electron_1.ipcMain.handle('checkpoint-remove', async (_event, { planId }) => {
+    const { removeCheckpoint } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
     removeCheckpoint(planId);
     return { success: true };
-}));
+});
 // ============================================================================
 // IPC: Scheduler (Phase 2 AIOS — Autonomia)
 // ============================================================================
-electron_1.ipcMain.handle('scheduler-list-goals', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getGoalStore } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+electron_1.ipcMain.handle('scheduler-list-goals', async () => {
+    const { getGoalStore } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
     return getGoalStore().getAllGoals();
-}));
-electron_1.ipcMain.handle('scheduler-add-goal', (_event, goalInput) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('scheduler-add-goal', async (_event, goalInput) => {
     try {
-        const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const goal = yield getGoalStore().addGoal(goalInput);
+        const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const goal = await getGoalStore().addGoal(goalInput);
         getScheduler().scheduleGoal(goal);
         return { success: true, goal };
     }
     catch (err) {
         return { success: false, error: err.message };
     }
-}));
-electron_1.ipcMain.handle('scheduler-update-goal', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { id, updates }) {
+});
+electron_1.ipcMain.handle('scheduler-update-goal', async (_event, { id, updates }) => {
     try {
-        const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const goal = yield getGoalStore().updateGoal(id, updates);
+        const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+        const goal = await getGoalStore().updateGoal(id, updates);
         if (goal)
-            yield getScheduler().rescheduleGoal(id);
+            await getScheduler().rescheduleGoal(id);
         return { success: true, goal };
     }
     catch (err) {
         return { success: false, error: err.message };
     }
-}));
-electron_1.ipcMain.handle('scheduler-remove-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+});
+electron_1.ipcMain.handle('scheduler-remove-goal', async (_event, id) => {
+    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
     getScheduler().unscheduleGoal(id);
-    const removed = yield getGoalStore().removeGoal(id);
+    const removed = await getGoalStore().removeGoal(id);
     return { success: removed };
-}));
-electron_1.ipcMain.handle('scheduler-pause-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-    yield getGoalStore().setStatus(id, 'paused');
+});
+electron_1.ipcMain.handle('scheduler-pause-goal', async (_event, id) => {
+    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+    await getGoalStore().setStatus(id, 'paused');
     getScheduler().unscheduleGoal(id);
     return { success: true };
-}));
-electron_1.ipcMain.handle('scheduler-resume-goal', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getGoalStore, getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-    const goal = yield getGoalStore().updateGoal(id, { status: 'active' });
+});
+electron_1.ipcMain.handle('scheduler-resume-goal', async (_event, id) => {
+    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+    const goal = await getGoalStore().updateGoal(id, { status: 'active' });
     if (goal)
         getScheduler().scheduleGoal(goal);
     return { success: true };
-}));
-electron_1.ipcMain.handle('scheduler-run-now', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('scheduler-run-now', async (_event, id) => {
     try {
-        const { getScheduler } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
-        yield getScheduler().runNow(id);
+        const { getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
+        await getScheduler().runNow(id);
         return { success: true };
     }
     catch (err) {
         return { success: false, error: err.message };
     }
-}));
-electron_1.ipcMain.handle('scheduler-get-runs', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { goalId, limit }) {
-    const { getGoalStore } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+});
+electron_1.ipcMain.handle('scheduler-get-runs', async (_event, { goalId, limit }) => {
+    const { getGoalStore } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
     return getGoalStore().getRunsForGoal(goalId, limit || 10);
-}));
-electron_1.ipcMain.handle('scheduler-get-status', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getScheduler, getRunningCount } = yield Promise.resolve().then(() => __importStar(require('./scheduler')));
+});
+electron_1.ipcMain.handle('scheduler-get-status', async () => {
+    const { getScheduler, getRunningCount } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
     const status = getScheduler().getStatus();
-    return Object.assign(Object.assign({}, status), { runningJobs: getRunningCount() });
-}));
-electron_1.ipcMain.handle('scheduler-set-auto-launch', (_event, enabled) => __awaiter(void 0, void 0, void 0, function* () {
+    return { ...status, runningJobs: getRunningCount() };
+});
+electron_1.ipcMain.handle('scheduler-set-auto-launch', async (_event, enabled) => {
     electron_1.app.setLoginItemSettings({
         openAtLogin: enabled,
         args: enabled ? ['--background'] : [],
     });
     return { success: true, enabled };
-}));
-electron_1.ipcMain.handle('scheduler-get-auto-launch', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('scheduler-get-auto-launch', async () => {
     const settings = electron_1.app.getLoginItemSettings();
     return { enabled: settings.openAtLogin };
-}));
+});
 // ============================================================================
 // IPC: Brain (SQLite FTS5 + Knowledge Graph)
 // ============================================================================
-electron_1.ipcMain.handle('brain-get-graph', () => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('brain-get-graph', async () => {
     const brain = (0, brain_1.getBrainSafe)();
     if (!brain)
         return { nodes: [], edges: [] };
     return brain.getFullGraph();
-}));
-electron_1.ipcMain.handle('brain-get-subgraph', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { nodeId, depth }) {
+});
+electron_1.ipcMain.handle('brain-get-subgraph', async (_event, { nodeId, depth }) => {
     const brain = (0, brain_1.getBrainSafe)();
     if (!brain)
         return { nodes: [], edges: [] };
-    return brain.getSubgraph(nodeId, depth !== null && depth !== void 0 ? depth : 1);
-}));
-electron_1.ipcMain.handle('brain-search', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { query, types, limit }) {
+    return brain.getSubgraph(nodeId, depth ?? 1);
+});
+electron_1.ipcMain.handle('brain-search', async (_event, { query, types, limit }) => {
     const brain = (0, brain_1.getBrainSafe)();
     if (!brain)
         return [];
     return brain.search(query, { types: types, limit });
-}));
-electron_1.ipcMain.handle('brain-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-get-stats', async () => {
     const brain = (0, brain_1.getBrainSafe)();
     if (!brain)
         return { nodeCount: 0, edgeCount: 0, byType: {} };
     return brain.getStats();
-}));
-electron_1.ipcMain.handle('brain-get-node', (_event, nodeId) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-dashboard', async (_event, opts) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return null;
+    const { getDashboardOverview } = await Promise.resolve().then(() => __importStar(require('./brain/dashboard')));
+    return getDashboardOverview(brain, {
+        windowDays: opts?.windowDays ?? 7,
+        topFlowsLimit: opts?.topFlowsLimit ?? 10,
+    });
+});
+electron_1.ipcMain.handle('brain-trace', async (_event, traceId) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return null;
+    const { getTrace } = await Promise.resolve().then(() => __importStar(require('./brain/trace-query')));
+    return getTrace(brain, traceId);
+});
+electron_1.ipcMain.handle('brain-detect-flows', async () => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { error: 'brain não inicializado' };
+    const { detectFlows } = await Promise.resolve().then(() => __importStar(require('./brain/flow-detector')));
+    return detectFlows(brain);
+});
+electron_1.ipcMain.handle('brain-get-preference', async (_event, key, fallback) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return fallback;
+    return brain.getPreference(key, fallback);
+});
+electron_1.ipcMain.handle('brain-set-preference', async (_event, key, value) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { ok: false, error: 'brain não inicializado' };
+    brain.setPreference(key, value);
+    return { ok: true };
+});
+electron_1.ipcMain.handle('brain-export-patterns', async () => {
+    try {
+        const { exportBrain } = await Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const brain = (0, brain_1.getBrain)();
+        return await exportBrain(brain, { mode: 'patterns' });
+    }
+    catch (err) {
+        return { error: err?.message || String(err) };
+    }
+});
+electron_1.ipcMain.handle('brain-get-node', async (_event, nodeId) => {
     const brain = (0, brain_1.getBrainSafe)();
     if (!brain)
         return null;
     return brain.getNode(nodeId);
-}));
-electron_1.ipcMain.handle('brain-run-dream', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-run-dream', async (_event, opts) => {
     try {
-        const { runDream } = yield Promise.resolve().then(() => __importStar(require('./brain/dream')));
+        const { runDream } = await Promise.resolve().then(() => __importStar(require('./brain/dream')));
         const brain = (0, brain_1.getBrain)();
-        return yield runDream(brain);
+        return await runDream(brain, opts || {});
     }
     catch (err) {
         console.error('[Brain] Dream falhou:', err);
         return { error: err.message };
     }
-}));
-electron_1.ipcMain.handle('brain-export', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-dream-history', async () => {
     try {
-        const { exportBrain } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const { getDreamHistory } = await Promise.resolve().then(() => __importStar(require('./brain/dream')));
         const brain = (0, brain_1.getBrain)();
-        return yield exportBrain(brain);
+        return getDreamHistory(brain);
+    }
+    catch (err) {
+        console.error('[Brain] Dream history falhou:', err);
+        return [];
+    }
+});
+electron_1.ipcMain.handle('brain-restore-dream-snapshot', async (_event, snapshotPath) => {
+    try {
+        const { restoreDreamSnapshot } = await Promise.resolve().then(() => __importStar(require('./brain/dream')));
+        const brain = (0, brain_1.getBrain)();
+        return restoreDreamSnapshot(brain, snapshotPath);
+    }
+    catch (err) {
+        console.error('[Brain] Dream restore falhou:', err);
+        return { ok: false, snapshotPath, restoredAt: new Date().toISOString(), nodesRestored: 0, edgesRestored: 0, error: err.message };
+    }
+});
+electron_1.ipcMain.handle('brain-export', async () => {
+    try {
+        const { exportBrain } = await Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const brain = (0, brain_1.getBrain)();
+        return await exportBrain(brain);
     }
     catch (err) {
         console.error('[Brain] Export falhou:', err);
         return { error: err.message };
     }
-}));
-electron_1.ipcMain.handle('brain-import', (_event, zipPath) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-import', async (_event, zipPath) => {
     try {
-        const { importBrain } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
+        const { importBrain } = await Promise.resolve().then(() => __importStar(require('./brain/brain-export')));
         const brain = (0, brain_1.getBrain)();
-        return yield importBrain(brain, zipPath);
+        return await importBrain(brain, zipPath);
     }
     catch (err) {
         console.error('[Brain] Import falhou:', err);
         return { error: err.message };
     }
-}));
-electron_1.ipcMain.handle('brain-render-markdown', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('brain-render-markdown', async () => {
     try {
-        const { renderBrainMarkdown } = yield Promise.resolve().then(() => __importStar(require('./brain/brain-renderer')));
+        const { renderBrainMarkdown } = await Promise.resolve().then(() => __importStar(require('./brain/brain-renderer')));
         const brain = (0, brain_1.getBrain)();
-        return yield renderBrainMarkdown(brain);
+        return await renderBrainMarkdown(brain);
     }
     catch (err) {
         console.error('[Brain] Render falhou:', err);
         return { error: err.message };
     }
-}));
+});
 // ============================================================================
 // IPC: DataJud Pipeline
 // ============================================================================
-electron_1.ipcMain.handle('datajud-get-profile', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getProfile } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+electron_1.ipcMain.handle('datajud-get-profile', async () => {
+    const { getProfile } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     return getProfile();
-}));
-electron_1.ipcMain.handle('datajud-save-profile', (_event, profile) => __awaiter(void 0, void 0, void 0, function* () {
-    const { saveProfile } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-    yield saveProfile(profile);
+});
+electron_1.ipcMain.handle('datajud-save-profile', async (_event, profile) => {
+    const { saveProfile } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+    await saveProfile(profile);
     return { success: true };
-}));
-electron_1.ipcMain.handle('datajud-set-api-key', (_event, key) => __awaiter(void 0, void 0, void 0, function* () {
-    const { setDataJudApiKey, getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-    yield setDataJudApiKey(key);
+});
+electron_1.ipcMain.handle('datajud-set-api-key', async (_event, key) => {
+    const { setDataJudApiKey, getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+    await setDataJudApiKey(key);
     // Reinicia sync engine com a nova key
     const engine = getSyncEngine();
     if (engine)
-        yield engine.restart();
+        await engine.restart();
     return { success: true };
-}));
-electron_1.ipcMain.handle('datajud-has-api-key', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { hasDataJudApiKey } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-has-api-key', async () => {
+    const { hasDataJudApiKey } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     return hasDataJudApiKey();
-}));
-electron_1.ipcMain.handle('datajud-add-processo', (_event, processo) => __awaiter(void 0, void 0, void 0, function* () {
-    const { addMonitoredProcesso } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-    yield addMonitoredProcesso(processo);
+});
+electron_1.ipcMain.handle('datajud-add-processo', async (_event, processo) => {
+    const { addMonitoredProcesso } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+    await addMonitoredProcesso(processo);
     return { success: true };
-}));
-electron_1.ipcMain.handle('datajud-remove-processo', (_event, numero) => __awaiter(void 0, void 0, void 0, function* () {
-    const { removeMonitoredProcesso } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-    yield removeMonitoredProcesso(numero);
+});
+electron_1.ipcMain.handle('datajud-remove-processo', async (_event, numero) => {
+    const { removeMonitoredProcesso } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+    await removeMonitoredProcesso(numero);
     return { success: true };
-}));
-electron_1.ipcMain.handle('datajud-list-processos', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getMonitoredProcessos } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-list-processos', async () => {
+    const { getMonitoredProcessos } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     return getMonitoredProcessos();
-}));
-electron_1.ipcMain.handle('datajud-search', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { numero, tribunal }) {
-    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-search', async (_event, { numero, tribunal }) => {
+    const { getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     const engine = getSyncEngine();
     if (!engine)
         return { error: 'Pipeline não inicializado' };
-    const result = yield engine.queryCold(numero, tribunal);
+    const result = await engine.queryCold(numero, tribunal);
     return result || { error: 'Processo não encontrado' };
-}));
-electron_1.ipcMain.handle('datajud-trigger-hot', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-trigger-hot', async () => {
+    const { getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     const engine = getSyncEngine();
     if (!engine)
         return { error: 'Pipeline não inicializado' };
     return engine.runHotSync();
-}));
-electron_1.ipcMain.handle('datajud-trigger-warm', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-trigger-warm', async () => {
+    const { getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     const engine = getSyncEngine();
     if (!engine)
         return { error: 'Pipeline não inicializado' };
     return engine.runWarmSync();
-}));
-electron_1.ipcMain.handle('datajud-get-sync-state', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
+});
+electron_1.ipcMain.handle('datajud-get-sync-state', async () => {
+    const { getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
     const engine = getSyncEngine();
     if (!engine)
         return null;
     return engine.getState();
-}));
-electron_1.ipcMain.handle('datajud-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getProfile, hasDataJudApiKey, getProcessoStoreStats, getJurisprudenciaStats, getSyncEngine } = yield Promise.resolve().then(() => __importStar(require('./datajud')));
-    const profile = yield getProfile();
-    const hasKey = yield hasDataJudApiKey();
+});
+electron_1.ipcMain.handle('datajud-get-stats', async () => {
+    const { getProfile, hasDataJudApiKey, getProcessoStoreStats, getJurisprudenciaStats, getSyncEngine } = await Promise.resolve().then(() => __importStar(require('./datajud')));
+    const profile = await getProfile();
+    const hasKey = await hasDataJudApiKey();
     const processoStats = getProcessoStoreStats();
     const jurispStats = getJurisprudenciaStats();
     const engine = getSyncEngine();
-    const state = engine === null || engine === void 0 ? void 0 : engine.getState();
+    const state = engine?.getState();
     return {
         profileConfigured: profile.tribunais.length > 0 || profile.areasAtuacao.length > 0,
         hasApiKey: hasKey,
@@ -2669,100 +2797,99 @@ electron_1.ipcMain.handle('datajud-get-stats', () => __awaiter(void 0, void 0, v
         processosAtivos: profile.processosMonitorados.filter(p => p.ativo).length,
         decisoesArmazenadas: jurispStats.total,
         processosArmazenados: processoStats.total,
-        lastHotSync: (state === null || state === void 0 ? void 0 : state.lastHotSync) || null,
-        lastWarmSync: (state === null || state === void 0 ? void 0 : state.lastWarmSync) || null,
-        consecutiveErrors: (state === null || state === void 0 ? void 0 : state.consecutiveErrors) || 0,
+        lastHotSync: state?.lastHotSync || null,
+        lastWarmSync: state?.lastWarmSync || null,
+        consecutiveErrors: state?.consecutiveErrors || 0,
     };
-}));
+});
 // ============================================================================
 // IPC: Knowledge Base de Documentos (Fase 3.5.3)
 // ============================================================================
 // Schemas
-electron_1.ipcMain.handle('doc-kb-list-schemas', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getAllSchemas } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+electron_1.ipcMain.handle('doc-kb-list-schemas', async () => {
+    const { getAllSchemas } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return getAllSchemas();
-}));
-electron_1.ipcMain.handle('doc-kb-get-schema', (_, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getSchema } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+});
+electron_1.ipcMain.handle('doc-kb-get-schema', async (_, id) => {
+    const { getSchema } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return getSchema(id);
-}));
-electron_1.ipcMain.handle('doc-kb-search-schemas', (_, query) => __awaiter(void 0, void 0, void 0, function* () {
-    const { searchSchemas } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+});
+electron_1.ipcMain.handle('doc-kb-search-schemas', async (_, query) => {
+    const { searchSchemas } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return searchSchemas(query);
-}));
-electron_1.ipcMain.handle('doc-kb-get-categories', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { listCategories } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+});
+electron_1.ipcMain.handle('doc-kb-get-categories', async () => {
+    const { listCategories } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return listCategories();
-}));
-electron_1.ipcMain.handle('doc-kb-schemas-by-category', (_, cat) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getSchemasByCategory } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+});
+electron_1.ipcMain.handle('doc-kb-schemas-by-category', async (_, cat) => {
+    const { getSchemasByCategory } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return getSchemasByCategory(cat);
-}));
+});
 // Examples
-electron_1.ipcMain.handle('doc-kb-get-examples', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { schemaId, limit }) {
-    const { getExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+electron_1.ipcMain.handle('doc-kb-get-examples', async (_, { schemaId, limit }) => {
+    const { getExamples } = await Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
     return getExamples(schemaId, limit);
-}));
-electron_1.ipcMain.handle('doc-kb-search-examples', (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { query, limit }) {
-    const { searchExamples } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+});
+electron_1.ipcMain.handle('doc-kb-search-examples', async (_, { query, limit }) => {
+    const { searchExamples } = await Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
     return searchExamples(query, limit);
-}));
-electron_1.ipcMain.handle('doc-kb-get-stats', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getExampleStats } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
-    const { getSchemaStats } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
+});
+electron_1.ipcMain.handle('doc-kb-get-stats', async () => {
+    const { getExampleStats } = await Promise.resolve().then(() => __importStar(require('./legal/doc-examples')));
+    const { getSchemaStats } = await Promise.resolve().then(() => __importStar(require('./legal/doc-schema-registry')));
     return {
         schemas: getSchemaStats(),
         examples: getExampleStats(),
     };
-}));
+});
 // Import
-electron_1.ipcMain.handle('doc-kb-import-folder', (_, folderPath) => __awaiter(void 0, void 0, void 0, function* () {
-    const { importFolder } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+electron_1.ipcMain.handle('doc-kb-import-folder', async (_, folderPath) => {
+    const { importFolder } = await Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
     return importFolder(folderPath, (msg) => {
-        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('doc-kb-import-progress', msg);
+        mainWindow?.webContents.send('doc-kb-import-progress', msg);
     });
-}));
-electron_1.ipcMain.handle('doc-kb-import-file', (_, filePath) => __awaiter(void 0, void 0, void 0, function* () {
-    const { importFile } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+});
+electron_1.ipcMain.handle('doc-kb-import-file', async (_, filePath) => {
+    const { importFile } = await Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
     return importFile(filePath);
-}));
-electron_1.ipcMain.handle('doc-kb-select-and-import', () => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield electron_1.dialog.showOpenDialog(mainWindow, {
+});
+electron_1.ipcMain.handle('doc-kb-select-and-import', async () => {
+    const result = await electron_1.dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory'],
         title: 'Selecionar pasta com documentos jurídicos',
     });
     if (result.canceled || !result.filePaths[0])
         return { imported: 0, skipped: 0, errors: [] };
-    const { importFolder } = yield Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
+    const { importFolder } = await Promise.resolve().then(() => __importStar(require('./legal/doc-importer')));
     return importFolder(result.filePaths[0], (msg) => {
-        mainWindow === null || mainWindow === void 0 ? void 0 : mainWindow.webContents.send('doc-kb-import-progress', msg);
+        mainWindow?.webContents.send('doc-kb-import-progress', msg);
     });
-}));
+});
 // ============================================================================
 // IPC: Batch Petitioning (Produção em Lote)
 // ============================================================================
-electron_1.ipcMain.handle('batch-list-lotes', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getLoteStore } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+electron_1.ipcMain.handle('batch-list-lotes', async () => {
+    const { getLoteStore } = await Promise.resolve().then(() => __importStar(require('./batch')));
     return getLoteStore().getAllLotes();
-}));
-electron_1.ipcMain.handle('batch-get-lote', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getLoteStore } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-get-lote', async (_event, id) => {
+    const { getLoteStore } = await Promise.resolve().then(() => __importStar(require('./batch')));
     return getLoteStore().getLote(id);
-}));
-electron_1.ipcMain.handle('batch-remove-lote', (_event, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getLoteStore, unregisterPipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-remove-lote', async (_event, id) => {
+    const { getLoteStore, unregisterPipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     unregisterPipeline(id);
     return getLoteStore().removeLote(id);
-}));
-electron_1.ipcMain.handle('batch-create-lote', (_event, params) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+});
+electron_1.ipcMain.handle('batch-create-lote', async (_event, params) => {
     try {
-        yield ensureAgentInitialized(); // Skills precisam estar registradas
-        const { createBatchLote, registerPipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+        await ensureAgentInitialized(); // Skills precisam estar registradas
+        const { createBatchLote, registerPipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
         // Ler conteúdo dos documentos anexados e adicionar ao contexto
         if (params.attachedDocs && params.attachedDocs.length > 0) {
-            const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
-            const path = yield Promise.resolve().then(() => __importStar(require('path')));
+            const fs = await Promise.resolve().then(() => __importStar(require('fs')));
+            const path = await Promise.resolve().then(() => __importStar(require('path')));
             const docContents = [];
             for (const docPath of params.attachedDocs) {
                 try {
@@ -2772,16 +2899,16 @@ electron_1.ipcMain.handle('batch-create-lote', (_event, params) => __awaiter(voi
                         text = fs.readFileSync(docPath, 'utf-8');
                     }
                     else if (ext === '.docx') {
-                        const mammoth = yield Promise.resolve().then(() => __importStar(require('mammoth')));
-                        const result = yield mammoth.extractRawText({ path: docPath });
+                        const mammoth = await Promise.resolve().then(() => __importStar(require('mammoth')));
+                        const result = await mammoth.extractRawText({ path: docPath });
                         text = result.value;
                     }
                     else if (ext === '.pdf') {
-                        const pdfParseModule = yield Promise.resolve().then(() => __importStar(require('pdf-parse')));
+                        const pdfParseModule = await Promise.resolve().then(() => __importStar(require('pdf-parse')));
                         const buf = fs.readFileSync(docPath);
-                        const pdfParseFn = (_a = pdfParseModule === null || pdfParseModule === void 0 ? void 0 : pdfParseModule.default) !== null && _a !== void 0 ? _a : pdfParseModule;
+                        const pdfParseFn = pdfParseModule?.default ?? pdfParseModule;
                         if (typeof pdfParseFn === 'function') {
-                            const data = yield pdfParseFn(buf);
+                            const data = await pdfParseFn(buf);
                             text = data.text;
                         }
                     }
@@ -2800,7 +2927,7 @@ electron_1.ipcMain.handle('batch-create-lote', (_event, params) => __awaiter(voi
                 params.tese = (params.tese || '') + docContext;
             }
         }
-        const { lote, pipeline } = yield createBatchLote(params);
+        const { lote, pipeline } = await createBatchLote(params);
         // Forward pipeline events to renderer
         pipeline.on('event', (event) => {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2817,59 +2944,59 @@ electron_1.ipcMain.handle('batch-create-lote', (_event, params) => __awaiter(voi
     catch (error) {
         return { success: false, error: error.message };
     }
-}));
-electron_1.ipcMain.handle('batch-approve-strategy', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-approve-strategy', async (_event, loteId) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.approveStrategy('app');
+    await pipeline.approveStrategy('app');
     return { success: true };
-}));
-electron_1.ipcMain.handle('batch-approve-wave', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { loteId, waveIndex, redraftIds }) {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-approve-wave', async (_event, { loteId, waveIndex, redraftIds }) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.approveWave(waveIndex, 'app', redraftIds);
+    await pipeline.approveWave(waveIndex, 'app', redraftIds);
     return { success: true };
-}));
-electron_1.ipcMain.handle('batch-approve-protocol', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-approve-protocol', async (_event, loteId) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.approveProtocol('app');
+    await pipeline.approveProtocol('app');
     return { success: true };
-}));
-electron_1.ipcMain.handle('batch-pause', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-pause', async (_event, loteId) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.pause();
+    await pipeline.pause();
     return { success: true };
-}));
-electron_1.ipcMain.handle('batch-resume', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-resume', async (_event, loteId) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.resume();
+    await pipeline.resume();
     return { success: true };
-}));
-electron_1.ipcMain.handle('batch-cancel', (_event, loteId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getActivePipeline } = yield Promise.resolve().then(() => __importStar(require('./batch')));
+});
+electron_1.ipcMain.handle('batch-cancel', async (_event, loteId) => {
+    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
     const pipeline = getActivePipeline(loteId);
     if (!pipeline)
         return { success: false, error: 'Pipeline não encontrado' };
-    yield pipeline.cancel();
+    await pipeline.cancel();
     return { success: true };
-}));
+});
 // ─── Batch: Leitura/Escrita de petição (editor) ──────────────────
-electron_1.ipcMain.handle('batch-read-peticao', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('batch-read-peticao', async (_event, filePath) => {
     try {
-        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
         if (!fs.existsSync(filePath))
             return { success: false, error: 'Arquivo não encontrado' };
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -2878,26 +3005,26 @@ electron_1.ipcMain.handle('batch-read-peticao', (_event, filePath) => __awaiter(
     catch (error) {
         return { success: false, error: error.message };
     }
-}));
-electron_1.ipcMain.handle('batch-save-peticao', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { filePath, content }) {
+});
+electron_1.ipcMain.handle('batch-save-peticao', async (_event, { filePath, content }) => {
     try {
-        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
         fs.writeFileSync(filePath, content, 'utf-8');
         return { success: true };
     }
     catch (error) {
         return { success: false, error: error.message };
     }
-}));
-electron_1.ipcMain.handle('batch-open-folder', (_event, folderPath) => __awaiter(void 0, void 0, void 0, function* () {
-    const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+});
+electron_1.ipcMain.handle('batch-open-folder', async (_event, folderPath) => {
+    const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
     shell.openPath(folderPath);
     return { success: true };
-}));
+});
 // ─── Batch: Export DOCX ──────────────────────────────────────────
-electron_1.ipcMain.handle('batch-export-docx', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('batch-export-docx', async (_event, filePath) => {
     try {
-        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
+        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
         if (!fs.existsSync(filePath))
             return { success: false, error: 'Arquivo não encontrado' };
         const htmlContent = fs.readFileSync(filePath, 'utf-8');
@@ -2909,31 +3036,31 @@ xmlns="http://www.w3.org/TR/REC-html40">
 ${htmlContent.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '')}
 </html>`;
         fs.writeFileSync(outputPath, docContent, 'utf-8');
-        const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
         shell.showItemInFolder(outputPath);
         return { success: true, path: outputPath };
     }
     catch (error) {
         return { success: false, error: error.message };
     }
-}));
+});
 // ─── Batch: Export PDF (via Chromium printToPDF) ─────────────────
-electron_1.ipcMain.handle('batch-export-pdf', (_event, filePath) => __awaiter(void 0, void 0, void 0, function* () {
+electron_1.ipcMain.handle('batch-export-pdf', async (_event, filePath) => {
     try {
-        const fs = yield Promise.resolve().then(() => __importStar(require('fs')));
-        const pathModule = yield Promise.resolve().then(() => __importStar(require('path')));
+        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
+        const pathModule = await Promise.resolve().then(() => __importStar(require('path')));
         if (!fs.existsSync(filePath))
             return { success: false, error: 'Arquivo não encontrado' };
         const htmlContent = fs.readFileSync(filePath, 'utf-8');
         const outputPath = filePath.replace(/\.html?$/i, '.pdf');
         // Use a hidden BrowserWindow to render HTML and print to PDF
-        const { BrowserWindow: BW } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
         const pdfWin = new BW({ show: false, width: 794, height: 1123 });
         // Load HTML content
         const tempPath = pathModule.join(pathModule.dirname(filePath), '_temp_pdf.html');
         fs.writeFileSync(tempPath, htmlContent, 'utf-8');
-        yield pdfWin.loadFile(tempPath);
-        const pdfBuffer = yield pdfWin.webContents.printToPDF({
+        await pdfWin.loadFile(tempPath);
+        const pdfBuffer = await pdfWin.webContents.printToPDF({
             pageSize: 'A4',
             margins: { marginType: 'default' },
             printBackground: true,
@@ -2944,33 +3071,33 @@ electron_1.ipcMain.handle('batch-export-pdf', (_event, filePath) => __awaiter(vo
         try {
             fs.unlinkSync(tempPath);
         }
-        catch (_a) { }
-        const { shell } = yield Promise.resolve().then(() => __importStar(require('electron')));
+        catch { }
+        const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
         shell.showItemInFolder(outputPath);
         return { success: true, path: outputPath };
     }
     catch (error) {
         return { success: false, error: error.message };
     }
-}));
+});
 // ============================================================================
 // IPC: Plugins (Phase 3 AIOS — Integrações Externas)
 // ============================================================================
-electron_1.ipcMain.handle('plugins-list', () => __awaiter(void 0, void 0, void 0, function* () {
-    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+electron_1.ipcMain.handle('plugins-list', async () => {
+    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
     return getPluginManager().listPlugins();
-}));
-electron_1.ipcMain.handle('plugins-get-status', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+});
+electron_1.ipcMain.handle('plugins-get-status', async (_event, pluginId) => {
+    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
     return getPluginManager().getPluginStatus(pluginId);
-}));
-electron_1.ipcMain.handle('plugins-get-auth-config', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
-    const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+});
+electron_1.ipcMain.handle('plugins-get-auth-config', async (_event, pluginId) => {
+    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
     return getPluginManager().getPluginAuthConfig(pluginId);
-}));
-electron_1.ipcMain.handle('plugins-start-oauth', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { pluginId, apiKey }) {
+});
+electron_1.ipcMain.handle('plugins-start-oauth', async (_event, { pluginId, apiKey }) => {
     try {
-        const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
+        const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
         const pm = getPluginManager();
         const plugin = pm.getPlugin(pluginId);
         if (!plugin)
@@ -2979,7 +3106,7 @@ electron_1.ipcMain.handle('plugins-start-oauth', (_event_1, _a) => __awaiter(voi
         // Desktop plugins sem auth — ativar direto
         if (!auth) {
             try {
-                yield pm.connectPlugin(pluginId, { accessToken: 'local' });
+                await pm.connectPlugin(pluginId, { accessToken: 'local' });
                 return { success: true };
             }
             catch (e) {
@@ -2990,21 +3117,21 @@ electron_1.ipcMain.handle('plugins-start-oauth', (_event_1, _a) => __awaiter(voi
         if (auth.type === 'api_key') {
             if (!apiKey)
                 return { success: false, error: 'API key obrigatória' };
-            yield pm.connectPlugin(pluginId, { accessToken: apiKey });
+            await pm.connectPlugin(pluginId, { accessToken: apiKey });
             return { success: true };
         }
         // OAuth2 — usa credenciais embarcadas do providerGroup
         if (!auth.oauth2)
             return { success: false, error: 'Plugin não suporta OAuth' };
-        const { getEmbeddedCredentials } = yield Promise.resolve().then(() => __importStar(require('./plugins/credentials')));
+        const { getEmbeddedCredentials } = await Promise.resolve().then(() => __importStar(require('./plugins/credentials')));
         const group = plugin.manifest.providerGroup;
         const embedded = group ? getEmbeddedCredentials(group) : null;
-        const clientId = (embedded === null || embedded === void 0 ? void 0 : embedded.clientId) || auth.oauth2.clientId || '';
-        const clientSecret = embedded === null || embedded === void 0 ? void 0 : embedded.clientSecret;
+        const clientId = embedded?.clientId || auth.oauth2.clientId || '';
+        const clientSecret = embedded?.clientSecret;
         if (!clientId) {
             return { success: false, error: `Credenciais não configuradas para o provedor "${group || pluginId}". Contate o desenvolvedor.` };
         }
-        const { runOAuthFlow } = yield Promise.resolve().then(() => __importStar(require('./plugins/oauth-flow')));
+        const { runOAuthFlow } = await Promise.resolve().then(() => __importStar(require('./plugins/oauth-flow')));
         const oauthOpts = {
             authorizationUrl: auth.oauth2.authorizationUrl,
             tokenUrl: auth.oauth2.tokenUrl,
@@ -3017,45 +3144,45 @@ electron_1.ipcMain.handle('plugins-start-oauth', (_event_1, _a) => __awaiter(voi
             oauthOpts.pkce = auth.oauth2.pkce;
         if (auth.oauth2.additionalParams)
             oauthOpts.additionalParams = auth.oauth2.additionalParams;
-        const result = yield runOAuthFlow(oauthOpts);
+        const result = await runOAuthFlow(oauthOpts);
         if (!result.success || !result.tokens) {
             return { success: false, error: result.error || 'OAuth falhou' };
         }
-        yield pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
+        await pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
         return { success: true };
     }
     catch (err) {
         return { success: false, error: err.message };
     }
-}));
-electron_1.ipcMain.handle('plugins-disconnect', (_event, pluginId) => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('plugins-disconnect', async (_event, pluginId) => {
     try {
-        const { getPluginManager } = yield Promise.resolve().then(() => __importStar(require('./plugins')));
-        yield getPluginManager().disconnectPlugin(pluginId);
+        const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
+        await getPluginManager().disconnectPlugin(pluginId);
         return { success: true };
     }
     catch (err) {
         return { success: false, error: err.message };
     }
-}));
+});
 // ============================================================================
 // IPC: Auth / Licença
 // ============================================================================
-electron_1.ipcMain.handle('auth-sign-in', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { email, password }) {
+electron_1.ipcMain.handle('auth-sign-in', async (_event, { email, password }) => {
     return (0, license_1.authSignIn)(email, password);
-}));
-electron_1.ipcMain.handle('auth-sign-up', (_event_1, _a) => __awaiter(void 0, [_event_1, _a], void 0, function* (_event, { email, password }) {
+});
+electron_1.ipcMain.handle('auth-sign-up', async (_event, { email, password }) => {
     return (0, license_1.authSignUp)(email, password);
-}));
-electron_1.ipcMain.handle('auth-sign-out', () => __awaiter(void 0, void 0, void 0, function* () {
-    yield (0, license_1.authSignOut)();
+});
+electron_1.ipcMain.handle('auth-sign-out', async () => {
+    await (0, license_1.authSignOut)();
     return { ok: true };
-}));
-electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('auth-google', async () => {
     try {
-        const http = yield Promise.resolve().then(() => __importStar(require('http')));
+        const http = await Promise.resolve().then(() => __importStar(require('http')));
         // Cria servidor local para capturar o callback
-        const { port, tokenPromise, server } = yield new Promise((resolve, reject) => {
+        const { port, tokenPromise, server } = await new Promise((resolve, reject) => {
             let resolveToken;
             const tokenPromise = new Promise(r => { resolveToken = r; });
             const server = http.createServer((req, res) => {
@@ -3101,24 +3228,24 @@ electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0,
         });
         const redirectTo = `http://localhost:${port}/auth/callback`;
         // Gera URL OAuth via Supabase com redirect para nosso server local
-        const { getSupabase } = yield Promise.resolve().then(() => __importStar(require('./auth/supabase-client')));
+        const { getSupabase } = await Promise.resolve().then(() => __importStar(require('./auth/supabase-client')));
         const sb = getSupabase();
-        const { data, error } = yield sb.auth.signInWithOAuth({
+        const { data, error } = await sb.auth.signInWithOAuth({
             provider: 'google',
             options: {
                 redirectTo,
                 skipBrowserRedirect: true,
             },
         });
-        if (error || !(data === null || data === void 0 ? void 0 : data.url)) {
+        if (error || !data?.url) {
             server.close();
-            return { ok: false, error: (error === null || error === void 0 ? void 0 : error.message) || 'Falha ao gerar URL de login' };
+            return { ok: false, error: error?.message || 'Falha ao gerar URL de login' };
         }
         // Abre no navegador do sistema (Chrome, Edge, etc.) onde o usuário já está logado
         electron_1.shell.openExternal(data.url);
         // Timeout de 5 minutos
         const timeout = setTimeout(() => { server.close(); }, 5 * 60 * 1000);
-        const tokenString = yield tokenPromise;
+        const tokenString = await tokenPromise;
         clearTimeout(timeout);
         server.close();
         if (!tokenString) {
@@ -3128,7 +3255,7 @@ electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0,
         const params = new URLSearchParams(tokenString);
         const accessToken = params.get('access_token') || '';
         const refreshToken = params.get('refresh_token') || '';
-        const { error: sessionError } = yield sb.auth.setSession({
+        const { error: sessionError } = await sb.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
         });
@@ -3136,9 +3263,9 @@ electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0,
             return { ok: false, error: sessionError.message };
         }
         // Garante perfil no banco
-        const { data: { user } } = yield sb.auth.getUser();
+        const { data: { user } } = await sb.auth.getUser();
         if (user) {
-            yield sb.from('profiles').upsert({ id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' }, { onConflict: 'id', ignoreDuplicates: true });
+            await sb.from('profiles').upsert({ id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' }, { onConflict: 'id', ignoreDuplicates: true });
         }
         return { ok: true };
     }
@@ -3146,17 +3273,17 @@ electron_1.ipcMain.handle('auth-google', () => __awaiter(void 0, void 0, void 0,
         console.error('[Auth] Google OAuth error:', err);
         return { ok: false, error: err.message };
     }
-}));
-electron_1.ipcMain.handle('auth-check-license', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('auth-check-license', async () => {
     return (0, license_1.checkLicense)();
-}));
-electron_1.ipcMain.handle('auth-refresh-license', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('auth-refresh-license', async () => {
     (0, license_1.refreshLicense)();
     return (0, license_1.checkLicense)();
-}));
-electron_1.ipcMain.handle('auth-get-profile', () => __awaiter(void 0, void 0, void 0, function* () {
+});
+electron_1.ipcMain.handle('auth-get-profile', async () => {
     return (0, license_1.getProfile)();
-}));
+});
 electron_1.ipcMain.handle('update-install-now', () => {
     electron_updater_1.autoUpdater.quitAndInstall();
 });

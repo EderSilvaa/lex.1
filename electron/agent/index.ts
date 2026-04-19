@@ -78,12 +78,18 @@ export async function initializeAgent(): Promise<void> {
     registerPesquisaSkills();
     registerBrowserSkills();
 
-    // C1: Carregar skills reais (substituem mocks de mesmo nome)
     try {
-        await loadSkillsFromDir('skills/pje');
+        const { initObserver, registerDefaultEnrichers } = await import('../observer');
+        initObserver();
+        registerDefaultEnrichers();
     } catch (e: any) {
-        console.warn('[Agent] Erro ao carregar skills PJe:', e.message);
+        console.warn('[Agent] Observer init falhou:', e?.message || e);
     }
+
+    // C1: Carregar skills reais (substituem mocks de mesmo nome)
+    // Obs: skills/pje já são registradas explicitamente por registerPJeSkills()
+    // com roteamento MCP vs legacy — não varrer o diretório aqui para não burlar
+    // o roteamento.
 
     try {
         await loadSkillsFromDir('skills/os');

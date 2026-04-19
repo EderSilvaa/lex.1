@@ -20,12 +20,31 @@ import * as zlib from 'zlib';
 import { promisify } from 'util';
 import type { BrainStore } from './brain-store';
 import type { BrainExportManifest, BrainNodeType } from './types';
+import {
+    getLocalSourceIdentity, applyTrustOnMerge, boostFlowByTrust,
+    type PatternsBundleMeta,
+} from './federated-trust';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
 const LEX_DIR = path.join(os.homedir(), '.lex');
 const EXCLUDED_TYPES: BrainNodeType[] = ['selector', 'prazo'];
+
+/**
+ * Modos de export:
+ *   - 'full'     — tudo exceto selectors/prazo (comportamento legado)
+ *   - 'patterns' — só conhecimento reutilizável (padrões de navegação,
+ *                  ações, fluxos, seletores, tribunais). ZERO dado de
+ *                  processo / parte / tese / decisão. Seguro para
+ *                  compartilhar entre escritórios.
+ */
+export type ExportMode = 'full' | 'patterns';
+
+// Tipos de nó que representam PADRÕES reutilizáveis (não dados de processo).
+const PATTERN_TYPES: ReadonlySet<BrainNodeType> = new Set<BrainNodeType>([
+    'page_state', 'action', 'flow', 'selector', 'tribunal',
+]);
 
 // ============================================================================
 // EXPORT
@@ -37,30 +56,71 @@ export interface ExportResult {
 }
 
 /**
+ * Em modo 'patterns', escrubbing adicional dos `data` de cada nó: remove
+ * campos que podem conter referências a processos/PII (url, title com número
+ * de processo, etc). Mantém só o que é reutilizável (domHash, tribunal,
+ * pjeContext, tool, outputHash, durationMs, success).
+ */
+const PATTERN_DATA_ALLOW: Record<string, ReadonlySet<string>> = {
+    page_state: new Set(['domHash', 'tribunal', 'pjeContext']),
+    action: new Set(['tool', 'server', 'outputHash', 'outputSize', 'durationMs', 'success']),
+    flow: new Set(['name', 'description']),
+    selector: new Set(['tribunal', 'context', 'selector', 'successCount', 'failureCount']),
+    tribunal: new Set(['name', 'uf', 'instancia']),
+};
+
+function scrubPatternData(type: BrainNodeType, data: Record<string, any>): Record<string, any> {
+    const allow = PATTERN_DATA_ALLOW[type];
+    if (!allow) return {};
+    const out: Record<string, any> = {};
+    for (const key of allow) {
+        if (data && key in data) out[key] = data[key];
+    }
+    return out;
+}
+
+/**
  * Exporta o Brain como arquivo .json.gz no diretório ~/.lex/.
  * Retorna o caminho do arquivo gerado.
  */
-export async function exportBrain(brain: BrainStore): Promise<ExportResult> {
+export async function exportBrain(
+    brain: BrainStore,
+    opts: { mode?: ExportMode } = {},
+): Promise<ExportResult> {
+    const mode: ExportMode = opts.mode ?? 'full';
+
     if (!fs.existsSync(LEX_DIR)) {
         fs.mkdirSync(LEX_DIR, { recursive: true });
     }
 
     const graph = brain.getFullGraph();
 
-    // Filtra nós excluídos
-    const excludedSet = new Set<string>(EXCLUDED_TYPES);
-    const nodes = graph.nodes.filter(n => !excludedSet.has(n.type));
+    let nodes = graph.nodes;
+    let excludedTypes: BrainNodeType[];
+
+    if (mode === 'patterns') {
+        nodes = graph.nodes
+            .filter(n => PATTERN_TYPES.has(n.type))
+            .map(n => ({ ...n, data: scrubPatternData(n.type, n.data || {}) }));
+        excludedTypes = (['processo', 'tese', 'parte', 'aprendizado', 'prazo', 'decisao'] as BrainNodeType[]);
+    } else {
+        const excludedSet = new Set<string>(EXCLUDED_TYPES);
+        nodes = graph.nodes.filter(n => !excludedSet.has(n.type));
+        excludedTypes = EXCLUDED_TYPES;
+    }
+
     const nodeIds = new Set(nodes.map(n => n.id));
     const edges = graph.edges.filter(e => nodeIds.has(e.sourceId) && nodeIds.has(e.targetId));
 
-    // Preferências (exceto campos sensíveis)
+    // Preferences: em 'patterns' não exporta nada; em 'full' segue o filtro antigo.
     const preferences: Record<string, any> = {};
-    const prefKeys = brain.db.prepare('SELECT key, value FROM preferences').all() as any[];
-    for (const row of prefKeys) {
-        // Exclude API keys or sensitive fields
-        if (!row.key.includes('api_key') && !row.key.includes('token')) {
-            try { preferences[row.key] = JSON.parse(row.value); }
-            catch { preferences[row.key] = row.value; }
+    if (mode === 'full') {
+        const prefKeys = brain.db.prepare('SELECT key, value FROM preferences').all() as any[];
+        for (const row of prefKeys) {
+            if (!row.key.includes('api_key') && !row.key.includes('token')) {
+                try { preferences[row.key] = JSON.parse(row.value); }
+                catch { preferences[row.key] = row.value; }
+            }
         }
     }
 
@@ -69,19 +129,37 @@ export async function exportBrain(brain: BrainStore): Promise<ExportResult> {
         exportedAt: new Date().toISOString(),
         nodeCount: nodes.length,
         edgeCount: edges.length,
-        excludedTypes: EXCLUDED_TYPES,
-    };
+        excludedTypes,
+        ...(mode === 'patterns' ? { mode: 'patterns' } : {}),
+    } as BrainExportManifest;
 
-    const bundle = { manifest, nodes, edges, preferences };
+    // Em modo patterns, anexa identidade do source — habilita federated trust
+    // no destino. Não vai em 'full' porque full só faz sentido como restore
+    // de backup local.
+    const patternsMeta: PatternsBundleMeta | undefined = mode === 'patterns'
+        ? (() => {
+            const id = getLocalSourceIdentity();
+            return {
+                sourceId: id.sourceId,
+                sourceFingerprint: id.sourceFingerprint,
+                exportedAt: manifest.exportedAt,
+                version: 1,
+            };
+        })()
+        : undefined;
+
+    const bundle: Record<string, any> = { manifest, nodes, edges, preferences };
+    if (patternsMeta) bundle['patternsMeta'] = patternsMeta;
     const json = JSON.stringify(bundle, null, 2);
     const compressed = await gzip(Buffer.from(json, 'utf-8'));
 
     const dateStr = new Date().toISOString().split('T')[0];
-    const fileName = `lex-brain-export-${dateStr}.json.gz`;
+    const suffix = mode === 'patterns' ? '-patterns' : '';
+    const fileName = `lex-brain-export${suffix}-${dateStr}.json.gz`;
     const filePath = path.join(LEX_DIR, fileName);
 
     fs.writeFileSync(filePath, compressed);
-    console.log(`[BrainExport] Exportado: ${filePath} (${nodes.length} nós, ${edges.length} arestas)`);
+    console.log(`[BrainExport] Exportado (${mode}): ${filePath} (${nodes.length} nós, ${edges.length} arestas)`);
 
     return { filePath, manifest };
 }
@@ -140,11 +218,21 @@ export async function importBrain(brain: BrainStore, filePath: string): Promise<
     const { nodes, edges, preferences } = bundle;
     const idMap = new Map<string, string>(); // oldId → newId
 
+    // Federated trust: se bundle veio de export patterns, aplica o multiplier.
+    const patternsMeta: PatternsBundleMeta | undefined = bundle.patternsMeta;
+    const flowLabels: string[] = patternsMeta
+        ? nodes.filter((n: any) => n.type === 'flow').map((n: any) => String(n.label))
+        : [];
+    const trustByLabel: Map<string, number> = patternsMeta
+        ? applyTrustOnMerge(brain, { meta: patternsMeta, flowLabels })
+        : new Map();
+
     // Import nodes
     const tx = brain.db.transaction(() => {
         for (const node of nodes) {
             try {
                 const existing = brain.getNodeByTypeAndLabel(node.type, node.label);
+                let localId: string;
                 if (existing) {
                     // Merge: update se confiança maior
                     if (node.confidence > existing.confidence) {
@@ -155,14 +243,24 @@ export async function importBrain(brain: BrainStore, filePath: string): Promise<
                         result.nodesMerged++;
                     }
                     idMap.set(node.id, existing.id);
+                    localId = existing.id;
                 } else {
                     // Insert new
                     const created = brain.addNode(node.type, node.label, node.data ?? {}, {
                         confidence: node.confidence ?? 0.5,
-                        source: `import:${bundle.manifest.exportedAt?.split('T')[0] ?? 'unknown'}`,
+                        source: patternsMeta
+                            ? `federated:${patternsMeta.sourceId.slice(0, 8)}`
+                            : `import:${bundle.manifest.exportedAt?.split('T')[0] ?? 'unknown'}`,
                     });
                     idMap.set(node.id, created.id);
                     result.nodesImported++;
+                    localId = created.id;
+                }
+
+                // Aplica trust boost em flow nodes federados.
+                if (node.type === 'flow' && patternsMeta) {
+                    const mult = trustByLabel.get(String(node.label)) ?? 1;
+                    boostFlowByTrust(brain, localId, mult);
                 }
             } catch (err: any) {
                 result.errors.push(`Node "${node.label}": ${err.message}`);

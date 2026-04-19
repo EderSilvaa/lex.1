@@ -11,6 +11,49 @@ let sessions = {}; // { id: { terminal, fitAddon, active } }
 let activeSessionId = null;
 let sessionCounter = 0;
 
+function normalizeLexPastedText(text) {
+    const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!normalized.includes('\n')) return text;
+
+    return normalized
+        .split(/\n\s*\n+/)
+        .map((paragraph) => paragraph
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .join(' '))
+        .filter(Boolean)
+        .join('  ');
+}
+
+function writeTerminalInput(sessionId, data, opts = {}) {
+    const session = sessions[sessionId];
+    if (!session || session.exited) return;
+
+    const payload = opts.paste && session.mode === 'lex'
+        ? normalizeLexPastedText(data)
+        : data;
+
+    if (payload) window.terminalApi.write(sessionId, payload, opts.paste ? { paste: true } : undefined);
+}
+
+function installPasteHandler(sessionId, wrapper) {
+    const session = sessions[sessionId];
+    if (!session || session.pasteHandlerInstalled) return;
+
+    wrapper.addEventListener('paste', (event) => {
+        const text = event.clipboardData?.getData('text/plain') || '';
+        if (!text || session.mode !== 'lex') return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        writeTerminalInput(sessionId, text, { paste: true });
+    }, true);
+
+    session.pasteHandlerInstalled = true;
+}
+
 const XTERM_THEME = {
     background: '#080808',
     foreground: '#ece8df',
@@ -93,9 +136,15 @@ function initTerminalView() {
  */
 async function createTerminalSession(opts = {}) {
     const mode = opts.mode || 'lex';
+    const requestedSessionId = typeof opts.sessionId === 'string' && opts.sessionId.trim() ? opts.sessionId.trim() : null;
+    if (requestedSessionId && sessions[requestedSessionId]) {
+        switchToSession(requestedSessionId);
+        return { success: true, sessionId: requestedSessionId, reused: true };
+    }
+
     sessionCounter++;
-    const sessionId = `term-${sessionCounter}-${Date.now()}`;
-    const displayName = mode === 'lex' ? `LEX ${sessionCounter}` : `Shell ${sessionCounter}`;
+    const sessionId = requestedSessionId || `term-${sessionCounter}-${Date.now()}`;
+    const displayName = opts.displayName || (mode === 'lex' ? `LEX ${sessionCounter}` : `Shell ${sessionCounter}`);
 
     // Cria instância xterm.js
     const terminal = new Terminal({
@@ -140,7 +189,7 @@ async function createTerminalSession(opts = {}) {
         // Ctrl+V / Ctrl+Shift+V → colar
         if ((e.key === 'V' || e.key === 'v')) {
             navigator.clipboard.readText().then((text) => {
-                if (text) window.terminalApi.write(sessionId, text);
+                writeTerminalInput(sessionId, text, { paste: true });
             }).catch(() => { /* ignore */ });
             e.preventDefault();
             return false;
@@ -154,6 +203,8 @@ async function createTerminalSession(opts = {}) {
         terminal,
         fitAddon,
         displayName,
+        mode,
+        ptyReady: false,
         exited: false,
     };
 
@@ -166,11 +217,15 @@ async function createTerminalSession(opts = {}) {
     const rows = Math.floor((container?.clientHeight || 400) / 18);
 
     try {
+        terminal.write('\x1b[90mIniciando Lex...\x1b[0m\r\n');
         const result = mode === 'lex'
             ? await window.terminalApi.createLex(sessionId, { cols, rows })
             : await window.terminalApi.create(sessionId, { cols, rows });
         if (!result.success) {
             terminal.write(`\x1b[31mErro ao criar terminal: ${result.error}\x1b[0m\r\n`);
+        } else {
+            const liveSession = sessions[sessionId];
+            if (liveSession) liveSession.ptyReady = true;
         }
     } catch (err) {
         terminal.write(`\x1b[31mErro: ${err.message || err}\x1b[0m\r\n`);
@@ -178,9 +233,7 @@ async function createTerminalSession(opts = {}) {
 
     // Forward input do xterm para o PTY
     terminal.onData((data) => {
-        if (!sessions[sessionId]?.exited) {
-            window.terminalApi.write(sessionId, data);
-        }
+        writeTerminalInput(sessionId, data);
     });
 
     // Fit após montar — duplo: imediato + delayed para garantir dimensões corretas
@@ -195,6 +248,7 @@ async function createTerminalSession(opts = {}) {
     });
 
     updateTabUI();
+    return { success: true, sessionId };
 }
 
 /**
@@ -204,32 +258,42 @@ function switchToSession(sessionId) {
     const container = document.querySelector('.terminal-container');
     if (!container) return;
 
-    // Detach terminal anterior
-    if (activeSessionId && sessions[activeSessionId]) {
-        const prevEl = container.querySelector('.xterm');
-        if (prevEl) prevEl.style.display = 'none';
-    }
-
     activeSessionId = sessionId;
     const session = sessions[sessionId];
     if (!session) return;
 
+    window.dispatchEvent(new CustomEvent('lex-terminal-session-change', {
+        detail: {
+            sessionId,
+            mode: session.mode,
+            displayName: session.displayName,
+        },
+    }));
+
     // Verifica se já está montado no DOM
+    container.querySelectorAll('[data-session-id]').forEach(el => {
+        const isActive = el.getAttribute('data-session-id') === sessionId;
+        el.style.display = isActive ? '' : 'none';
+        el.querySelectorAll('.xterm').forEach(termEl => {
+            termEl.style.display = '';
+        });
+    });
+
     const existingEl = container.querySelector(`[data-session-id="${sessionId}"]`);
     if (existingEl) {
         existingEl.style.display = '';
-    } else {
-        // Esconde todos os outros
-        container.querySelectorAll('.xterm').forEach(el => {
-            el.style.display = 'none';
+        existingEl.querySelectorAll('.xterm').forEach(termEl => {
+            termEl.style.display = '';
         });
-
+    } else {
         // Cria wrapper e monta
         const wrapper = document.createElement('div');
         wrapper.setAttribute('data-session-id', sessionId);
         wrapper.style.height = '100%';
+        wrapper.style.width = '100%';
         container.appendChild(wrapper);
         session.terminal.open(wrapper);
+        installPasteHandler(sessionId, wrapper);
 
         // xterm pode abrir com container de dimensão 0 (layout ainda calculando).
         // ResizeObserver garante o fit assim que o container tiver tamanho real.

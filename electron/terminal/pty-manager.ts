@@ -27,6 +27,7 @@ export interface PtySession {
     shell: string;
     cwd: string;
     createdAt: number;
+    mode: 'shell' | 'lex';
 }
 
 export interface RunCommandResult {
@@ -48,8 +49,34 @@ export class PtyManager extends EventEmitter {
         return process.env['SHELL'] || '/bin/bash';
     }
 
+    private normalizeLexPaste(data: string): string {
+        const withoutBrackets = String(data || '')
+            .replace(/\x1b\[200~/g, '')
+            .replace(/\x1b\[201~/g, '');
+        const normalized = withoutBrackets.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        if (!normalized.includes('\n')) return withoutBrackets;
+
+        return normalized
+            .split(/\n\s*\n+/)
+            .map((paragraph) => paragraph
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .join(' '))
+            .filter(Boolean)
+            .join('  ');
+    }
+
+    private shouldNormalizeLexInput(data: string, paste?: boolean): boolean {
+        if (paste) return true;
+        if (!/[\r\n]/.test(data)) return false;
+        if (data === '\r' || data === '\n' || data === '\r\n') return false;
+        const lineBreaks = (data.match(/[\r\n]/g) || []).length;
+        return lineBreaks > 1 || data.length > 80 || data.includes('\x1b[200~');
+    }
+
     /** Cria uma sessão interativa de terminal */
-    async createSession(id: string, opts?: { shell?: string; args?: string[]; cwd?: string; cols?: number; rows?: number; env?: Record<string, string> }): Promise<void> {
+    async createSession(id: string, opts?: { shell?: string; args?: string[]; cwd?: string; cols?: number; rows?: number; env?: Record<string, string>; mode?: 'shell' | 'lex' }): Promise<void> {
         if (this.sessions.has(id)) {
             throw new Error(`Session "${id}" already exists`);
         }
@@ -60,6 +87,7 @@ export class PtyManager extends EventEmitter {
         const cwd = opts?.cwd || os.homedir();
         const cols = opts?.cols || 120;
         const rows = opts?.rows || 30;
+        const mode = opts?.mode || 'shell';
 
         const ptyProcess = pty.spawn(shell, args, {
             name: 'xterm-256color',
@@ -75,6 +103,7 @@ export class PtyManager extends EventEmitter {
             shell,
             cwd,
             createdAt: Date.now(),
+            mode,
         };
 
         this.sessions.set(id, session);
@@ -111,10 +140,13 @@ export class PtyManager extends EventEmitter {
     }
 
     /** Escreve dados no stdin da sessão */
-    write(id: string, data: string): void {
+    write(id: string, data: string, opts?: { paste?: boolean }): void {
         const session = this.sessions.get(id);
         if (!session) throw new Error(`Session "${id}" not found`);
-        session.pty.write(data);
+        const payload = session.mode === 'lex' && this.shouldNormalizeLexInput(data, opts?.paste)
+            ? this.normalizeLexPaste(data)
+            : data;
+        if (payload) session.pty.write(payload);
     }
 
     /** Redimensiona o PTY */
@@ -144,12 +176,13 @@ export class PtyManager extends EventEmitter {
     }
 
     /** Lista sessões ativas */
-    listSessions(): Array<{ id: string; shell: string; cwd: string; createdAt: number }> {
+    listSessions(): Array<{ id: string; shell: string; cwd: string; createdAt: number; mode: 'shell' | 'lex' }> {
         return [...this.sessions.values()].map(s => ({
             id: s.id,
             shell: s.shell,
             cwd: s.cwd,
             createdAt: s.createdAt,
+            mode: s.mode,
         }));
     }
 

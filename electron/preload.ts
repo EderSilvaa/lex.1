@@ -71,6 +71,12 @@ contextBridge.exposeInMainWorld('lexApi', {
     saveConversation: (conv: any) => ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
     seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
+    onConversationsUpdated: (cb: (summary: any) => void) => {
+        ipcRenderer.on('conversations-updated', (_, summary) => cb(summary));
+    },
+    offConversationsUpdated: () => {
+        ipcRenderer.removeAllListeners('conversations-updated');
+    },
 
     // Analytics
     getAnalyticsSummary: () => ipcRenderer.invoke('analytics-summary'),
@@ -187,10 +193,20 @@ contextBridge.exposeInMainWorld('brainApi', {
     search: (query: string, types?: string[], limit?: number) => ipcRenderer.invoke('brain-search', { query, types, limit }),
     getStats: () => ipcRenderer.invoke('brain-get-stats'),
     getNode: (nodeId: string) => ipcRenderer.invoke('brain-get-node', nodeId),
-    runDream: () => ipcRenderer.invoke('brain-run-dream'),
+    runDream: (opts?: any) => ipcRenderer.invoke('brain-run-dream', opts),
+    getDreamHistory: () => ipcRenderer.invoke('brain-dream-history'),
+    restoreDreamSnapshot: (snapshotPath: string) => ipcRenderer.invoke('brain-restore-dream-snapshot', snapshotPath),
     exportBrain: () => ipcRenderer.invoke('brain-export'),
+    exportPatterns: () => ipcRenderer.invoke('brain-export-patterns'),
     importBrain: (zipPath: string) => ipcRenderer.invoke('brain-import', zipPath),
     renderMarkdown: () => ipcRenderer.invoke('brain-render-markdown'),
+    // Observer dashboard & aprendizado
+    getDashboard: (opts?: { windowDays?: number; topFlowsLimit?: number }) =>
+        ipcRenderer.invoke('brain-dashboard', opts),
+    getTrace: (traceId: string) => ipcRenderer.invoke('brain-trace', traceId),
+    detectFlows: () => ipcRenderer.invoke('brain-detect-flows'),
+    getPreference: (key: string, fallback?: any) => ipcRenderer.invoke('brain-get-preference', key, fallback),
+    setPreference: (key: string, value: any) => ipcRenderer.invoke('brain-set-preference', key, value),
 });
 
 contextBridge.exposeInMainWorld('datajudApi', {
@@ -296,8 +312,8 @@ contextBridge.exposeInMainWorld('terminalApi', {
         ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
     createLex: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
         ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
-    write: (sessionId: string, data: string) =>
-        ipcRenderer.invoke('terminal-write', { sessionId, data }),
+    write: (sessionId: string, data: string, opts?: { paste?: boolean }) =>
+        ipcRenderer.invoke('terminal-write', { sessionId, data, ...opts }),
     resize: (sessionId: string, cols: number, rows: number) =>
         ipcRenderer.invoke('terminal-resize', { sessionId, cols, rows }),
     kill: (sessionId: string) =>

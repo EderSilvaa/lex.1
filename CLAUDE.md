@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Current Sprint Memory
+
+- Brain/Dream/Replay sprint status is recorded in `docs/BRAIN-DREAM-REPLAY-SPRINT.md`.
+- Automated phases are complete: `test:brain`, `test:brain:e2e`, `test:brain:renderer`, and `type-check` passed on 2026-04-19.
+- Remaining item before declaring the sprint 100% closed: assisted real TJPA flow test in the open app, including replay preview/execute/cancel, vision fallback, and patterns export privacy check.
+
 ## Commands
 
 ```bash

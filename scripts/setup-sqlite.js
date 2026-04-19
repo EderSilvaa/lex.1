@@ -48,10 +48,8 @@ const electronVersion = (() => {
 let eleOk = false;
 if (electronVersion) {
     eleOk = step(`Compilando para Electron v${electronVersion}`, () => {
-        // Usa @electron/rebuild (instalado em devDependencies)
-        const rebuildBin = path.join(root, 'node_modules/@electron/rebuild/lib/cli.js');
         execSync(
-            `node "${rebuildBin}" --only better-sqlite3 -v ${electronVersion}`,
+            `npm rebuild better-sqlite3 --runtime=electron --target=${electronVersion} --dist-url=https://electronjs.org/headers`,
             { stdio: 'inherit', cwd: root },
         );
         fs.copyFileSync(active, eleCopy);

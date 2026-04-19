@@ -15,16 +15,16 @@ import { getPythonEnv } from '../../python';
  */
 const SAFE_COMMANDS = new Set([
     // Versões e info
-    'python', 'python3', 'node', 'npm', 'npx', 'pip', 'pip3',
+    'python', 'python3', 'node',
     'git', 'java', 'javac', 'dotnet', 'ruby', 'go', 'rustc', 'cargo',
     'gcc', 'g++', 'make', 'cmake', 'tsc', 'deno', 'bun',
     // Sistema (leitura)
     'echo', 'type', 'cat', 'head', 'tail', 'find', 'where', 'which',
-    'dir', 'ls', 'pwd', 'cd', 'tree', 'wc', 'sort', 'grep', 'findstr',
-    'hostname', 'whoami', 'date', 'time', 'set', 'env', 'printenv',
+    'dir', 'ls', 'pwd', 'tree', 'wc', 'sort', 'grep', 'findstr',
+    'hostname', 'whoami', 'date', 'time', 'env', 'printenv',
     'systeminfo', 'ver', 'uname',
     // Rede (leitura)
-    'ping', 'nslookup', 'ipconfig', 'ifconfig', 'curl', 'wget',
+    'ping', 'nslookup', 'ipconfig', 'ifconfig',
 ]);
 
 /**
@@ -40,12 +40,19 @@ const SAFE_SUBCOMMANDS: Record<string, Set<string>> = {
     cargo: new Set(['check', 'test', 'bench', 'doc', '--version']),
 };
 
+const SHELL_CONTROL_PATTERN = /[\r\n|&;<>]/;
+const VERSION_OR_HELP_FLAGS = new Set(['--version', '--help', '-v', '-h', '/?']);
+
 /**
  * Verifica se um comando é seguro (somente leitura) e pode rodar sem confirmação.
  */
 function isReadOnlyCommand(command: string): boolean {
+    // Comandos compostos, pipelines e redirecionamentos podem esconder escrita
+    // ou execucao encadeada depois de um prefixo inofensivo.
+    if (SHELL_CONTROL_PATTERN.test(command)) return false;
+
     // Pega o primeiro token do comando (antes de pipes, &&, ;)
-    const firstPart = command.split(/[|&;]/)[0]!.trim();
+    const firstPart = command.trim();
     const tokens = firstPart.split(/\s+/);
     let base = tokens[0]?.toLowerCase().replace(/\.exe$/, '') || '';
 
@@ -56,15 +63,17 @@ function isReadOnlyCommand(command: string): boolean {
     }
 
     // Qualquer comando com --version ou --help é seguro
-    if (command.includes('--version') || command.includes('--help') || command.includes('-v') || command.includes('-h')) {
+    const flags = tokens.slice(1).map(t => t.toLowerCase());
+
+    if (flags.some(flag => VERSION_OR_HELP_FLAGS.has(flag))) {
         if (SAFE_COMMANDS.has(base)) return true;
     }
 
     // Checa subcomandos seguros (ex: "git status")
     const subCmds = SAFE_SUBCOMMANDS[base];
     if (subCmds) {
-        const sub = tokens[1]?.toLowerCase() || '';
-        return subCmds.has(sub);
+        const sub = flags.join(' ');
+        return subCmds.has(sub) || subCmds.has(flags[0] || '');
     }
 
     // Comandos puros de leitura (echo, dir, ls, whoami, etc.)

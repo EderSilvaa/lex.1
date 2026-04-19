@@ -11,6 +11,9 @@ import * as fs from 'fs';
 import { captureDOMSnapshot, computeValidation } from '../browser/validation';
 import type { DOMSnapshot } from '../browser/validation';
 import { detectCaptcha, solveCaptchaWithVision } from '../browser/captcha';
+import { getObserver } from '../observer';
+import { browserEnricher } from '../observer/enrichers/browser';
+import type { Enricher, ObservationBefore } from '../observer/types';
 
 // ============================================================================
 // PER-SKILL TIMEOUT
@@ -28,6 +31,59 @@ const CATEGORY_TIMEOUTS: Record<string, number> = {
 const VISION_SKILLS = new Set(['browser_auto_task', 'pje_agir']);
 const VISION_TIMEOUT = 600_000;
 const DEFAULT_TIMEOUT = 60_000;
+
+function shouldObserveSkill(skill: Skill): boolean {
+    return skill.categoria === 'browser' || skill.categoria === 'pje';
+}
+
+function observerServerId(skill: Skill): string {
+    if (skill.nome.startsWith('browser_')) return 'browser';
+    return skill.categoria || 'skill';
+}
+
+function stringifySkillResult(result: SkillResult): string {
+    try {
+        return JSON.stringify(result);
+    } catch {
+        return result.mensagem || result.erro || '';
+    }
+}
+
+async function recordSkillObservation(
+    observer: ReturnType<typeof getObserver>,
+    enricher: Enricher | null,
+    ctx: { server: string; tool: string; args: Record<string, unknown> },
+    before: ObservationBefore | null,
+    result: SkillResult,
+    durationMs: number,
+): Promise<void> {
+    if (!observer) return;
+
+    let after = null;
+    if (enricher?.after) {
+        try {
+            after = await enricher.after({
+                ...ctx,
+                output: stringifySkillResult(result),
+                success: !!result.sucesso,
+            });
+        } catch {
+            after = null;
+        }
+    }
+
+    observer.record({
+        server: ctx.server,
+        tool: ctx.tool,
+        inputArgs: ctx.args,
+        output: stringifySkillResult(result),
+        durationMs,
+        success: !!result.sucesso,
+        error: result.erro || null,
+        before,
+        after,
+    });
+}
 
 function getSkillTimeout(skill: Skill): number {
     if (skill.timeoutMs) return skill.timeoutMs;
@@ -158,10 +214,25 @@ export async function executeSkill(
 
     // Aplica defaults
     const paramsComDefaults = applyDefaults(skill, parametros);
+    const observer = shouldObserveSkill(skill) ? getObserver() : null;
+    const observerEnricher = shouldObserveSkill(skill) ? browserEnricher : null;
+    const observerCtx = {
+        server: observerServerId(skill),
+        tool: nome,
+        args: paramsComDefaults as Record<string, unknown>,
+    };
 
     // Captura snapshot DOM antes da ação (se for skill de browser/pje)
     const isBrowserAction = skill.categoria === 'browser' || skill.categoria === 'pje';
     let snapshot: DOMSnapshot | null = null;
+    let observerBefore: ObservationBefore | null = null;
+    if (observer && observerEnricher?.before) {
+        try {
+            observerBefore = await observerEnricher.before(observerCtx);
+        } catch {
+            observerBefore = null;
+        }
+    }
     if (isBrowserAction) {
         try {
             const { getActivePage } = require('../browser-manager');
@@ -305,6 +376,15 @@ export async function executeSkill(
             console.warn('[Executor] Erro na detecção de CAPTCHA:', captchaErr.message);
         }
     }
+
+    await recordSkillObservation(
+        observer,
+        observerEnricher,
+        observerCtx,
+        observerBefore,
+        resultado,
+        duration,
+    );
 
     return resultado;
 }
@@ -528,6 +608,10 @@ export async function loadSkillsFromDir(dir: string): Promise<void> {
                 Object.values(mod).find((v: any) => v?.nome && typeof v?.execute === 'function') as Skill | undefined;
 
             if (skill && skill.nome && typeof skill.execute === 'function') {
+                if (skill.deprecated) {
+                    console.log(`[Executor] Ignorando skill deprecated: ${skill.nome}`);
+                    continue;
+                }
                 // Evitar duplicatas (mock pode já ter registrado)
                 if (skillRegistry[skill.nome]) {
                     console.log(`[Executor] Substituindo skill mock: ${skill.nome} → real`);
