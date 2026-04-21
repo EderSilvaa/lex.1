@@ -38,13 +38,27 @@ const READ_ONLY_SKILLS = new Set([
     // OS read-only
     'os_listar', 'os_fetch', 'os_clipboard',
     // OS com gate de confirmação próprio na skill (não precisa de LLM critic)
-    'os_arquivos', 'os_escrever', 'os_sistema',
+    'os_arquivos', 'os_escrever', 'os_mover', 'os_deletar', 'os_sistema',
     // PC Vision
     'pc_agir',
     // Browser tools (atômicas — leitura/navegação)
     'browser_get_state', 'browser_get_html', 'browser_screenshot',
     'browser_scroll', 'browser_go_back', 'browser_extract',
     'browser_list_tabs', 'browser_switch_tab', 'browser_close_tab'
+]);
+
+READ_ONLY_SKILLS.add('os_buscar');
+READ_ONLY_SKILLS.add('os_tamanho');
+READ_ONLY_SKILLS.delete('os_escrever');
+READ_ONLY_SKILLS.delete('os_mover');
+READ_ONLY_SKILLS.delete('os_deletar');
+READ_ONLY_SKILLS.delete('os_sistema');
+READ_ONLY_SKILLS.delete('os_clipboard');
+READ_ONLY_SKILLS.delete('pc_agir');
+
+const LOCAL_CONFIRMATION_SKILLS = new Set([
+    'os_escrever', 'os_mover', 'os_deletar', 'os_sistema', 'os_clipboard',
+    'pc_agir'
 ]);
 
 /**
@@ -62,11 +76,11 @@ export async function critic(
         return heuristicDecision;
     }
 
-    // B2: Skip LLM review para skills de leitura (economia ~40-50% de chamadas Critic)
+    // B2: Skip LLM review para skills resolvidas por heuristica local.
     const skillLowerName = String(action.skill || '').toLowerCase();
-    if (READ_ONLY_SKILLS.has(skillLowerName) && heuristicDecision.approved) {
-        console.log(`[Critic] Skip LLM review — skill de leitura: ${action.skill}`);
-        return { ...heuristicDecision, reason: 'Skill de leitura — aprovada sem LLM review.' };
+    if ((READ_ONLY_SKILLS.has(skillLowerName) || LOCAL_CONFIRMATION_SKILLS.has(skillLowerName)) && heuristicDecision.approved) {
+        console.log(`[Critic] Skip LLM review - skill com heuristica local: ${action.skill}`);
+        return { ...heuristicDecision, reason: 'Skill aprovada por heuristica local, sem LLM review.' };
     }
 
     try {
@@ -84,7 +98,7 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     const highRisk = isHighRiskAction(skillLower, paramsJson, state.objetivo);
     const missingProcessReference = !hasProcessReference(state, action.parametros);
 
-    if (highRisk) {
+    if (highRisk && !READ_ONLY_SKILLS.has(skillLower) && !LOCAL_CONFIRMATION_SKILLS.has(skillLower)) {
         return {
             approved: true,
             riskLevel: 'high',

@@ -235,7 +235,8 @@ export class Orchestrator extends EventEmitter {
             : '';
 
         const personalidade = buildPromptLayerSystem(getDefaultTenantConfig());
-        const synthesisInstructions = `Sintetize os resultados das subtasks em uma resposta coesa. Use markdown.
+        const synthesisInstructions = `Sintetize os resultados das subtasks em uma resposta coesa e curta. Use markdown.
+Nao repita listagens ou planos longos que ja apareceram nas subtasks; consolide em no maximo 8 bullets.
 Comece pelo resultado principal, depois detalhe. Cite artigos de lei específicos quando relevante.
 Se alguma subtask falhou, mencione brevemente mas foque no que foi alcançado.
 Termine com um próximo passo concreto ("Quer que eu...").`;
@@ -244,7 +245,7 @@ Termine com um próximo passo concreto ("Quer que eu...").`;
             system: `${personalidade}\n\n---\n\n${synthesisInstructions}`,
             user: `## Objetivo Original\n"${goal}"\n\n## Resultados das Subtasks\n${resultsText}${skippedText}\n\nSintetize uma resposta final coesa.`,
             temperature: 0.3,
-            maxTokens: 3000,
+            maxTokens: 1200,
         });
 
         return response;

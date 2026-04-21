@@ -33,7 +33,7 @@ import { normalizeTribunalCode, inferTribunalKey } from '../pje/tribunal-urls';
 import { getAnalytics } from '../analytics';
 import { getActiveConfig, setActiveConfig, PROVIDER_PRESETS, type ActiveProviderConfig } from '../provider-config';
 import {
-    createVault, clearVault, unmask, getVaultStats, getVaultSummary,
+    createVault, clearVault, unmask, unmaskObject, getVaultStats, getVaultSummary,
     shouldMaskPII, shouldUseLocalModel,
 } from '../privacy';
 import type { PIIVault } from '../privacy';
@@ -301,6 +301,11 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
         await cfg.hooks.beforeStart(state);
     }
 
+    // Guard anti-loop de perguntas: se o LLM ficar pedindo confirmação e o
+    // usuário sempre afirmar, forçamos ação no próximo think. Resetado
+    // quando uma skill executa ou uma resposta final é produzida.
+    let perguntasConsecutivas = 0;
+
     try {
         // ════════════════════════════════════════════════════════════════
         // MAIN LOOP
@@ -526,6 +531,22 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                 // PERGUNTA AO USUÁRIO
                 // ────────────────────────────────────────────────────────
                 case 'pergunta': {
+                    // Hard abort: se o LLM já perguntou 4+ vezes e o usuário
+                    // ficou afirmando, é loop. Converte em resposta pedindo
+                    // que o usuário seja mais específico — encerra o run.
+                    if (perguntasConsecutivas >= 4) {
+                        const msg = `Desculpa, não consegui avançar — te pedi confirmação várias vezes e parece que estou dando voltas. Pode me dar instruções mais específicas? (por exemplo: os nomes exatos dos arquivos que você quer apagar, ou "apague todos os .tmp desse diretório")`;
+                        log(cfg.verbose, `🛑 Hard abort: ${perguntasConsecutivas} perguntas consecutivas`);
+                        emitRun({ type: 'completed', resposta: msg, passos: state.iteracao, duracao: Date.now() - state.startTime });
+                        if (activeSessionId) {
+                            sessionManager.addMessage(activeSessionId, 'assistant', msg);
+                        }
+                        state.status = 'completed';
+                        state.endTime = Date.now();
+                        activeRuns.delete(runId);
+                        return msg;
+                    }
+
                     state.status = 'waiting_user';
 
                     // PII Vault: unmask pergunta antes de exibir
@@ -557,6 +578,14 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                     }
                     // Injeta resposta no objetivo para o próximo think
                     state.objetivo = `${state.objetivo}\n\n[Pergunta: ${decisao.pergunta}\nResposta: ${resposta}]`;
+
+                    // Guard anti-loop: conta perguntas consecutivas e, se o usuário
+                    // já afirmou 2x seguidas, injeta diretiva dura forçando skill/resposta
+                    perguntasConsecutivas++;
+                    if (perguntasConsecutivas >= 2 && isAffirmative(resposta)) {
+                        state.objetivo += `\n\n[SISTEMA: Você já pediu confirmação ${perguntasConsecutivas} vezes seguidas e o usuário AFIRMOU. PARE de perguntar. Na próxima decisão você DEVE escolher "skill" (para executar a ação) ou "resposta" (se não houver o que fazer). NÃO escolha "pergunta". Se faltar algum caminho de arquivo, use os caminhos que já vieram em observes anteriores de os_listar/os_buscar.]`;
+                    }
+
                     state.status = 'running';
                     break; // continua o while loop
                 }
@@ -568,8 +597,21 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                     let skillName = decisao.skill!;
                     let params = decisao.parametros || {};
 
+                    // NÃO resetamos o contador aqui — skills exploratórias
+                    // (listar, buscar) não indicam que a ação confirmada foi
+                    // executada. Só reseta quando a resposta final é produzida.
+
+                    // PII Vault: desmascara params antes da execução — o LLM viu
+                    // o contexto mascarado e pode ter copiado tokens [TELEFONE_N]
+                    // / [CPF_N] para dentro de paths/filenames. Sem unmask, a skill
+                    // recebe um nome de arquivo inexistente e falha silencioso.
+                    if (vault) {
+                        params = unmaskObject(vault, params);
+                    }
+
                     // Guard: detecta loop infinito (repetição ou ciclo nas últimas N ações)
-                    const loopDetected = detectSkillLoop(state.passos, skillName, params);
+                    const loopCutoff = loopResolvedAt.get(runId) ?? 0;
+                    const loopDetected = detectSkillLoop(state.passos, skillName, params, loopCutoff);
                     if (loopDetected) {
                         state.status = 'waiting_user';
                         const question = `Detectei que estou repetindo ações (${loopDetected}). Quer tentar uma abordagem diferente ou devo tentar novamente?`;
@@ -580,6 +622,8 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                         const loopResp = await awaitUserResponse(runId, abort.signal);
                         if (activeSessionId) sessionManager.addMessage(activeSessionId, 'user', loopResp);
                         state.objetivo = `${state.objetivo}\n\n[Pergunta: ${question}\nResposta: ${loopResp}]`;
+                        // Marca cutoff: acoes anteriores nao contam mais para detectar loop
+                        loopResolvedAt.set(runId, state.passos.filter(p => p.tipo === 'act').length);
                         state.status = 'running';
                         break;
                     }
@@ -675,7 +719,12 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                     if (shouldPauseForUserAction(resultado)) {
                         state.status = 'waiting_user';
                         const question = extractUserActionQuestion(resultado);
-                        emitRun({ type: 'waiting_user', pergunta: question });
+                        const opcoes = inferUserActionOptions(question, resultado);
+                        emitRun({
+                            type: 'waiting_user',
+                            pergunta: question,
+                            ...(opcoes ? { opcoes } : {})
+                        });
                         if (activeSessionId) {
                             sessionManager.addMessage(activeSessionId, 'assistant', question);
                         }
@@ -713,6 +762,7 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
     } finally {
         // Limpa cache de prompt estático deste run
         clearPromptCache(runId);
+        clearLoopResolvedAt(runId);
         // Garante que sessão é salva em disco independente do exit path
         if (activeSessionId) {
             try { await sessionManager.flush(); } catch { /* best-effort */ }
@@ -1021,6 +1071,36 @@ async function applyCritic(
 const LOOP_WINDOW = 6; // últimos N act steps a verificar
 
 /**
+ * Por run, quantidade de act steps existentes no momento em que o usuario
+ * respondeu a pergunta de loop detection. detectSkillLoop ignora acoes
+ * anteriores a esse cutoff, senao a proxima iteracao re-dispara o mesmo
+ * alerta pra sempre (o historico de ping-pong continua na janela).
+ */
+const loopResolvedAt = new Map<string, number>();
+
+export function clearLoopResolvedAt(runId: string): void {
+    loopResolvedAt.delete(runId);
+}
+
+/**
+ * Detecta resposta afirmativa do usuário em PT-BR/EN. Usado pra identificar
+ * loops onde o LLM re-pergunta apesar de confirmação explícita.
+ */
+function isAffirmative(resposta: string): boolean {
+    const r = resposta.trim().toLowerCase();
+    if (!r) return false;
+    const AFIRMATIVAS = [
+        'sim', 'yes', 'y', 's', 'ok', 'okay', 'claro', 'certo',
+        'pode', 'manda', 'vai', 'bora', 'confirma', 'confirmo', 'confirmado',
+        'confirmar', 'prossiga', 'prossegue', 'pode apagar', 'pode deletar',
+        'pode prosseguir', 'sim, confirmar', 'sim confirmar', 'sim apaga',
+        'apaga', 'delete', 'deleta', 'remove', 'vai sim'
+    ];
+    return AFIRMATIVAS.some(a => r === a || r.startsWith(a + ' ') || r.startsWith(a + ',') || r.startsWith(a + '.'));
+}
+
+
+/**
  * Detecta loops nas ações do agente. Retorna descrição do loop ou null.
  *
  * Detecta 3 padrões:
@@ -1031,9 +1111,11 @@ const LOOP_WINDOW = 6; // últimos N act steps a verificar
 function detectSkillLoop(
     passos: AgentStep[],
     nextSkill: string,
-    nextParams: Record<string, any>
+    nextParams: Record<string, any>,
+    cutoff = 0
 ): string | null {
-    const acts = passos.filter(p => p.tipo === 'act').slice(-LOOP_WINDOW);
+    const actsAll = passos.filter(p => p.tipo === 'act');
+    const acts = actsAll.slice(Math.max(cutoff, actsAll.length - LOOP_WINDOW));
     if (acts.length === 0) return null;
 
     const nextSig = `${nextSkill}:${JSON.stringify(nextParams)}`;
@@ -1101,4 +1183,16 @@ function extractUserActionQuestion(resultado: SkillResult): string {
     }
 
     return 'Preciso de uma ação sua para continuar. Depois me responda "pronto".';
+}
+
+function inferUserActionOptions(question: string, resultado: SkillResult): string[] | undefined {
+    const text = `${question}\n${resultado.mensagem || ''}`.toLowerCase();
+    const asksYesNo = /\bsim\b/.test(text)
+        && (/\bnao\b/.test(text) || /\bnão\b/.test(text) || /\bcancelar\b/.test(text) || /\bconfirma\b/.test(text));
+
+    if (asksYesNo || /executar no terminal\?/.test(text)) {
+        return ['Sim', 'Não'];
+    }
+
+    return undefined;
 }

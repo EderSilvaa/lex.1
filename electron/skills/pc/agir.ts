@@ -18,7 +18,12 @@ export const pcAgir: Skill = {
         objetivo: {
             tipo: 'string',
             descricao: 'O que deve ser feito no PC, em linguagem natural. Ex: "abra o Bloco de Notas e escreva um cabeçalho", "salve o documento Word aberto", "tire um screenshot e descreva o que está na tela"',
-            obrigatorio: true
+            obrigatorio: false
+        },
+        tarefa: {
+            tipo: 'string',
+            descricao: 'Alias legado para objetivo.',
+            obrigatorio: false
         },
         maxPassos: {
             tipo: 'number',
@@ -37,7 +42,7 @@ export const pcAgir: Skill = {
     ],
 
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {
-        const objetivo = String(params['objetivo'] || '').trim();
+        const objetivo = String(params['objetivo'] || params['tarefa'] || '').trim();
         const maxPassos = Number(params['maxPassos'] || 15);
 
         if (!objetivo) {

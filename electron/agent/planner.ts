@@ -52,6 +52,17 @@ export function shouldUsePlanner(objetivo: string): boolean {
     return compositeIndicators.some(re => re.test(lower));
 }
 
+function isPlanningOnlyGoal(goal: string): boolean {
+    const lower = goal.toLowerCase();
+    return /\b(vamos\s+pensar|pensar\s+numa?|planejar|propor|proposta|analisar|analise|sugerir|sugest[aã]o)\b/.test(lower)
+        && /\b(organiza|organiza[cç][aã]o|organizar|pasta|arquivos?)\b/.test(lower)
+        && !/\b(execute|executar|fa[cç]a agora|pode fazer|mova|mover|crie|criar|delete|deletar|apague|apagar|renomeie|renomear)\b/.test(lower);
+}
+
+function isExecutionSubtask(description: string): boolean {
+    return /\b(implementar|execute|executar|criar\s+as?\s+subpastas|criar\s+pastas|mover\s+arquivos|mova\s+arquivos|renomear|renomeie|deletar|delete|apagar|apague|organizar\s+fisicamente)\b/i.test(description);
+}
+
 function buildPlannerSystemPrompt(): string {
     const agentTypes = listAgentTypes();
     const agentList = agentTypes
@@ -123,7 +134,7 @@ async function parsePlanResponse(response: string, goal: string): Promise<Plan> 
         const { getAgentTypeIds } = await import('./agent-types');
         const validAgentTypes = new Set<string>(getAgentTypeIds());
 
-        const subtasks: SubTask[] = parsed.subtasks.map((raw: any, i: number) => ({
+        let subtasks: SubTask[] = parsed.subtasks.map((raw: any, i: number) => ({
             id: raw.id || `t${i + 1}`,
             description: String(raw.description || ''),
             agentType: validAgentTypes.has(raw.agentType) ? raw.agentType as AgentTypeId : 'general',
@@ -131,6 +142,20 @@ async function parsePlanResponse(response: string, goal: string): Promise<Plan> 
             dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn : [],
             status: 'pending' as const,
         }));
+
+        if (isPlanningOnlyGoal(goal)) {
+            const filtered = subtasks.filter(t => !isExecutionSubtask(t.description));
+            subtasks = filtered.length > 0
+                ? filtered
+                : [{
+                    id: 't1',
+                    description: `${goal}\n\nApenas analise e proponha um plano. Nao execute criacao, movimento, renomeacao ou delecao de arquivos.`,
+                    agentType: 'general',
+                    params: {},
+                    dependsOn: [],
+                    status: 'pending' as const,
+                }];
+        }
 
         // Valida que dependsOn referencia IDs existentes
         const ids = new Set(subtasks.map(t => t.id));

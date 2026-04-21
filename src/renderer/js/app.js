@@ -16,6 +16,7 @@ const mainChatContainer = document.querySelector('.chat-container');
 let currentAgentMessageId = null;
 let agentThinkingElement = null;
 let isAgentWaitingUser = false; // Tracks if agent session is active and waiting for reply
+let currentAgentRunId = null;
 let currentStreamingMsg = null; // Elemento da bubble sendo populada via streaming
 let streamingRawText = '';      // Acumula texto cru durante streaming
 let streamingRafId = null;      // requestAnimationFrame para render incremental
@@ -29,6 +30,8 @@ let backendErrorUiLastAt = 0;
 const LONG_MESSAGE_CHAR_THRESHOLD = 1600;
 const LONG_MESSAGE_LINE_THRESHOLD = 14;
 const LONG_MESSAGE_PREVIEW_CHARS = 900;
+const THINKING_LOG_MAX_LINES = 8;
+const THINKING_LOG_MAX_CHARS = 220;
 
 function requestBrowserAutoExpand(source, force = false) {
     if (!window.lexApi?.focusBrowser) return;
@@ -154,6 +157,7 @@ function setupAgentEvents() {
             case 'started':
                 console.log('[Agent] Started, runId:', event.runId);
                 isAgentWaitingUser = false;
+                currentAgentRunId = event.runId || currentAgentRunId;
                 // Remove routing loader e cria accordion imediatamente
                 if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
                 agentThinkingElement = null;
@@ -226,6 +230,7 @@ function setupAgentEvents() {
                 }
                 streamingRawText = '';
                 isAgentWaitingUser = false;
+                currentAgentRunId = null;
                 completeAgentSession();
                 break;
 
@@ -233,6 +238,7 @@ function setupAgentEvents() {
                 cleanupEmptyStreamingBubble();
                 finalizeAgentResponse(event.pergunta);
                 isAgentWaitingUser = true;
+                currentAgentRunId = event.runId || currentAgentRunId;
                 if (event.opcoes && event.opcoes.length > 0) {
                     addQuickReplies(event.opcoes);
                 } else if (event.requiresUserAction) {
@@ -246,6 +252,7 @@ function setupAgentEvents() {
                 hideStopBtn();
                 showAgentError(event.erro);
                 isAgentWaitingUser = false;
+                currentAgentRunId = null;
                 break;
 
             case 'timeout':
@@ -253,6 +260,7 @@ function setupAgentEvents() {
                 hideStopBtn();
                 showAgentError('Tempo limite atingido');
                 isAgentWaitingUser = false;
+                currentAgentRunId = null;
                 break;
 
             case 'cancelled':
@@ -265,6 +273,7 @@ function setupAgentEvents() {
                 }
                 addMessageToUI('Operação interrompida.', 'system');
                 isAgentWaitingUser = false;
+                currentAgentRunId = null;
                 break;
         }
     });
@@ -365,9 +374,67 @@ function smartScrollToBottom(force) {
     if (isNearBottom) ml.scrollTop = ml.scrollHeight;
 }
 
+function normalizeThinkingLogMessage(message) {
+    const text = String(message || 'Processando...').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return text.length > THINKING_LOG_MAX_CHARS
+        ? text.slice(0, THINKING_LOG_MAX_CHARS).trimEnd() + '...'
+        : text;
+}
+
+function pruneThinkingLog(content) {
+    if (!content) return;
+    const lines = Array.from(content.children).filter((el) => el.classList?.contains('log-line'));
+    const excess = lines.length - THINKING_LOG_MAX_LINES;
+    if (excess <= 0) return;
+
+    for (const line of lines.slice(0, excess)) line.remove();
+
+    const hidden = Number(content.dataset.hiddenLogCount || 0) + excess;
+    content.dataset.hiddenLogCount = String(hidden);
+
+    let marker = content.querySelector('.thinking-pruned');
+    if (!marker) {
+        marker = document.createElement('div');
+        marker.className = 'thinking-pruned';
+        content.prepend(marker);
+    }
+    marker.textContent = `... ${hidden} eventos anteriores ocultos`;
+}
+
+function appendThinkingLogLine(content, message, className) {
+    if (!content) return null;
+
+    const normalized = normalizeThinkingLogMessage(message);
+    if (!normalized) return null;
+
+    const now = Date.now();
+    const lastMessage = content.dataset.lastLogMessage || '';
+    const lastAt = Number(content.dataset.lastLogAt || 0);
+
+    // Thinking events can repeat while the loop is waiting; keep the UI compact.
+    if (lastMessage === normalized && (now - lastAt) < 1500) return null;
+
+    content.dataset.lastLogMessage = normalized;
+    content.dataset.lastLogAt = String(now);
+
+    const logLine = document.createElement('div');
+    logLine.className = 'log-line';
+    const messageClass = className ? ` ${className}` : '';
+    logLine.innerHTML = `
+        <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
+        <span class="log-message${messageClass}">${escapeHtml(normalized)}</span>
+    `;
+    content.appendChild(logLine);
+    pruneThinkingLog(content);
+    return logLine;
+}
+
 // Create or update the agent's thinking bubble
 // Create or update the agent's thinking accordion
 function updateAgentThinking(pensamento) {
+    const display = normalizeThinkingLogMessage(pensamento);
+
     if (!agentThinkingElement) {
         // Create new thinking container (Accordion Style)
         const messageList = document.getElementById('chat-messages');
@@ -389,7 +456,7 @@ function updateAgentThinking(pensamento) {
                 <div class="thinking-content">
                     <div class="log-line">
                         <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
-                        <span class="log-message">${escapeHtml(pensamento)}</span>
+                        <span class="log-message">${escapeHtml(display)}</span>
                     </div>
                 </div>
             </details>
@@ -401,17 +468,11 @@ function updateAgentThinking(pensamento) {
     } else {
         // Update summary and add log line
         const summary = agentThinkingElement.querySelector('.thinking-summary');
-        if (summary) summary.textContent = pensamento.substring(0, 60) + (pensamento.length > 60 ? '...' : '');
+        if (summary) summary.textContent = display.substring(0, 60) + (display.length > 60 ? '...' : '');
 
         const content = agentThinkingElement.querySelector('.thinking-content');
         if (content) {
-            const logLine = document.createElement('div');
-            logLine.className = 'log-line';
-            logLine.innerHTML = `
-                <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
-                <span class="log-message">${escapeHtml(pensamento)}</span>
-            `;
-            content.appendChild(logLine);
+            appendThinkingLogLine(content, display);
             // Auto scroll inside accordion if needed, or main list
             const messageList = document.getElementById('chat-messages');
             if (messageList) messageList.scrollTop = messageList.scrollHeight;
@@ -515,6 +576,7 @@ function legacyUpdateAgentObservation(data) {
         <span class="log-message ${colorClass}">${icon} Result: ${isSuccess ? 'Success' : 'Failed'}</span>
     `;
     content.appendChild(logLine);
+    pruneThinkingLog(content);
 }
 
 // Finalize with agent's response
@@ -578,6 +640,25 @@ function completeAgentSession() {
     agentThinkingElement = null;
     currentAgentMessageId = null;
     if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
+}
+
+async function respondToWaitingAgent(responseText) {
+    const response = String(responseText || '').trim();
+    if (!response || !isAgentWaitingUser || !currentAgentRunId || !window.lexApi?.respondAgent) return false;
+
+    isAgentWaitingUser = false;
+    removeQuickReplies();
+    showStopBtn();
+    updateAgentThinking('Continuando...');
+
+    const result = await window.lexApi.respondAgent(currentAgentRunId, response, currentSessionId);
+    if (!result?.success) {
+        addMessageToUI(`Erro ao responder: ${result?.error || 'falha desconhecida'}`, 'system');
+        completeAgentSession();
+        return false;
+    }
+
+    return true;
 }
 
 // Helper: escape HTML
@@ -769,6 +850,17 @@ if (sendBtn) {
 
         // Remove Quick Replies if any exist when user types manually
         removeQuickReplies();
+
+        if (isAgentWaitingUser && currentAgentRunId && window.lexApi.respondAgent) {
+            try {
+                await respondToWaitingAgent((normalizedText || text).trim());
+            } catch (err) {
+                console.error('[App] Erro ao responder agent:', err);
+                addMessageToUI(`Erro ao responder: ${err?.message || err}`, 'system');
+                completeAgentSession();
+            }
+            return;
+        }
 
         // Mostra loading imediato enquanto faz routing / inicializa agente
         agentThinkingElement = null;
@@ -1262,14 +1354,8 @@ function addAgentActionToUI(data) {
     if (summary) summary.textContent = `Executando: ${data.skill}`;
 
     const actionId = `action-${Date.now()}`;
-    const logLine = document.createElement('div');
-    logLine.className = 'log-line';
-    logLine.id = actionId;
-    logLine.innerHTML = `
-        <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
-        <span class="log-message log-type-exec">Executing ${escapeHtml(data.skill)}...</span>
-    `;
-    content.appendChild(logLine);
+    const logLine = appendThinkingLogLine(content, `Executing ${data.skill}...`, 'log-type-exec');
+    if (logLine) logLine.id = actionId;
     content.dataset.lastActionId = actionId;
 
     const messageList = document.getElementById('chat-messages');
@@ -1311,13 +1397,11 @@ function updateAgentCritic(decision) {
         ? ' | user confirmation required'
         : '';
 
-    const logLine = document.createElement('div');
-    logLine.className = 'log-line';
-    logLine.innerHTML = `
-        <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
-        <span class="log-message ${colorClass}">${label}: ${escapeHtml(reason)}${escapeHtml(actionHint)}${escapeHtml(confirmationHint)}</span>
-    `;
-    content.appendChild(logLine);
+    appendThinkingLogLine(
+        content,
+        `${label}: ${reason}${actionHint}${confirmationHint}`,
+        colorClass
+    );
 
     const messageList = document.getElementById('chat-messages');
     if (messageList) messageList.scrollTop = messageList.scrollHeight;
@@ -1342,6 +1426,7 @@ function updateAgentObservation(data) {
         <span class="log-message ${colorClass}">${isSuccess ? '✓' : '✗'} ${mensagem || (isSuccess ? 'concluído' : 'falhou')}</span>
     `;
     content.appendChild(logLine);
+    pruneThinkingLog(content);
 }
 
 function addMessageToUI(text, type, isRawHtml) {

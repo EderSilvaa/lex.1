@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('lexApi', {
 
     // Agent Loop API
     runAgent: (objetivo: string, config?: any, sessionId?: string) => ipcRenderer.invoke('agent-run', objetivo, config, sessionId),
+    respondAgent: (runId: string, response: string, sessionId?: string) =>
+        ipcRenderer.invoke('agent-respond', { runId, response, sessionId }),
     shouldUseAgent: (objetivo: string) => ipcRenderer.invoke('agent-should-handle', objetivo),
     cancelAgent: () => ipcRenderer.invoke('agent-cancel'),
     onAgentEvent: (cb: (event: { type: string; data: any }) => void) => {

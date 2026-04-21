@@ -36,6 +36,7 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     searchJurisprudence: (query) => electron_1.ipcRenderer.invoke('crawler-search', query),
     // Agent Loop API
     runAgent: (objetivo, config, sessionId) => electron_1.ipcRenderer.invoke('agent-run', objetivo, config, sessionId),
+    respondAgent: (runId, response, sessionId) => electron_1.ipcRenderer.invoke('agent-respond', { runId, response, sessionId }),
     shouldUseAgent: (objetivo) => electron_1.ipcRenderer.invoke('agent-should-handle', objetivo),
     cancelAgent: () => electron_1.ipcRenderer.invoke('agent-cancel'),
     onAgentEvent: (cb) => {

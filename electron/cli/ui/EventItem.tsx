@@ -169,15 +169,20 @@ const EventItem: React.FC<{ entry: MessageEntry }> = ({ entry }) => {
             );
 
         case 'waiting_user':
+            // Opções (se houver) são renderizadas como seletor interativo no App.tsx,
+            // não duplicamos aqui pra evitar duas listas na tela.
             return (
                 <Box flexDirection="column" marginTop={1}>
                     <Text>
                         <Text color="yellow">? </Text>
                         <Text bold>{event.pergunta}</Text>
                     </Text>
-                    {event.opcoes?.map((op: string, i: number) => (
-                        <Text key={i} dimColor>{`  • ${op}`}</Text>
+                    {event.type === 'waiting_user' && event.opcoes?.map((op, i) => (
+                        <Text key={i} dimColor>{`  ${i + 1}. ${op}`}</Text>
                     ))}
+                    {event.type === 'waiting_user' && event.opcoes?.length ? (
+                        <Text dimColor>{'  (digite o numero, a opcao, ou sua resposta)'}</Text>
+                    ) : null}
                 </Box>
             );
 

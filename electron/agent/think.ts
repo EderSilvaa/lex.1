@@ -13,6 +13,7 @@ import { mask } from '../privacy/pii-vault';
 import { logLLMCall } from '../privacy/audit-log';
 import { getEffectiveLevel } from '../privacy/consent-manager';
 import { getVaultStats } from '../privacy/pii-vault';
+import { suggestOsPlannerAction, formatOsIntentHint } from './os-intent-router';
 
 /**
  * Decide próximo passo baseado no estado atual.
@@ -169,8 +170,9 @@ Você opera em um loop de **Think → Act → Observe** até completar o objetiv
 ## Regras de decisão
 - Se o objetivo é uma **pergunta jurídica, análise de caso ou consulta conceitual** → tipo=resposta com análise profunda
 - Se o objetivo pede **ação** no PJe, browser ou sistema → tipo=skill
-- Para executar comandos do terminal (python, pip, git, npm) → skill terminal_executar
-- Contexto PC claro (Downloads, Desktop, C:, .pdf, .docx, pasta local) → tipo=skill com os_listar. Atalhos: "downloads", "desktop", "documentos", "imagens", "~"
+- Para executar comandos de desenvolvimento/diagnostico (python, pip, git, npm) → skill terminal_executar
+- Para arquivos do PC, prefira skills OS especificas antes de terminal: os_listar, os_buscar, os_arquivos, os_mover, os_deletar, os_tamanho.
+    - Contexto PC claro (Downloads, Desktop, C:, .pdf, .docx, pasta local) → tipo=skill com a skill OS mais especifica. Caminhos OS aceitam atalhos com subcaminho: "downloads", "downloads/a.pdf", "desktop/pasta", "documentos", "imagens", "~/arquivo" e absolutos.
 - Se ambíguo ("pastas", "arquivos", "documentos" sem contexto PJe/PC) → tipo=pergunta
 - NUNCA responda com instruções textuais quando há skill que executa a ação
 - Para comandos PJe (abrir, consultar, navegar), use skills pje_* ou browser_*
@@ -242,10 +244,14 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 
 ### Sistema de Arquivos e OS
 - \`os_listar\`: lista arquivos/pastas. Atalhos de caminho: "downloads", "desktop", "documentos", "imagens", "~" (home). Ex: \`os_listar { "caminho": "downloads" }\`
-- \`os_arquivos\`: ler arquivo (PDF, DOCX, XLSX → texto automático)
+- \`os_arquivos\`: somente ler arquivo, grep por conteudo e info/metadados. Nao move, copia, deleta, cria ou busca por nome.
+- \`os_buscar\`: buscar arquivos por nome/conteudo; para "duplicados por nome obvio", use \`os_buscar { "caminho": "downloads", "modo": "duplicados_nome" }\`. Nao use terminal para isso.
+- \`os_deletar\`: deletar arquivos/pastas do PC. Padrao: manda para a Lixeira. Use \`alvos\` para lote e, apos o usuario confirmar, rechame com \`batch_confirmado:true\`. Se o usuario pedir para conferir/simular/mostrar antes, use \`dry_run:true\`.
+- \`os_mover\`: mover, renomear, copiar e criar pastas. Use \`dry_run:true\` quando o usuario pedir para conferir/simular/mostrar o plano antes ou para organizar pastas. Se retornar \`codigo=organizacao_incompleta\`, nao diga que terminou: use os arquivos em \`dados.posOrganizacao.arquivosRestantes\` para propor/executar novo dry-run apenas dos pendentes. Tambem aceita deletar em lotes, mas para delete simples prefira \`os_deletar\`.
+- Erros de OS: quando a skill retornar \`codigo\`/\`sugestao\`, explique o motivo real. Ex: \`nao_encontrado\` = caminho errado/ausente; nao diga que o arquivo esta aberto ou bloqueado se a skill nao retornou esse codigo.
 - \`os_clipboard\`: copiar texto para Ctrl+V
-- \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas, listar/encerrar processos
-- \`terminal_executar\`: executar comandos shell com saída em tempo real (python, pip, git, npm, etc)
+- \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas/arquivos, listar/encerrar processos
+- \`terminal_executar\`: ultimo recurso para shell e comandos de desenvolvimento (python, pip, git, npm). Nao use para listar/buscar/deletar/mover arquivos quando existir skill OS especifica.
 
 ### Documentos e Pesquisa
 - \`doc_gerar\`: gerar documento com contexto completo
@@ -280,7 +286,7 @@ Quando observar resultado de pje_consultar com 'ultima_movimentacao':
 function detectActionIntent(objetivo: string): boolean {
     const lower = objetivo.toLowerCase();
     // Verbos de ação + contexto PJe/browser/sistema
-    if (/\b(abr[aieou]|consult[aeiou]|naveg[aeiou]|entr[aeiou]|acesse?|log[aeiou]n|fa[çz][ae]r? login|cliq|preenche?|digit[aeiou]|execut[aeiou]|rod[aeiou]|cri[aeiou]|gere?|envie?|busq?u|pesquis)/i.test(lower)) {
+    if (/\b(abr[aieou]|consult[aeiou]|naveg[aeiou]|entr[aeiou]|acesse?|log[aeiou]n|fa[çz][ae]r? login|cliq|preenche?|digit[aeiou]|execut[aeiou]|rod[aeiou]|cri[aeiou]|gere?|envie?|busq?u|pesquis|delet|apag|remov)/i.test(lower)) {
         return true;
     }
     // Comandos diretos: "vai pro PJe", "abre o Chrome", etc.
@@ -595,6 +601,14 @@ function buildUserPrompt(state: AgentState): string {
 
     // Instrução final (reforço dinâmico dependendo do tipo de objetivo)
     const isAnalysis = detectAnalysisIntent(state.objetivo);
+    const osHint = suggestOsPlannerAction(state.objetivo, {
+        chatHistory: state.contexto.chatHistory,
+        passos: state.passos
+    });
+    if (osHint) {
+        parts.push(`## Roteamento OS Sugerido\n${formatOsIntentHint(osHint)}`);
+    }
+
     const isAction = detectActionIntent(state.objetivo);
 
     let boost = '';

@@ -2302,6 +2302,34 @@ electron_1.ipcMain.handle('agent-run', async (_event, objetivo, config, sessionI
     }
 });
 // IPC: Cancel Agent Loop — proxy para backend (com fallback local)
+electron_1.ipcMain.handle('agent-respond', async (_event, { runId, response, sessionId }) => {
+    if (!runId)
+        return { success: false, error: 'runId obrigatorio' };
+    if ((0, backend_client_1.isBackendAlive)()) {
+        try {
+            await (0, backend_client_1.rpcCall)('agent-respond', {
+                runId,
+                response,
+                sessionId: sessionId || AGENT_SESSION_ID,
+                source: 'renderer'
+            }, { timeoutMs: 30000 });
+            return { success: true };
+        }
+        catch (error) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    }
+    try {
+        const agent = await loadAgentModule();
+        const ok = agent.resolveUserResponse(runId, response);
+        return ok
+            ? { success: true }
+            : { success: false, error: `Nenhuma resposta pendente para o run ${runId}.` };
+    }
+    catch (error) {
+        return { success: false, error: error?.message || String(error) };
+    }
+});
 electron_1.ipcMain.handle('agent-cancel', async () => {
     if ((0, backend_client_1.isBackendAlive)()) {
         try {

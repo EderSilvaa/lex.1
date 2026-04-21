@@ -43,6 +43,17 @@ const SAFE_SUBCOMMANDS: Record<string, Set<string>> = {
 const SHELL_CONTROL_PATTERN = /[\r\n|&;<>]/;
 const VERSION_OR_HELP_FLAGS = new Set(['--version', '--help', '-v', '-h', '/?']);
 
+function boolParam(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', '1', 'sim', 's', 'yes', 'y'].includes(normalized)) return true;
+        if (['false', '0', 'nao', 'não', 'n', 'no', ''].includes(normalized)) return false;
+    }
+    return Boolean(value);
+}
+
 /**
  * Verifica se um comando é seguro (somente leitura) e pode rodar sem confirmação.
  */
@@ -130,7 +141,7 @@ export const osTerminal: Skill = {
         const comando = String(params['comando'] || '').trim();
         const diretorio = String(params['diretorio'] || '').trim() || undefined;
         const timeoutMs = Math.min(Number(params['timeoutMs']) || 30_000, 120_000);
-        const confirmado = Boolean(params['confirmado']);
+        const confirmado = boolParam(params['confirmado']);
 
         if (!comando) {
             return {

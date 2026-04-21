@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Text } from 'ink';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const FRAME_MS = 250;
+const LABEL_TICKS = 20;
 
 interface SpinnerProps {
     labels: string | string[];
 }
 
-/** Retorna índice aleatório diferente do atual */
 function randomIndex(len: number, current: number): number {
     if (len <= 1) return 0;
     let next: number;
@@ -18,26 +19,30 @@ function randomIndex(len: number, current: number): number {
 const Spinner: React.FC<SpinnerProps> = ({ labels }) => {
     const arr = Array.isArray(labels) ? labels : [labels];
     const [frame, setFrame] = useState(0);
-    const [labelIdx, setLabelIdx] = useState(() => Math.floor(Math.random() * arr.length));
+    const [labelIdx, setLabelIdx] = useState(() => Math.floor(Math.random() * Math.max(arr.length, 1)));
     const tickRef = useRef(0);
 
     useEffect(() => {
+        tickRef.current = 0;
+        setFrame(0);
+        setLabelIdx(arr.length > 1 ? Math.floor(Math.random() * arr.length) : 0);
+
         const timer = setInterval(() => {
             tickRef.current++;
             setFrame(tickRef.current % FRAMES.length);
 
-            // Troca label a cada ~5s (50 ticks × 100ms), ordem aleatória
-            if (arr.length > 1 && tickRef.current % 50 === 0) {
+            if (arr.length > 1 && tickRef.current % LABEL_TICKS === 0) {
                 setLabelIdx((prev) => randomIndex(arr.length, prev));
             }
-        }, 100);
+        }, FRAME_MS);
+
         return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [arr.length]);
+    }, [arr.length, Array.isArray(labels) ? arr.join('\u0000') : String(labels)]);
 
     return (
         <Text>
-            <Text color="cyan">{FRAMES[frame]} </Text>
+            <Text color="cyan">{FRAMES[frame] ?? '⠋'} </Text>
             <Text dimColor>{arr[labelIdx] ?? ''}</Text>
         </Text>
     );

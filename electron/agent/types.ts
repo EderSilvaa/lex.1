@@ -207,6 +207,8 @@ export interface SkillResult {
     sucesso: boolean;
     dados?: any;
     erro?: string;
+    codigo?: string;
+    sugestao?: string;
     mensagem?: string;
 }
 

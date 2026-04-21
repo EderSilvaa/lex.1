@@ -42,6 +42,7 @@ let agentModule: {
     initializeAgent: () => Promise<void>;
     runAgentLoop: (opts: import('./agent/types').AgentLoopOptions) => Promise<string>;
     cancelAgentLoop: (runId?: string) => boolean;
+    resolveUserResponse: (runId: string, response: string) => boolean;
     agentEmitter: import('events').EventEmitter;
     getDefaultTenantConfig: () => any;
     getSessionManager: () => any;
@@ -2488,6 +2489,34 @@ ipcMain.handle('agent-run', async (_event, objetivo: string, config?: any, sessi
 });
 
 // IPC: Cancel Agent Loop — proxy para backend (com fallback local)
+ipcMain.handle('agent-respond', async (_event, { runId, response, sessionId }: { runId: string; response: string; sessionId?: string }) => {
+    if (!runId) return { success: false, error: 'runId obrigatorio' };
+
+    if (isBackendAlive()) {
+        try {
+            await rpcCall('agent-respond', {
+                runId,
+                response,
+                sessionId: sessionId || AGENT_SESSION_ID,
+                source: 'renderer'
+            }, { timeoutMs: 30_000 });
+            return { success: true };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    }
+
+    try {
+        const agent = await loadAgentModule();
+        const ok = agent.resolveUserResponse(runId, response);
+        return ok
+            ? { success: true }
+            : { success: false, error: `Nenhuma resposta pendente para o run ${runId}.` };
+    } catch (error: any) {
+        return { success: false, error: error?.message || String(error) };
+    }
+});
+
 ipcMain.handle('agent-cancel', async () => {
     if (isBackendAlive()) {
         try {

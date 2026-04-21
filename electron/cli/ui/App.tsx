@@ -81,7 +81,7 @@ const THINK_LABELS = [
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type AppStatus = 'idle' | 'thinking' | 'acting' | 'waiting_user';
+type AppStatus = 'idle' | 'thinking' | 'acting' | 'streaming' | 'waiting_user';
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -116,6 +116,10 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
     // waiting_user mode
     const waitingUser = status === 'waiting_user';
 
+    // Quando o agente manda opcoes junto com a pergunta, viram seletor por setas
+    const [pendingOpts, setPendingOpts] = useState<string[] | null>(null);
+    const [optIdx, setOptIdx]           = useState(0);
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     const addEntry = useCallback((entry: MessageEntry) => {
@@ -128,12 +132,27 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
 
     // Live streaming text rendered below the static list
     const [streamText, setStreamText] = useState('');
+    const streamFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Thinking-tags filter state (same logic as output.ts)
     const thinkingDepth = useRef(0);
     const tokenBuf      = useRef('');
     const THINKING_OPEN  = /^<(pensamento|thinking|raciocinio)>/i;
     const THINKING_CLOSE = /^<\/(pensamento|thinking|raciocinio)>/i;
+
+    function clearStreamFlushTimer() {
+        if (!streamFlushTimer.current) return;
+        clearTimeout(streamFlushTimer.current);
+        streamFlushTimer.current = null;
+    }
+
+    function scheduleStreamTextFlush() {
+        if (streamFlushTimer.current) return;
+        streamFlushTimer.current = setTimeout(() => {
+            streamFlushTimer.current = null;
+            setStreamText(streamBuf.current);
+        }, 220);
+    }
 
     function flushToken(token: string) {
         tokenBuf.current += token;
@@ -155,7 +174,7 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
             if (!ch.trim() && streamBuf.current === '') continue;
             streamBuf.current += ch;
         }
-        setStreamText(streamBuf.current);
+        scheduleStreamTextFlush();
     }
 
     // ── Agent events ──────────────────────────────────────────────────────────
@@ -185,12 +204,13 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
                     break;
 
                 case 'streaming_start':
+                    clearStreamFlushTimer();
                     streaming.current = true;
                     streamBuf.current = '';
                     thinkingDepth.current = 0;
                     tokenBuf.current = '';
                     setStreamText('');
-                    setStatus('thinking');
+                    setStatus('streaming');
                     break;
 
                 case 'token':
@@ -200,17 +220,25 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
                 case 'waiting_user':
                     // flush stream first
                     if (streaming.current && streamBuf.current) {
+                        clearStreamFlushTimer();
                         addEntry({ id: genId(), kind: 'stream_done', text: streamBuf.current });
                         streamBuf.current = '';
                         streaming.current = false;
                         setStreamText('');
                     }
                     addEntry({ id: genId(), kind: 'event', event });
+                    if (event.opcoes && event.opcoes.length > 0) {
+                        setPendingOpts(event.opcoes);
+                        setOptIdx(0);
+                    } else {
+                        setPendingOpts(null);
+                    }
                     setStatus('waiting_user');
                     break;
 
                 case 'completed':
                     if (streaming.current && streamBuf.current) {
+                        clearStreamFlushTimer();
                         addEntry({ id: genId(), kind: 'stream_done', text: streamBuf.current });
                     } else if (!streaming.current && event.resposta) {
                         addEntry({ id: genId(), kind: 'event', event });
@@ -227,6 +255,7 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
                 case 'cancelled':
                 case 'timeout':
                     if (streaming.current) {
+                        clearStreamFlushTimer();
                         streamBuf.current = '';
                         streaming.current = false;
                         setStreamText('');
@@ -293,6 +322,19 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
     // ── Ctrl+C ────────────────────────────────────────────────────────────────
 
     useInput((_input, key) => {
+        // Navegação no seletor de opções (somente quando input text está vazio,
+        // pra não atrapalhar quem quer digitar resposta livre)
+        if (waitingUser && pendingOpts && pendingOpts.length > 0 && input.length === 0) {
+            if (key.upArrow) {
+                setOptIdx(prev => (prev - 1 + pendingOpts.length) % pendingOpts.length);
+                return;
+            }
+            if (key.downArrow) {
+                setOptIdx(prev => (prev + 1) % pendingOpts.length);
+                return;
+            }
+        }
+
         if (!key.ctrl || _input !== 'c') return;
 
         if (running.current) {
@@ -318,13 +360,27 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
 
     const handleSubmit = useCallback(async (line: string) => {
         setInput('');
-        if (!line.trim()) return;
+
+        // Enter com input vazio em modo de seleção → usa a opção destacada
+        let effective = line;
+        if (!effective.trim() && waitingUser && pendingOpts && pendingOpts.length > 0) {
+            effective = pendingOpts[optIdx] ?? '';
+        }
+        if (effective.trim() && waitingUser && pendingOpts && pendingOpts.length > 0) {
+            const numeric = Number(effective.trim());
+            if (Number.isInteger(numeric) && numeric >= 1 && numeric <= pendingOpts.length) {
+                effective = pendingOpts[numeric - 1] ?? effective;
+            }
+        }
+        if (!effective.trim()) return;
 
         // Respond to agent waiting_user
         if (waitingUser && currentRunId.current) {
+            setPendingOpts(null);
+            addEntry({ id: genId(), kind: 'user', text: effective });
             setStatus('thinking');
             try {
-                await rpcCall('agent-respond', { runId: currentRunId.current, response: line, sessionId, source: 'terminal' });
+                await rpcCall('agent-respond', { runId: currentRunId.current, response: effective, sessionId, source: 'terminal' });
             } catch (err: any) {
                 addEntry({ id: genId(), kind: 'bus', msg: { kind: 'error', text: err?.message || String(err) } });
                 setStatus('idle');
@@ -393,7 +449,7 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
         // Regular agent run
         await runGoal(line);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId, userDataDir, waitingUser]);
+    }, [sessionId, userDataDir, waitingUser, pendingOpts, optIdx]);
 
     async function runGoal(objetivo: string) {
         const notReady = checkProviderReady();
@@ -447,30 +503,66 @@ const App: React.FC<AppProps> = ({ userDataDir, initialSessions, inElectron }) =
                 }}
             </Static>
 
-            {/* Live streaming text */}
-            {streaming.current && streamText.length > 0 && (
-                <Text color="white">{'• '}{streamText}</Text>
+            {/* Live streaming text — capped por linhas VISUAIS (considerando
+                wrap do terminal), não lógicas. Se a live region ultrapassa o
+                que Ink consegue apagar com log-update, as frames antigas ficam
+                no scrollback e, quando o stream completa e o texto final vai
+                pro <Static>, fica tudo duplicado. Mantemos um teto pequeno e
+                fixo (6 rows) — o usuário vê que está digitando, e o texto
+                final vem preciso via Static. */}
+            {streaming.current && streamText.length > 0 && (() => {
+                const cols = Math.max(20, process.stdout.columns || 80);
+                const MAX_VISUAL_ROWS = 3;
+                const lines = streamText.split('\n');
+                let visualRows = 0;
+                const shown: string[] = [];
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    const line = lines[i]!;
+                    const lineRows = Math.max(1, Math.ceil(line.length / cols));
+                    if (visualRows + lineRows > MAX_VISUAL_ROWS && shown.length > 0) break;
+                    shown.unshift(line);
+                    visualRows += lineRows;
+                    if (visualRows >= MAX_VISUAL_ROWS) break;
+                }
+                const truncated = shown.length < lines.length;
+                return (
+                    <Box flexDirection="column">
+                        {truncated && <Text dimColor>{'… (escrevendo)'}</Text>}
+                        {shown.map((line, i) => (
+                            <Text key={i} color="white">{line}</Text>
+                        ))}
+                    </Box>
+                );
+            })()}
+
+            {/* Seletor de opções (↑/↓ + Enter) quando o agente está waiting_user */}
+            {process.env['LEX_CLI_STATIC_OPTIONS'] !== '1' && waitingUser && pendingOpts && pendingOpts.length > 0 && (
+                <Box flexDirection="column" marginTop={1}>
+                    {pendingOpts.map((op, i) => (
+                        <Text key={i} color={i === optIdx ? 'cyan' : undefined} dimColor={i !== optIdx}>
+                            {i === optIdx ? '→ ' : '  '}{op}
+                        </Text>
+                    ))}
+                    <Text dimColor>{'  (↑/↓ para escolher, Enter para confirmar, ou digite sua resposta)'}</Text>
+                </Box>
             )}
 
             {/* Spinner */}
-            {(status === 'thinking' || status === 'acting') && (
-                <Spinner labels={spinLabel} />
+            {(status === 'thinking' || status === 'acting' || status === 'streaming') && (
+                <Spinner labels={status === 'streaming' ? 'escrevendo…' : spinLabel} />
             )}
 
             {/* Input */}
-            <Box marginTop={status === 'idle' ? 1 : 0}>
-                <Text color="cyan">{promptChar} </Text>
-                {canInput
-                    ? (
-                        <TextInput
-                            value={input}
-                            onChange={setInput}
-                            onSubmit={handleSubmit}
-                        />
-                    )
-                    : <Text dimColor> </Text>
-                }
-            </Box>
+            {canInput && (
+                <Box marginTop={status === 'idle' ? 1 : 0}>
+                    <Text color="cyan">{promptChar} </Text>
+                    <TextInput
+                        value={input}
+                        onChange={setInput}
+                        onSubmit={handleSubmit}
+                    />
+                </Box>
+            )}
         </Box>
     );
 };

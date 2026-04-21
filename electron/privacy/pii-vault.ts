@@ -56,8 +56,10 @@ const PII_PATTERNS: Array<{ category: PIICategory; pattern: RegExp }> = [
     // Email
     { category: 'email', pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
 
-    // Telefone: (91) 98765-4321 ou 91987654321
-    { category: 'telefone', pattern: /\(?\d{2}\)?\s*\d{4,5}-?\d{4}/g },
+    // Telefone BR — exige separador claro pra não confundir com timestamps/IDs.
+    // Aceita: "(91) 98765-4321", "91 98765-4321", "91-98765-4321", "+55 91 98765-4321".
+    // NÃO mata "202507160015" (filename) nem "12345678901" (ID).
+    { category: 'telefone', pattern: /(?:\+55\s?)?(?:\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}[\s-]\d{4,5}-\d{4})/g },
 
     // Valores monetários: R$ 1.234,56
     { category: 'valor', pattern: /R\$\s*[\d.,]+(?:,\d{2})?/g },

@@ -87,6 +87,12 @@
     margin-bottom: 0;
 }
 
+.thinking-pruned {
+    color: rgba(255, 255, 255, 0.36);
+    font-size: 11px;
+    margin-bottom: 8px;
+}
+
 .log-timestamp {
     min-width: 58px;
     font-size: 10px;
