@@ -197,7 +197,7 @@ export function suggestOsPlannerAction(objetivo: string, ctx: HintContext = {}):
         return { tipo: 'skill', skill: 'os_buscar', parametros: params, motivo: 'busca de arquivo por nome/conteudo deve usar os_buscar' };
     }
 
-    if (hasAny(text, [/\blista/, /\blistar/, /\bveja\b/, /\bver\b/, /\bmostra/, /\bmostrar/, /\bexibe/, /\bexibir/])) {
+    if (hasAny(text, [/\blista/, /\bliste\b/, /\blistar/, /\bveja\b/, /\bver\b/, /\bmostra/, /\bmostrar/, /\bexibe/, /\bexibir/])) {
         return { tipo: 'skill', skill: 'os_listar', parametros: { caminho }, motivo: 'listar arquivos/pastas deve usar os_listar' };
     }
 

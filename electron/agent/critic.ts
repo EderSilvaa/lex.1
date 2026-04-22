@@ -7,6 +7,7 @@
 import { AgentConfig, AgentState, CriticDecision } from './types';
 import { normalizeTribunalCode } from '../pje/tribunal-urls';
 import { mask } from '../privacy/pii-vault';
+import { suggestOsPlannerAction } from './os-intent-router';
 
 interface PlannedSkillAction {
     skill: string;
@@ -76,6 +77,12 @@ export async function critic(
         return heuristicDecision;
     }
 
+    // Se a heuristica ja corrigiu skill/params, nao precisa gastar uma chamada LLM.
+    if (heuristicDecision.correctedDecision?.skill) {
+        console.log(`[Critic] Skip LLM review - acao corrigida por heuristica local: ${action.skill} -> ${heuristicDecision.correctedDecision.skill}`);
+        return heuristicDecision;
+    }
+
     // B2: Skip LLM review para skills resolvidas por heuristica local.
     const skillLowerName = String(action.skill || '').toLowerCase();
     if ((READ_ONLY_SKILLS.has(skillLowerName) || LOCAL_CONFIRMATION_SKILLS.has(skillLowerName)) && heuristicDecision.approved) {
@@ -97,6 +104,24 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     const paramsJson = JSON.stringify(action.parametros || {}).toLowerCase();
     const highRisk = isHighRiskAction(skillLower, paramsJson, state.objetivo);
     const missingProcessReference = !hasProcessReference(state, action.parametros);
+
+    if (skillLower === 'terminal_executar') {
+        const osHint = suggestOsPlannerAction(state.objetivo, {
+            chatHistory: state.contexto.chatHistory,
+            passos: state.passos
+        });
+        if (osHint?.tipo === 'skill' && osHint.skill && osHint.skill !== 'terminal_executar') {
+            return {
+                approved: true,
+                riskLevel: 'low',
+                reason: `terminal_executar foi substituido por ${osHint.skill}: ${osHint.motivo}.`,
+                correctedDecision: {
+                    skill: osHint.skill,
+                    parametros: osHint.parametros || {}
+                }
+            };
+        }
+    }
 
     if (highRisk && !READ_ONLY_SKILLS.has(skillLower) && !LOCAL_CONFIRMATION_SKILLS.has(skillLower)) {
         return {

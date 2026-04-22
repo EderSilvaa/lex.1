@@ -38,6 +38,7 @@ import {
 } from '../privacy';
 import type { PIIVault } from '../privacy';
 import { currentTraceId, withTrace } from '../observer/trace-context';
+import { suggestOsPlannerAction } from './os-intent-router';
 
 // Event emitter global para comunicação com UI
 export const agentEmitter = new EventEmitter();
@@ -280,6 +281,39 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
     analytics.trackMessage();
     const providerCfg = getActiveConfig();
     analytics.trackProvider(providerCfg.providerId, providerCfg.agentModel);
+
+    const completeDeterministically = async (resposta: string, sucesso = true): Promise<string> => {
+        state.status = 'completed';
+        state.endTime = Date.now();
+        const duracao = state.endTime - state.startTime;
+
+        emitRun({
+            type: 'completed',
+            resposta,
+            passos: state.iteracao,
+            duracao
+        });
+
+        await memory.salvarInteracao({
+            objetivo,
+            resposta,
+            passos: state.iteracao,
+            duracao,
+            sucesso
+        });
+
+        if (activeSessionId) {
+            sessionManager.addMessage(activeSessionId, 'assistant', resposta, {
+                runId,
+                skillsUsed: state.passos
+                    .filter(p => p.tipo === 'act' && p.skill)
+                    .map(p => p.skill!)
+            });
+        }
+
+        activeRuns.delete(runId);
+        return resposta;
+    };
 
     // B1: Verificar cache antes de entrar no loop
     const cache = getResponseCache();
@@ -609,6 +643,13 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                         params = unmaskObject(vault, params);
                     }
 
+                    const osCorrection = correctTerminalOsIntent(state, skillName, params);
+                    if (osCorrection) {
+                        log(cfg.verbose, `OS router: ajustando ${skillName} -> ${osCorrection.skillName}`);
+                        skillName = osCorrection.skillName;
+                        params = osCorrection.params;
+                    }
+
                     // Guard: detecta loop infinito (repetição ou ciclo nas últimas N ações)
                     const loopCutoff = loopResolvedAt.get(runId) ?? 0;
                     const loopDetected = detectSkillLoop(state.passos, skillName, params, loopCutoff);
@@ -731,8 +772,59 @@ async function runAgentLoopInTrace(opts: AgentLoopOptions, objetivo: string): Pr
                         const pauseResp = await awaitUserResponse(runId, abort.signal);
                         if (activeSessionId) sessionManager.addMessage(activeSessionId, 'user', pauseResp);
                         state.objetivo = `${state.objetivo}\n\n[Pergunta: ${question}\nResposta: ${pauseResp}]`;
+                        if (isAffirmative(pauseResp)) {
+                            const confirmedParams = buildConfirmedParams(skillName, params);
+                            log(cfg.verbose, `Usuario confirmou. Reexecutando ${skillName} com confirmacao local.`);
+
+                            const confirmedActStep: AgentStep = {
+                                iteracao: state.iteracao,
+                                timestamp: new Date().toISOString(),
+                                tipo: 'act',
+                                skill: skillName,
+                                parametros: confirmedParams
+                            };
+                            state.passos.push(confirmedActStep);
+                            emitRun({ type: 'acting', skill: skillName, parametros: confirmedParams });
+
+                            const confirmedStart = Date.now();
+                            let confirmedResult = await executeSkill(skillName, confirmedParams, state.contexto, abort.signal);
+                            const confirmedDuration = Date.now() - confirmedStart;
+
+                            if (cfg.hooks?.afterToolCall) {
+                                confirmedResult = await cfg.hooks.afterToolCall(skillName, confirmedResult);
+                            }
+
+                            emitRun({ type: 'tool_result', skill: skillName, resultado: confirmedResult });
+                            analytics.trackSkill(skillName, confirmedResult.sucesso);
+
+                            const confirmedObserveStep: AgentStep = {
+                                iteracao: state.iteracao,
+                                timestamp: new Date().toISOString(),
+                                tipo: 'observe',
+                                resultado: confirmedResult,
+                                duracao: confirmedDuration
+                            };
+                            state.passos.push(confirmedObserveStep);
+                            await updateContext(state, skillName, confirmedResult);
+                            emitRun({
+                                type: 'observing',
+                                observacao: confirmedResult.sucesso
+                                    ? `Skill ${skillName} executada com sucesso apos confirmacao`
+                                    : `Skill ${skillName} falhou apos confirmacao: ${confirmedResult.erro}`
+                            });
+
+                            // Evita que a proxima iteracao trate a acao confirmada como loop.
+                            loopResolvedAt.set(runId, state.passos.filter(p => p.tipo === 'act').length);
+                            if (shouldCompleteAfterTerminalFailure(skillName, confirmedResult)) {
+                                return await completeDeterministically(formatTerminalFailureResponse(confirmedResult), false);
+                            }
+                        }
                         state.status = 'running';
                         break;
+                    }
+
+                    if (shouldCompleteAfterTerminalFailure(skillName, resultado)) {
+                        return await completeDeterministically(formatTerminalFailureResponse(resultado), false);
                     }
 
                     break;
@@ -1099,6 +1191,74 @@ function isAffirmative(resposta: string): boolean {
     return AFIRMATIVAS.some(a => r === a || r.startsWith(a + ' ') || r.startsWith(a + ',') || r.startsWith(a + '.'));
 }
 
+function correctTerminalOsIntent(
+    state: AgentState,
+    skillName: string,
+    params: Record<string, any>
+): { skillName: string; params: Record<string, any> } | null {
+    if (String(skillName || '').toLowerCase() !== 'terminal_executar') return null;
+
+    const hint = suggestOsPlannerAction(state.objetivo, {
+        chatHistory: state.contexto.chatHistory,
+        passos: state.passos
+    });
+    if (hint?.tipo !== 'skill' || !hint.skill || hint.skill === 'terminal_executar') return null;
+
+    return {
+        skillName: hint.skill,
+        params: hint.parametros || {}
+    };
+}
+
+function buildConfirmedParams(skillName: string, params: Record<string, any>): Record<string, any> {
+    const confirmed = {
+        ...(params || {}),
+        confirmado: true
+    };
+
+    const skill = String(skillName || '').toLowerCase();
+    if (skill === 'os_mover' || skill === 'os_deletar') {
+        return {
+            ...confirmed,
+            batch_confirmado: true
+        };
+    }
+
+    return confirmed;
+}
+
+function shouldCompleteAfterTerminalFailure(skillName: string, resultado: SkillResult): boolean {
+    if (String(skillName || '').toLowerCase() !== 'terminal_executar') return false;
+    if (!resultado || resultado.sucesso) return false;
+    if (shouldPauseForUserAction(resultado)) return false;
+    const dados = resultado.dados as any;
+    return Boolean(dados && typeof dados === 'object' && dados.command);
+}
+
+function formatTerminalFailureResponse(resultado: SkillResult): string {
+    const dados = (resultado.dados || {}) as any;
+    const command = typeof dados.command === 'string' ? dados.command : 'comando tecnico';
+    const exitCode = dados.exitCode ?? 'desconhecido';
+    const cwd = typeof dados.diretorio === 'string' ? dados.diretorio : '';
+    const resumo = String(dados.stdoutResumo || resultado.mensagem || resultado.erro || '').trim();
+    const output = resumo || '(sem saida capturada)';
+
+    const parts = [
+        `O comando tecnico falhou com codigo ${exitCode}.`,
+        cwd ? `Diretorio usado: ${cwd}` : '',
+        `Comando: \`${command}\``,
+        '',
+        'Resumo do erro:',
+        '```text',
+        output.slice(0, 1800),
+        '```',
+        '',
+        'Proximo passo sensato: investigar esse erro antes de tentar rodar o build de novo.'
+    ].filter(Boolean);
+
+    return parts.join('\n');
+}
+
 
 /**
  * Detecta loops nas ações do agente. Retorna descrição do loop ou null.
@@ -1190,8 +1350,8 @@ function inferUserActionOptions(question: string, resultado: SkillResult): strin
     const asksYesNo = /\bsim\b/.test(text)
         && (/\bnao\b/.test(text) || /\bnão\b/.test(text) || /\bcancelar\b/.test(text) || /\bconfirma\b/.test(text));
 
-    if (asksYesNo || /executar no terminal\?/.test(text)) {
-        return ['Sim', 'Não'];
+    if (asksYesNo || /executar no terminal\?/.test(text) || /posso continuar\?/.test(text)) {
+        return ['Sim', 'Cancelar'];
     }
 
     return undefined;

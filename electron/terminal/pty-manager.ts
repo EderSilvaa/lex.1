@@ -9,7 +9,7 @@
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as path from 'path';
-import { isCommandBlocked } from './command-guard';
+import { classifyCommand } from './command-policy';
 
 // node-pty é nativo; import dinâmico para evitar crash se rebuild falhar
 let ptyModule: typeof import('node-pty') | null = null;
@@ -193,10 +193,10 @@ export class PtyManager extends EventEmitter {
      * Spawna um PTY temporário que roda o comando diretamente (não dentro de um shell interativo).
      */
     async runCommand(command: string, cwd?: string, timeoutMs = 30_000): Promise<RunCommandResult> {
-        // Verifica blocklist
-        const check = isCommandBlocked(command);
-        if (check.blocked) {
-            return { stdout: `[BLOQUEADO] ${check.reason}: ${command}`, exitCode: -1, killed: false };
+        // Verifica blocklist da policy central como ultima linha de defesa.
+        const policy = classifyCommand(command);
+        if (policy.blocked) {
+            return { stdout: `[BLOQUEADO] ${policy.reason}: ${command}`, exitCode: -1, killed: false };
         }
 
         const pty = await ensurePty();

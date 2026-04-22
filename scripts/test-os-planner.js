@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const { suggestOsPlannerAction, formatOsIntentHint } = require('../dist-electron/agent/os-intent-router');
+const { critic } = require('../dist-electron/agent/critic');
 
 function expectSkill(name, objective, expectedSkill, expectedParams = {}, ctx = {}) {
     const hint = suggestOsPlannerAction(objective, ctx);
@@ -30,6 +31,13 @@ function testOsPlannerRouting() {
     expectSkill(
         'listar downloads',
         'veja meus arquivos da area de downloads',
+        'os_listar',
+        { caminho: 'downloads' }
+    );
+
+    expectSkill(
+        'listar downloads mesmo quando usuario fala terminal',
+        'liste meus downloads pelo terminal',
         'os_listar',
         { caminho: 'downloads' }
     );
@@ -138,10 +146,35 @@ function testTerminalStillAllowedForDevCommands() {
     assert.strictEqual(hint, null, 'dev command should not be captured by OS file router');
 }
 
+async function testCriticCorrigeTerminalParaSkillOs() {
+    const decision = await critic({
+        id: 'test-critic-os-router',
+        objetivo: 'liste meus downloads pelo terminal',
+        status: 'running',
+        contexto: {
+            documentos: [],
+            resultados: {},
+            chatHistory: ''
+        },
+        passos: [],
+        iteracao: 0,
+        startTime: Date.now()
+    }, {
+        skill: 'terminal_executar',
+        parametros: { comando: 'dir Downloads' }
+    }, {});
+
+    assert.strictEqual(decision.approved, true);
+    assert.strictEqual(decision.correctedDecision?.skill, 'os_listar');
+    assert.deepStrictEqual(decision.correctedDecision?.parametros, { caminho: 'downloads' });
+    assert.match(decision.reason, /substituido|os_listar/i);
+}
+
 async function run() {
     const tests = [
         testOsPlannerRouting,
-        testTerminalStillAllowedForDevCommands
+        testTerminalStillAllowedForDevCommands,
+        testCriticCorrigeTerminalParaSkillOs
     ];
 
     for (const test of tests) {

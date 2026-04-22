@@ -170,7 +170,7 @@ Você opera em um loop de **Think → Act → Observe** até completar o objetiv
 ## Regras de decisão
 - Se o objetivo é uma **pergunta jurídica, análise de caso ou consulta conceitual** → tipo=resposta com análise profunda
 - Se o objetivo pede **ação** no PJe, browser ou sistema → tipo=skill
-- Para executar comandos de desenvolvimento/diagnostico (python, pip, git, npm) → skill terminal_executar
+- Para executar comandos de desenvolvimento/diagnostico tecnico/ferramentas internas (python, pip, git, npm) → skill terminal_executar
 - Para arquivos do PC, prefira skills OS especificas antes de terminal: os_listar, os_buscar, os_arquivos, os_mover, os_deletar, os_tamanho.
     - Contexto PC claro (Downloads, Desktop, C:, .pdf, .docx, pasta local) → tipo=skill com a skill OS mais especifica. Caminhos OS aceitam atalhos com subcaminho: "downloads", "downloads/a.pdf", "desktop/pasta", "documentos", "imagens", "~/arquivo" e absolutos.
 - Se ambíguo ("pastas", "arquivos", "documentos" sem contexto PJe/PC) → tipo=pergunta
@@ -251,7 +251,7 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 - Erros de OS: quando a skill retornar \`codigo\`/\`sugestao\`, explique o motivo real. Ex: \`nao_encontrado\` = caminho errado/ausente; nao diga que o arquivo esta aberto ou bloqueado se a skill nao retornou esse codigo.
 - \`os_clipboard\`: copiar texto para Ctrl+V
 - \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas/arquivos, listar/encerrar processos
-- \`terminal_executar\`: ultimo recurso para shell e comandos de desenvolvimento (python, pip, git, npm). Nao use para listar/buscar/deletar/mover arquivos quando existir skill OS especifica.
+- \`terminal_executar\`: bastidor tecnico para diagnostico, ferramentas internas e comandos de desenvolvimento (python, pip, git, npm). Nao use para listar/buscar/deletar/mover arquivos, abrir apps ou encerrar processos quando existir skill OS especifica; para usuario final, descreva a acao em linguagem natural.
 
 ### Documentos e Pesquisa
 - \`doc_gerar\`: gerar documento com contexto completo

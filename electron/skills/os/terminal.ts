@@ -8,40 +8,22 @@
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { getPtyManager } from '../../terminal';
 import { getPythonEnv } from '../../python';
+import { resolverEntradaOs } from '../../tools/os-tools';
+import { classifyCommand } from '../../terminal/command-policy';
+import * as fs from 'fs/promises';
 
-/**
- * Comandos seguros que não modificam nada — executam sem confirmação.
- * Padrão: se o primeiro token do comando (antes de espaços/pipes/&&) está aqui, é seguro.
- */
-const SAFE_COMMANDS = new Set([
-    // Versões e info
-    'python', 'python3', 'node',
-    'git', 'java', 'javac', 'dotnet', 'ruby', 'go', 'rustc', 'cargo',
-    'gcc', 'g++', 'make', 'cmake', 'tsc', 'deno', 'bun',
-    // Sistema (leitura)
-    'echo', 'type', 'cat', 'head', 'tail', 'find', 'where', 'which',
-    'dir', 'ls', 'pwd', 'tree', 'wc', 'sort', 'grep', 'findstr',
-    'hostname', 'whoami', 'date', 'time', 'env', 'printenv',
-    'systeminfo', 'ver', 'uname',
-    // Rede (leitura)
-    'ping', 'nslookup', 'ipconfig', 'ifconfig',
-]);
-
-/**
- * Subcomandos seguros para ferramentas comuns.
- * Ex: "git status" é seguro, "git push" não.
- */
-const SAFE_SUBCOMMANDS: Record<string, Set<string>> = {
-    git: new Set(['status', 'log', 'diff', 'branch', 'show', 'remote', 'tag', 'stash list', 'rev-parse', 'config --list']),
-    npm: new Set(['list', 'ls', 'outdated', 'view', 'info', 'search', 'config list', 'version', '--version']),
-    pip: new Set(['list', 'show', 'freeze', 'check', '--version']),
-    pip3: new Set(['list', 'show', 'freeze', 'check', '--version']),
-    docker: new Set(['ps', 'images', 'info', 'version', 'stats', 'logs']),
-    cargo: new Set(['check', 'test', 'bench', 'doc', '--version']),
+type TerminalExecData = {
+    stdout: string;
+    stdoutResumo: string;
+    exitCode: number | null;
+    killed: boolean;
+    diretorio?: string;
+    fuzzyDiretorio?: boolean;
+    category: string;
+    risk: string;
+    reason: string;
+    command: string;
 };
-
-const SHELL_CONTROL_PATTERN = /[\r\n|&;<>]/;
-const VERSION_OR_HELP_FLAGS = new Set(['--version', '--help', '-v', '-h', '/?']);
 
 function boolParam(value: unknown): boolean {
     if (typeof value === 'boolean') return value;
@@ -54,53 +36,117 @@ function boolParam(value: unknown): boolean {
     return Boolean(value);
 }
 
-/**
- * Verifica se um comando é seguro (somente leitura) e pode rodar sem confirmação.
- */
-function isReadOnlyCommand(command: string): boolean {
-    // Comandos compostos, pipelines e redirecionamentos podem esconder escrita
-    // ou execucao encadeada depois de um prefixo inofensivo.
-    if (SHELL_CONTROL_PATTERN.test(command)) return false;
+async function resolverDiretorioTerminal(rawDir?: string): Promise<{ ok: true; diretorio?: string; fuzzy?: boolean } | { ok: false; result: SkillResult }> {
+    const raw = String(rawDir || '').trim();
+    if (!raw) return { ok: true };
 
-    // Pega o primeiro token do comando (antes de pipes, &&, ;)
-    const firstPart = command.trim();
-    const tokens = firstPart.split(/\s+/);
-    let base = tokens[0]?.toLowerCase().replace(/\.exe$/, '') || '';
-
-    // Se o comando usa um path absoluto para python (embedded ou sistema),
-    // normaliza para "python" para reutilizar as mesmas regras
-    if (base.includes('python') && (base.includes('/') || base.includes('\\'))) {
-        base = 'python';
+    const resolucao = await resolverEntradaOs(raw, { mustExist: true });
+    if (!resolucao.sucesso) {
+        return {
+            ok: false,
+            result: {
+                sucesso: false,
+                codigo: resolucao.codigo,
+                erro: resolucao.erro || `Diretorio "${raw}" nao encontrado.`,
+                sugestao: resolucao.sugestao || 'Informe uma pasta existente ou use aliases como downloads, desktop, documentos ou ~.',
+                mensagem: resolucao.erro || `Diretorio "${raw}" nao encontrado.`
+            }
+        };
     }
 
-    // Qualquer comando com --version ou --help é seguro
-    const flags = tokens.slice(1).map(t => t.toLowerCase());
-
-    if (flags.some(flag => VERSION_OR_HELP_FLAGS.has(flag))) {
-        if (SAFE_COMMANDS.has(base)) return true;
+    const resolved = resolucao.dados.caminho;
+    try {
+        const stat = await fs.stat(resolved);
+        if (!stat.isDirectory()) {
+            return {
+                ok: false,
+                result: {
+                    sucesso: false,
+                    codigo: 'operacao_invalida',
+                    erro: `Diretorio de trabalho "${resolved}" nao e uma pasta.`,
+                    sugestao: 'Informe uma pasta como diretorio de trabalho.',
+                    mensagem: `Diretorio de trabalho "${resolved}" nao e uma pasta.`
+                }
+            };
+        }
+    } catch (error: any) {
+        return {
+            ok: false,
+            result: {
+                sucesso: false,
+                codigo: 'erro_io',
+                erro: `Erro ao validar diretorio "${raw}": ${error.message}`,
+                sugestao: 'Informe uma pasta existente e acessivel.',
+                mensagem: `Erro ao validar diretorio "${raw}": ${error.message}`
+            }
+        };
     }
 
-    // Checa subcomandos seguros (ex: "git status")
-    const subCmds = SAFE_SUBCOMMANDS[base];
-    if (subCmds) {
-        const sub = flags.join(' ');
-        return subCmds.has(sub) || subCmds.has(flags[0] || '');
+    return { ok: true, diretorio: resolved, fuzzy: Boolean(resolucao.dados.fuzzy) };
+}
+
+function montarPerguntaConfirmacao(policy: ReturnType<typeof classifyCommand>, diretorio?: string): string {
+    const partes = [policy.userQuestion.trim()];
+    if (policy.suggestion) partes.push(policy.suggestion.trim());
+    if (diretorio) partes.push(`Pasta de trabalho: ${diretorio}`);
+    return partes.join('\n');
+}
+
+function resumirSaidaTerminal(output: string): string {
+    const trimmed = output.trim();
+    if (!trimmed) return '(sem saida)';
+
+    const lines = trimmed.split('\n').map(line => line.trimEnd());
+    const maxLines = 12;
+    const maxChars = 1600;
+
+    if (lines.length <= maxLines && trimmed.length <= maxChars) return trimmed;
+
+    const headCount = 6;
+    const tailCount = 4;
+    const head = lines.slice(0, headCount);
+    const tail = lines.slice(Math.max(headCount, lines.length - tailCount));
+    const omitted = Math.max(0, lines.length - head.length - tail.length);
+    const summaryLines = [
+        ...head,
+        omitted > 0 ? `... (${omitted} linhas omitidas; saida completa em dados.stdout)` : '...',
+        ...tail
+    ];
+
+    let summary = summaryLines.join('\n');
+    if (summary.length > maxChars) {
+        summary = `${summary.slice(0, maxChars - 58).trimEnd()}\n... (saida resumida; completa em dados.stdout)`;
     }
+    return summary;
+}
 
-    // Comandos puros de leitura (echo, dir, ls, whoami, etc.)
-    const readOnlyBases = new Set([
-        'echo', 'type', 'cat', 'head', 'tail', 'find', 'where', 'which',
-        'dir', 'ls', 'pwd', 'tree', 'wc', 'sort', 'grep', 'findstr',
-        'hostname', 'whoami', 'date', 'time', 'ver', 'uname',
-        'systeminfo', 'ipconfig', 'ifconfig', 'ping', 'nslookup',
-    ]);
-
-    return readOnlyBases.has(base);
+function montarDadosExecucao(params: {
+    stdout: string;
+    stdoutResumo: string;
+    exitCode: number | null;
+    killed: boolean;
+    diretorio?: string;
+    fuzzyDiretorio?: boolean;
+    policy: ReturnType<typeof classifyCommand>;
+    command: string;
+}): TerminalExecData {
+    return {
+        stdout: params.stdout,
+        stdoutResumo: params.stdoutResumo,
+        exitCode: params.exitCode,
+        killed: params.killed,
+        diretorio: params.diretorio,
+        fuzzyDiretorio: params.fuzzyDiretorio,
+        category: params.policy.category,
+        risk: params.policy.risk,
+        reason: params.policy.reason,
+        command: params.command
+    };
 }
 
 export const osTerminal: Skill = {
     nome: 'terminal_executar',
-    descricao: 'Executa comando no terminal com saída em tempo real. Comandos de leitura (--version, git status, dir, pip list, etc) executam direto sem confirmação. Comandos que modificam algo (install, delete, push) pedem confirmação.',
+    descricao: 'Uso restrito para diagnostico tecnico, comandos de desenvolvimento e ferramentas internas. NAO use para listar/buscar/deletar/mover arquivos, organizar pastas, abrir arquivos ou encerrar processos quando existir skill OS especifica. Comandos de leitura tecnica executam direto; comandos mutantes ou compostos pedem confirmacao.',
     categoria: 'os',
 
     parametros: {
@@ -111,7 +157,13 @@ export const osTerminal: Skill = {
         },
         diretorio: {
             tipo: 'string',
-            descricao: 'Diretório de trabalho (default: home do usuário)',
+            descricao: 'Diretorio de trabalho. Aceita aliases OS: downloads, desktop, documentos, ~. Default: home do usuario.',
+            obrigatorio: false,
+            default: '',
+        },
+        cwd: {
+            tipo: 'string',
+            descricao: 'Alias de diretorio/cwd para compatibilidade com comandos tecnicos.',
             obrigatorio: false,
             default: '',
         },
@@ -139,7 +191,7 @@ export const osTerminal: Skill = {
 
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {
         const comando = String(params['comando'] || '').trim();
-        const diretorio = String(params['diretorio'] || '').trim() || undefined;
+        const diretorioRaw = String(params['diretorio'] ?? params['cwd'] ?? '').trim() || undefined;
         const timeoutMs = Math.min(Number(params['timeoutMs']) || 30_000, 120_000);
         const confirmado = boolParam(params['confirmado']);
 
@@ -151,16 +203,44 @@ export const osTerminal: Skill = {
             };
         }
 
+        const diretorioResolvido = await resolverDiretorioTerminal(diretorioRaw);
+        if (!diretorioResolvido.ok) return diretorioResolvido.result;
+        const diretorio = diretorioResolvido.diretorio || process.cwd();
+        const policy = classifyCommand(comando);
+
+        if (policy.blocked) {
+            return {
+                sucesso: false,
+                codigo: 'comando_bloqueado',
+                erro: `Comando bloqueado por seguranca: ${policy.reason}.`,
+                sugestao: policy.suggestion,
+                dados: {
+                    command: comando,
+                    category: policy.category,
+                    risk: policy.risk,
+                    reason: policy.reason,
+                    diretorio
+                },
+                mensagem: `Bloqueei este comando por seguranca: ${policy.reason}.`
+            };
+        }
+
         // Comandos de leitura executam direto, sem confirmação
         // Comandos que modificam algo pedem confirmação via botão no chat
-        if (!confirmado && !isReadOnlyCommand(comando)) {
+        if (!confirmado && policy.requiresConfirmation) {
             return {
                 sucesso: false,
                 dados: {
                     requiresUserAction: true,
-                    question: `Executar no terminal?\n\n\`\`\`\n${comando}\n\`\`\`${diretorio ? `\nDiretório: ${diretorio}` : ''}`,
+                    question: montarPerguntaConfirmacao(policy, diretorio),
+                    command: comando,
+                    diretorio,
+                    category: policy.category,
+                    risk: policy.risk,
+                    reason: policy.reason,
+                    suggestion: policy.suggestion,
                 },
-                mensagem: `Aguardando confirmação para executar: ${comando}`,
+                mensagem: 'Aguardando confirmacao para executar uma acao tecnica no terminal.',
             };
         }
 
@@ -198,25 +278,33 @@ export const osTerminal: Skill = {
                 .replace(/\n{3,}/g, '\n\n')                  // Compacta linhas vazias
                 .trim();
 
-            const truncatedOutput = cleanOutput.length > 4000
-                ? cleanOutput.slice(0, 4000) + '\n... [saída truncada]'
-                : cleanOutput;
+            const stdoutResumo = resumirSaidaTerminal(cleanOutput);
+            const dadosExecucao = montarDadosExecucao({
+                stdout: cleanOutput,
+                stdoutResumo,
+                exitCode: result.exitCode,
+                killed: result.killed,
+                diretorio,
+                fuzzyDiretorio: diretorioResolvido.fuzzy,
+                policy,
+                command: comando
+            });
 
             if (result.exitCode !== 0 && !result.killed) {
                 return {
                     sucesso: false,
-                    dados: { stdout: cleanOutput, exitCode: result.exitCode, killed: result.killed },
+                    dados: dadosExecucao,
                     erro: `Comando retornou código ${result.exitCode}`,
-                    mensagem: `Comando: ${comando}\nCódigo de saída: ${result.exitCode}\n\n${truncatedOutput}`,
+                    mensagem: `Verificacao tecnica falhou (codigo ${result.exitCode}).\n\n${stdoutResumo}`,
                 };
             }
 
             return {
                 sucesso: !result.killed,
-                dados: { stdout: cleanOutput, exitCode: result.exitCode, killed: result.killed },
+                dados: dadosExecucao,
                 mensagem: result.killed
-                    ? `Comando: ${comando}\n[TIMEOUT após ${timeoutMs / 1000}s]\n\n${truncatedOutput}`
-                    : `Comando: ${comando}\n\n${truncatedOutput || '(sem saída)'}`,
+                    ? `Verificacao tecnica interrompida por timeout (${timeoutMs / 1000}s).\n\n${stdoutResumo}`
+                    : `Verificacao tecnica concluida.\n\n${stdoutResumo}`,
             };
         } catch (err: any) {
             return {

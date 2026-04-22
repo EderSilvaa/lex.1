@@ -886,7 +886,143 @@ async function testTerminalPedeConfirmacaoParaComandoComposto() {
 
     assert.strictEqual(result.sucesso, false);
     assert.strictEqual(result.dados.requiresUserAction, true);
-    assert.match(result.dados.question, /Executar no terminal/);
+    assert.match(result.dados.question, /verificacao tecnica|terminal/i);
+    assert.strictEqual(result.dados.command, 'tasklist /v | findstr /i "word"');
+    assert(!result.dados.question.includes('tasklist /v | findstr'), 'pergunta nao deve despejar comando bruto no chat');
+    assert(!/```/.test(result.dados.question), 'pergunta nao deve renderizar bloco de codigo');
+}
+
+async function testTerminalPolicyClassificaRiscos() {
+    const gitStatus = await osTerminal.execute({
+        comando: 'git status',
+        diretorio: TMP_ROOT,
+        timeoutMs: 5000
+    }, {});
+    assert.notStrictEqual(gitStatus.dados?.requiresUserAction, true, 'git status deve ser leitura tecnica');
+
+    const gitPush = await osTerminal.execute({
+        comando: 'git push origin main',
+        diretorio: TMP_ROOT,
+        timeoutMs: 1000
+    }, {});
+    assert.strictEqual(gitPush.sucesso, false);
+    assert.strictEqual(gitPush.dados.requiresUserAction, true);
+    assert.strictEqual(gitPush.dados.category, 'external_effect');
+    assert.strictEqual(gitPush.dados.risk, 'high');
+    assert(!gitPush.dados.question.includes('git push'), 'pergunta deve guardar comando nos dados, nao no texto');
+
+    const npmInstall = await osTerminal.execute({
+        comando: 'npm install left-pad',
+        diretorio: TMP_ROOT,
+        timeoutMs: 1000
+    }, {});
+    assert.strictEqual(npmInstall.sucesso, false);
+    assert.strictEqual(npmInstall.dados.requiresUserAction, true);
+    assert.strictEqual(npmInstall.dados.category, 'dev_mutation');
+
+    const redirected = await osTerminal.execute({
+        comando: `echo hi > "${path.join(TMP_ROOT, 'policy-marker.txt')}"`,
+        diretorio: TMP_ROOT,
+        timeoutMs: 1000
+    }, {});
+    assert.strictEqual(redirected.sucesso, false);
+    assert.strictEqual(redirected.dados.requiresUserAction, true);
+    assert.strictEqual(redirected.dados.category, 'filesystem_mutation');
+    assert(!fs.existsSync(path.join(TMP_ROOT, 'policy-marker.txt')), 'redirecionamento nao confirmado nao deve criar arquivo');
+
+    const stderrPipe = await osTerminal.execute({
+        comando: 'npm run build 2>&1 | head -50',
+        diretorio: TMP_ROOT,
+        timeoutMs: 1000
+    }, {});
+    assert.strictEqual(stderrPipe.sucesso, false);
+    assert.strictEqual(stderrPipe.dados.requiresUserAction, true);
+    assert.notStrictEqual(stderrPipe.dados.category, 'filesystem_mutation', '2>&1 nao deve ser tratado como escrita em arquivo');
+}
+
+async function testTerminalBloqueiaComandoDestrutivoMesmoConfirmado() {
+    resetTmp();
+    const result = await osTerminal.execute({
+        comando: process.platform === 'win32' ? 'rmdir /s C:\\' : 'rm -rf /',
+        diretorio: TMP_ROOT,
+        confirmado: true,
+        timeoutMs: 1000
+    }, {});
+
+    assert.strictEqual(result.sucesso, false);
+    assert.strictEqual(result.codigo, 'comando_bloqueado');
+    assert.strictEqual(result.dados.category, 'blocked');
+}
+
+async function testTerminalResolveDiretorioAliasECwd() {
+    assert(osTerminal.parametros.cwd, 'schema de terminal_executar deve declarar alias "cwd"');
+
+    const defaultCwd = await osTerminal.execute({
+        comando: process.platform === 'win32' ? 'echo %CD%' : 'pwd',
+        timeoutMs: 5000
+    }, {});
+    assert.strictEqual(defaultCwd.sucesso, true, defaultCwd.erro || defaultCwd.mensagem);
+    assert.strictEqual(path.normalize(defaultCwd.dados.diretorio), path.normalize(ROOT));
+
+    const downloads = path.join(os.homedir(), 'Downloads');
+    if (fs.existsSync(downloads)) {
+        const comando = process.platform === 'win32' ? 'echo %CD%' : 'pwd';
+        const result = await osTerminal.execute({
+            comando,
+            diretorio: 'downloads',
+            timeoutMs: 5000
+        }, {});
+
+        assert.strictEqual(result.sucesso, true, result.erro || result.mensagem);
+        assert.strictEqual(path.normalize(result.dados.diretorio), path.normalize(downloads));
+        assert.match(result.dados.stdout.toLowerCase(), /downloads/);
+    }
+
+    resetTmp();
+    const cwdResult = await osTerminal.execute({
+        comando: process.platform === 'win32' ? 'echo %CD%' : 'pwd',
+        cwd: TMP_ROOT,
+        timeoutMs: 5000
+    }, {});
+    assert.strictEqual(cwdResult.sucesso, true, cwdResult.erro || cwdResult.mensagem);
+    assert.strictEqual(path.normalize(cwdResult.dados.diretorio), path.normalize(TMP_ROOT));
+    assert.strictEqual(typeof cwdResult.dados.stdoutResumo, 'string');
+    assert(!cwdResult.mensagem.includes('Comando:'), 'mensagem de sucesso nao deve expor comando bruto');
+}
+
+async function testTerminalResumeSaidaLongaSemPerderStdout() {
+    resetTmp();
+    const command = process.platform === 'win32'
+        ? 'for /L %i in (0,1,79) do @echo linha-%i'
+        : "for i in $(seq 0 79); do echo linha-$i; done";
+    const result = await osTerminal.execute({
+        comando: command,
+        diretorio: TMP_ROOT,
+        confirmado: true,
+        timeoutMs: 10000
+    }, {});
+
+    assert.strictEqual(result.sucesso, true, result.erro || result.mensagem);
+    assert(result.dados.stdout.includes('linha-0'));
+    assert(result.dados.stdout.includes('linha-79'));
+    assert(result.dados.stdoutResumo.length < result.dados.stdout.length, 'resumo deve ser menor que stdout completo');
+    assert(result.mensagem.length < result.dados.stdout.length, 'chat deve receber resumo curto');
+    assert(!result.mensagem.includes(command), 'mensagem nao deve expor comando bruto');
+}
+
+async function testTerminalValidaDiretorioAntesDeExecutar() {
+    resetTmp();
+    const marker = path.join(TMP_ROOT, 'nao-deve-criar.txt');
+    const result = await osTerminal.execute({
+        comando: `echo nao > "${marker}"`,
+        diretorio: path.join(TMP_ROOT, 'pasta-inexistente'),
+        confirmado: true,
+        timeoutMs: 1000
+    }, {});
+
+    assert.strictEqual(result.sucesso, false);
+    assert.match(result.codigo || result.erro || '', /nao_encontrado|Diretorio/i);
+    assert(!fs.existsSync(marker), 'terminal_executar nao deve rodar se o diretorio nao existe');
 }
 
 async function run() {
@@ -929,7 +1065,12 @@ async function run() {
         testSistemaInfoPastasEEncerrarPedeConfirmacao,
         testClipboardValidacaoSemMutar,
         testFetchBloqueiaUrlsInvalidasOuPrivadas,
-        testTerminalPedeConfirmacaoParaComandoComposto
+        testTerminalPedeConfirmacaoParaComandoComposto,
+        testTerminalPolicyClassificaRiscos,
+        testTerminalBloqueiaComandoDestrutivoMesmoConfirmado,
+        testTerminalResolveDiretorioAliasECwd,
+        testTerminalResumeSaidaLongaSemPerderStdout,
+        testTerminalValidaDiretorioAntesDeExecutar
     ];
 
     try {
@@ -943,7 +1084,9 @@ async function run() {
     }
 }
 
-run().catch((error) => {
+run().then(() => {
+    process.exit(0);
+}).catch((error) => {
     console.error('[OsSkillTest] failed');
     console.error(error);
     cleanupTmp();
