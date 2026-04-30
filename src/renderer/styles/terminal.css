@@ -16,12 +16,54 @@
 .terminal-session-bar {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 6px;
     padding: 6px 12px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     min-height: 38px;
     flex-shrink: 0;
+}
+
+.terminal-engine-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 92px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.terminal-engine-status:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+}
+
+.terminal-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.terminal-status-dot.ok {
+    background: var(--success-color);
+}
+
+.terminal-status-dot.error {
+    background: var(--danger-color);
+}
+
+.terminal-status-dot.checking {
+    background: var(--warning-color);
 }
 
 .terminal-tabs {
@@ -109,6 +151,24 @@
 .terminal-new-btn:hover {
     background: var(--bg-primary);
     color: var(--text-primary);
+}
+
+.terminal-engine-btn {
+    height: 28px;
+    min-width: 88px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.terminal-engine-btn:hover {
+    border-color: var(--accent-color);
 }
 
 /* ── Terminal Container ── */

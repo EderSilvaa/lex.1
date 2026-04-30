@@ -441,6 +441,403 @@ async function lerPDF(filePath: string, tamanho: number): Promise<OsToolResult> 
 /**
  * Extrai texto de um DOCX/DOC via mammoth
  */
+export type QualidadeMapaProcesso = 'boa' | 'parcial' | 'nao_encontrado';
+
+export interface ProcessoDocumentoMapeado {
+    id: string;
+    data?: string;
+    hora?: string;
+    documento: string;
+    tipo: string;
+    paginaInicial?: number;
+    paginaFinal?: number;
+    precisao?: 'alta' | 'media' | 'baixa';
+}
+
+export interface ProcessoParteMapeada {
+    nome: string;
+    papel: string;
+}
+
+export interface ProcessoDocumentoAlias {
+    id: string;
+    documento: string;
+    tipo: string;
+    paginaInicial?: number;
+    paginaFinal?: number;
+}
+
+export interface MapaProcesso {
+    caminho?: string;
+    processo: string | null;
+    partes: ProcessoParteMapeada[];
+    documentos: ProcessoDocumentoMapeado[];
+    aliasesDocumentos: Record<string, ProcessoDocumentoAlias>;
+    totalDocumentos: number;
+    documentosComPaginas: number;
+    paginasIndiceProvaveis: number[];
+    paginas?: number;
+    indiceEncontrado: boolean;
+    qualidadeMapa: QualidadeMapaProcesso;
+    fonte: string;
+    totalCaracteres: number;
+    recomendacao: string;
+    cacheHit?: boolean;
+    fuzzy?: boolean;
+}
+
+type ProcessoPaginaTexto = { pagina: number; texto: string };
+
+const processoMapaCache = new Map<string, MapaProcesso>();
+
+function limparLinhaMapa(value: string): string {
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([.,;:])/g, '$1')
+        .trim();
+}
+
+function normalizarMapaTexto(value: string): string {
+    return normalizarParaComparacao(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function extrairNumeroProcessoMapa(texto: string): string | null {
+    const match = String(texto || '').match(/\b\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b/);
+    return match?.[0] || null;
+}
+
+function extrairPartesMapa(linhas: string[]): ProcessoParteMapeada[] {
+    const partes: ProcessoParteMapeada[] = [];
+    const vistos = new Set<string>();
+    const regex = /([^()]{3,}?)\s*\((AUTOR|AUTORA|REU|RE|REQUERENTE|REQUERIDO|ADVOGADO|ADVOGADA)\)/gi;
+
+    for (const linha of linhas.slice(0, 120)) {
+        let match: RegExpExecArray | null;
+        regex.lastIndex = 0;
+        while ((match = regex.exec(linha))) {
+            const nome = limparLinhaMapa(match[1] || '');
+            const papel = String(match[2] || '').toUpperCase();
+            if (!nome || nome.length < 3) continue;
+            const key = `${normalizarMapaTexto(nome)}|${papel}`;
+            if (vistos.has(key)) continue;
+            vistos.add(key);
+            partes.push({ nome, papel });
+        }
+        if (partes.length >= 20) break;
+    }
+
+    return partes;
+}
+
+function encontrarTipoDocumentoMapa(restoRaw: string): { documento: string; tipo: string } {
+    const resto = limparLinhaMapa(restoRaw);
+    if (!resto) return { documento: '', tipo: '' };
+
+    const tiposConhecidos = [
+        'Peticao Inicial',
+        'Petição Inicial',
+        'Documento de Comprovacao',
+        'Documento de Comprovação',
+        'Contestacao',
+        'Contestação',
+        'Replica',
+        'Réplica',
+        'Despacho',
+        'Decisao',
+        'Decisão',
+        'Sentenca',
+        'Sentença',
+        'Acordao',
+        'Acórdão',
+        'Certidao',
+        'Certidão',
+        'Mandado',
+        'Procuracao',
+        'Procuração',
+        'Planilha'
+    ];
+    const restoNorm = normalizarMapaTexto(resto);
+    let melhor: { index: number; tipo: string } | null = null;
+
+    for (const tipo of tiposConhecidos) {
+        const tipoNorm = normalizarMapaTexto(tipo);
+        if (!restoNorm.includes(tipoNorm)) continue;
+
+        const regex = new RegExp(tipo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        const matches = [...resto.matchAll(regex)];
+        const last = matches[matches.length - 1];
+        const index = last?.index ?? -1;
+        if (index < 0) continue;
+        if (!melhor || index > melhor.index) melhor = { index, tipo };
+    }
+
+    if (!melhor) return { documento: resto, tipo: '' };
+
+    const documento = limparLinhaMapa(resto.slice(0, melhor.index));
+    const tipo = limparLinhaMapa(resto.slice(melhor.index)) || melhor.tipo;
+    return { documento: documento || tipo, tipo };
+}
+
+function extrairDocumentosMapa(linhas: string[]): ProcessoDocumentoMapeado[] {
+    const documentos: ProcessoDocumentoMapeado[] = [];
+    const vistos = new Set<string>();
+    const docStartRegex = /^(\d{6,12})\s+(\d{2}\/\d{2}\/\d{2,4})(?:\s+(\d{1,2}:\d{2}))?\s+(.+)$/;
+    let atual: ProcessoDocumentoMapeado | null = null;
+
+    function finalizarAtual(): void {
+        if (!atual) return;
+        atual.documento = limparLinhaMapa(atual.documento);
+        atual.tipo = limparLinhaMapa(atual.tipo);
+        if (!atual.documento) return;
+        const key = `${atual.id}|${normalizarMapaTexto(atual.documento)}`;
+        if (vistos.has(key)) return;
+        vistos.add(key);
+        documentos.push(atual);
+    }
+
+    for (const raw of linhas) {
+        const linha = limparLinhaMapa(raw);
+        if (!linha) continue;
+        if (/^(id\.?|data|documento|tipo|documentos)$/i.test(linha)) continue;
+
+        const match = linha.match(docStartRegex);
+        if (match) {
+            finalizarAtual();
+            const dividido = encontrarTipoDocumentoMapa(match[4] || '');
+            atual = {
+                id: match[1] || '',
+                data: match[2] || undefined,
+                hora: match[3] || undefined,
+                documento: dividido.documento,
+                tipo: dividido.tipo,
+                precisao: dividido.tipo ? 'alta' : 'media'
+            };
+            continue;
+        }
+
+        if (atual && !/^\d{6,12}\b/.test(linha)) {
+            const dividido = encontrarTipoDocumentoMapa(`${atual.documento} ${linha}`);
+            atual.documento = dividido.documento || `${atual.documento} ${linha}`;
+            if (dividido.tipo) {
+                atual.tipo = dividido.tipo;
+                atual.precisao = atual.precisao === 'alta' ? 'alta' : 'media';
+            }
+        }
+    }
+
+    finalizarAtual();
+    return documentos;
+}
+
+function extrairDocumentosMapaTextoAchatado(texto: string): ProcessoDocumentoMapeado[] {
+    const documentos: ProcessoDocumentoMapeado[] = [];
+    const vistos = new Set<string>();
+    const inicioIndice = String(texto || '').search(/\bDocumentos\s+Id\.?\s+Data\s+Documento\s+Tipo\b/i);
+    const trecho = limparLinhaMapa(inicioIndice >= 0 ? String(texto).slice(inicioIndice) : String(texto || ''));
+    const docEntryRegex = /(\d{6,12})\s+(\d{2}\/\d{2}\/\d{2,4})(?:\s+(\d{1,2}:\d{2}))?\s+([\s\S]*?)(?=\s+\d{6,12}\s+\d{2}\/\d{2}\/\d{2,4}(?:\s+\d{1,2}:\d{2})?\s+|$)/g;
+
+    for (const match of trecho.matchAll(docEntryRegex)) {
+        const id = match[1] || '';
+        const resto = limparLinhaMapa(match[4] || '');
+        if (!id || !resto) continue;
+        const dividido = encontrarTipoDocumentoMapa(resto);
+        const documento = limparLinhaMapa(dividido.documento);
+        const tipo = limparLinhaMapa(dividido.tipo);
+        if (!documento) continue;
+
+        const key = `${id}|${normalizarMapaTexto(documento)}`;
+        if (vistos.has(key)) continue;
+        vistos.add(key);
+        documentos.push({
+            id,
+            data: match[2] || undefined,
+            hora: match[3] || undefined,
+            documento,
+            tipo,
+            precisao: tipo ? 'alta' : 'media'
+        });
+    }
+
+    return documentos;
+}
+
+function paginaPareceIndiceProcesso(texto: string, documentos: ProcessoDocumentoMapeado[]): boolean {
+    const normalized = normalizarMapaTexto(texto);
+    if (/\bdocumentos?\b/.test(normalized) && /\bid\b/.test(normalized) && /\bdata\b/.test(normalized)) return true;
+
+    let idsEncontrados = 0;
+    for (const doc of documentos.slice(0, 30)) {
+        if (doc.id && normalized.includes(doc.id)) idsEncontrados++;
+        if (idsEncontrados >= 3) return true;
+    }
+
+    return false;
+}
+
+function enriquecerDocumentosComPaginas(
+    documentos: ProcessoDocumentoMapeado[],
+    paginasTexto: ProcessoPaginaTexto[] = [],
+    totalPaginas?: number
+): { documentos: ProcessoDocumentoMapeado[]; paginasIndiceProvaveis: number[]; documentosComPaginas: number } {
+    if (documentos.length === 0 || paginasTexto.length === 0) {
+        return { documentos, paginasIndiceProvaveis: [], documentosComPaginas: 0 };
+    }
+
+    const paginasNormalizadas = paginasTexto
+        .map(page => ({ pagina: Number(page.pagina), texto: normalizarMapaTexto(page.texto) }))
+        .filter(page => Number.isInteger(page.pagina) && page.pagina > 0);
+    const paginasIndiceProvaveis = paginasNormalizadas
+        .filter(page => paginaPareceIndiceProcesso(page.texto, documentos))
+        .map(page => page.pagina);
+    const indiceSet = new Set(paginasIndiceProvaveis);
+    const enriquecidos = documentos.map(doc => ({ ...doc }));
+
+    for (const doc of enriquecidos) {
+        if (!doc.id) continue;
+        const candidatas = paginasNormalizadas.filter(page => page.texto.includes(doc.id));
+        if (candidatas.length === 0) continue;
+
+        const foraIndice = candidatas.filter(page => !indiceSet.has(page.pagina));
+        const escolhida = foraIndice[0] || (candidatas.length === 1 ? candidatas[0] : null);
+        if (!escolhida) continue;
+
+        doc.paginaInicial = escolhida.pagina;
+        doc.precisao = foraIndice.length > 0 ? 'alta' : 'baixa';
+    }
+
+    const docsComInicio = enriquecidos
+        .filter(doc => typeof doc.paginaInicial === 'number')
+        .sort((a, b) => (a.paginaInicial || 0) - (b.paginaInicial || 0));
+
+    for (let i = 0; i < docsComInicio.length; i++) {
+        const atual = docsComInicio[i]!;
+        const proximo = docsComInicio[i + 1];
+        const finalInferido = proximo?.paginaInicial
+            ? proximo.paginaInicial - 1
+            : totalPaginas || paginasNormalizadas[paginasNormalizadas.length - 1]?.pagina;
+        if (finalInferido && atual.paginaInicial) {
+            atual.paginaFinal = Math.max(atual.paginaInicial, finalInferido);
+        }
+    }
+
+    return {
+        documentos: enriquecidos,
+        paginasIndiceProvaveis,
+        documentosComPaginas: enriquecidos.filter(doc => typeof doc.paginaInicial === 'number').length
+    };
+}
+
+function aliasesDocumentosProcesso(documentos: ProcessoDocumentoMapeado[]): Record<string, ProcessoDocumentoAlias> {
+    const aliasMap: Record<string, ProcessoDocumentoAlias> = {};
+    const textoDoc = (doc: ProcessoDocumentoMapeado) => normalizarMapaTexto(`${doc.documento} ${doc.tipo}`);
+    const first = (pattern: RegExp) => documentos.find(doc => pattern.test(textoDoc(doc)));
+    const last = (pattern: RegExp) => [...documentos].reverse().find(doc => pattern.test(textoDoc(doc)));
+    const aliases: Array<[string, ProcessoDocumentoMapeado | undefined]> = [
+        ['peticao_inicial', first(/\bpetic(?:ao)? inicial\b|\binicial\b/)],
+        ['contestacao', first(/\bcontestac(?:ao)?\b|\bdefesa\b/)],
+        ['replica', first(/\breplica\b|\bimpugnac(?:ao)?\b/)],
+        ['ultima_decisao', last(/\bdecis(?:ao)?\b|\bdespacho\b|\bsentenc(?:a)?\b|\bacord(?:ao)?\b/)],
+        ['ultima_movimentacao_documento', last(/\bdecis(?:ao)?\b|\bdespacho\b|\bsentenc(?:a)?\b|\bacord(?:ao)?\b|\bcertid(?:ao)?\b|\bintimac(?:ao)?\b|\bmandado\b/)]
+    ];
+
+    for (const [key, doc] of aliases) {
+        if (!doc) continue;
+        aliasMap[key] = {
+            id: doc.id,
+            documento: doc.documento,
+            tipo: doc.tipo,
+            paginaInicial: doc.paginaInicial,
+            paginaFinal: doc.paginaFinal
+        };
+    }
+
+    return aliasMap;
+}
+
+export function analisarMapaProcessoTexto(texto: string, meta: Record<string, any> = {}): MapaProcesso {
+    const linhas = String(texto || '')
+        .split(/\r?\n/)
+        .map(limparLinhaMapa)
+        .filter(Boolean);
+    const documentosPorLinha = extrairDocumentosMapa(linhas);
+    const documentosBase = documentosPorLinha.length > 0
+        ? documentosPorLinha
+        : extrairDocumentosMapaTextoAchatado(texto);
+    const paginasTexto = Array.isArray(meta['paginasTexto']) ? meta['paginasTexto'] as ProcessoPaginaTexto[] : [];
+    const paginas = typeof meta['paginas'] === 'number' ? meta['paginas'] : undefined;
+    const paginasInferidas = enriquecerDocumentosComPaginas(documentosBase, paginasTexto, paginas);
+    const documentos = paginasInferidas.documentos;
+    const indiceEncontrado = documentos.length > 0;
+    const qualidadeMapa: QualidadeMapaProcesso = documentos.length >= 5
+        ? 'boa'
+        : documentos.length > 0
+            ? 'parcial'
+            : 'nao_encontrado';
+
+    return {
+        caminho: meta['caminho'],
+        processo: extrairNumeroProcessoMapa(texto),
+        partes: extrairPartesMapa(linhas),
+        documentos,
+        aliasesDocumentos: aliasesDocumentosProcesso(documentos),
+        totalDocumentos: documentos.length,
+        documentosComPaginas: paginasInferidas.documentosComPaginas,
+        paginasIndiceProvaveis: paginasInferidas.paginasIndiceProvaveis,
+        paginas,
+        indiceEncontrado,
+        qualidadeMapa,
+        fonte: meta['fonte'] || 'texto_nativo',
+        totalCaracteres: String(texto || '').length,
+        recomendacao: indiceEncontrado
+            ? 'Use o mapa para ler apenas documentos relevantes; evite OCR integral antes de saber a peca alvo.'
+            : 'Mapa nao encontrado no texto nativo. Tente leitura das primeiras paginas ou OCR seletivo se necessario.'
+    };
+}
+
+export async function mapearProcessoPdf(filePath: string): Promise<OsToolResult> {
+    try {
+        const resolucao = await resolverEntradaOs(filePath, { mustExist: true });
+        if (!resolucao.sucesso) return resolucao;
+
+        const resolved = resolucao.dados.caminho;
+        const stat = await fs.stat(resolved);
+        const cacheKey = `${resolved}|${stat.size}|${stat.mtimeMs}`;
+        const cached = processoMapaCache.get(cacheKey);
+        if (cached) {
+            return {
+                sucesso: true,
+                dados: {
+                    ...cached,
+                    caminho: resolved,
+                    fuzzy: Boolean(resolucao.dados.fuzzy) || Boolean(cached.fuzzy),
+                    cacheHit: true
+                }
+            };
+        }
+
+        const leitura = await lerArquivo(resolved);
+        if (!leitura.sucesso) return leitura;
+
+        const dadosLeitura = leitura.dados || {};
+        const mapa = analisarMapaProcessoTexto(String(dadosLeitura.conteudo || ''), {
+            caminho: resolved,
+            paginas: dadosLeitura.paginas,
+            fonte: dadosLeitura.formato === 'pdf' ? 'texto_nativo' : dadosLeitura.formato || 'texto_nativo'
+        });
+        const payload: MapaProcesso = {
+            ...mapa,
+            caminho: resolved,
+            fuzzy: Boolean(resolucao.dados.fuzzy),
+            cacheHit: false
+        };
+        processoMapaCache.set(cacheKey, payload);
+
+        return { sucesso: true, dados: payload };
+    } catch (error: any) {
+        return erroFs(error, `Erro ao mapear processo "${filePath}"`);
+    }
+}
+
 async function lerDocx(filePath: string, tamanho: number): Promise<OsToolResult> {
     try {
         const mammoth = await import('mammoth');

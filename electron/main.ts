@@ -16,6 +16,8 @@ import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } f
 import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
+import { getLexDesktopBridgeState, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
+import { askLexEngine, getLexEngineConsoleSpawn, getLexEngineStatus } from './lex-engine';
 import { autoUpdater } from 'electron-updater';
 import {
     initConsentManager, initAuditLog, flushAuditLog,
@@ -1310,6 +1312,23 @@ app.whenReady().then(async () => {
     initSupabase(store);
     createWindow();
     registerCrawlerHandlers();
+    startLexDesktopBridge();
+
+    ipcMain.handle('lex-engine-status', async () => {
+        try {
+            return { success: true, data: { ...(await getLexEngineStatus()), bridge: getLexDesktopBridgeState() } };
+        } catch (err: any) {
+            return { success: false, error: err.message || String(err) };
+        }
+    });
+
+    ipcMain.handle('lex-engine-ask', async (_event, { prompt }) => {
+        try {
+            return { success: true, data: await askLexEngine(prompt) };
+        } catch (err: any) {
+            return { success: false, error: err.message || String(err) };
+        }
+    });
 
     // Terminal embutido (xterm.js + node-pty)
     // Registrado logo após createWindow — o renderer chama createLex nos primeiros 200ms.
@@ -1359,6 +1378,27 @@ app.whenReady().then(async () => {
         });
 
         // Sessão especial: roda o LEX CLI dentro do PTY
+        ipcMain.handle('terminal-create-engine', async (_, opts) => {
+            try {
+                const spawn = getLexEngineConsoleSpawn(opts.sessionId);
+                await ptyMgr.createSession(opts.sessionId, {
+                    shell: spawn.shell,
+                    args: spawn.args,
+                    cwd: spawn.cwd,
+                    cols: opts.cols,
+                    rows: opts.rows,
+                    mode: 'engine',
+                    env: {
+                        ...spawn.env,
+                        NODE_OPTIONS: '--max-old-space-size=4096',
+                    },
+                });
+                return { success: true };
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+        });
+
         ipcMain.handle('terminal-create-lex', async (_, opts) => {
             try {
                 const path = await import('path');
@@ -1666,6 +1706,7 @@ app.on('window-all-closed', async function () {
     if (trayModeActive) return;
 
     // Encerra backend (flush + close browser + sessions)
+    stopLexDesktopBridge();
     await stopBackend();
 
     // Fallback local caso backend não estivesse rodando

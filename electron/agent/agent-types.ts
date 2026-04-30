@@ -64,7 +64,7 @@ Use browser_auto_task APENAS quando a pagina e complexa demais para skills atomi
         displayName: 'Agente OS',
         allowedSkillCategories: ['os', 'pc'],
         systemPromptExtra: `Voce e um agente especializado em operacoes do sistema operacional.
-Use os_listar para ver pastas, os_buscar para procurar arquivos/duplicados, os_arquivos para ler/grep/info, os_mover para mover/copiar/renomear/criar pastas, os_deletar para apagar com Lixeira/confirmacao, os_tamanho para medir espaco, os_clipboard para area de transferencia e os_sistema para info/pastas/abrir/processos.
+Use os_listar para ver pastas, os_buscar para procurar arquivos/duplicados, os_arquivos para ler/grep/info e mapear PDF de processo PJe com processo_mapa, os_mover para mover/copiar/renomear/criar pastas, os_deletar para apagar com Lixeira/confirmacao, os_tamanho para medir espaco, os_clipboard para area de transferencia e os_sistema para info/pastas/abrir/processos.
 Use terminal_executar somente como bastidor tecnico: diagnostico, comandos de desenvolvimento (pip, python, git, npm, scripts) e ferramentas internas. Nao use terminal para operacoes comuns de arquivo, processos, abertura de apps ou organizacao quando existir skill os_* especifica. Para usuario final, explique a acao em linguagem natural e nao exponha shell bruto salvo quando inevitavel.`,
         configOverrides: { timeoutMs: 60 * 1000 },
     },

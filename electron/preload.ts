@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('workspacesApi', {
     remove: (path: string) => ipcRenderer.invoke('workspace-remove', path),
 });
 
+contextBridge.exposeInMainWorld('lexEngineApi', {
+    getStatus: () => ipcRenderer.invoke('lex-engine-status'),
+    ask: (prompt: string) => ipcRenderer.invoke('lex-engine-ask', { prompt }),
+});
+
 contextBridge.exposeInMainWorld('lexApi', {
     saveHistory: (mensagens: any) => ipcRenderer.invoke('save-history', mensagens),
     getHistory: () => ipcRenderer.invoke('get-history'),
@@ -314,6 +319,8 @@ contextBridge.exposeInMainWorld('terminalApi', {
         ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
     createLex: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
         ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
+    createEngine: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
+        ipcRenderer.invoke('terminal-create-engine', { sessionId, ...opts }),
     write: (sessionId: string, data: string, opts?: { paste?: boolean }) =>
         ipcRenderer.invoke('terminal-write', { sessionId, data, ...opts }),
     resize: (sessionId: string, cols: number, rows: number) =>

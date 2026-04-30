@@ -20,6 +20,7 @@ const { osSistema } = require('../dist-electron/skills/os/sistema');
 const { osClipboard } = require('../dist-electron/skills/os/clipboard');
 const { osFetch } = require('../dist-electron/skills/os/fetch');
 const { osTerminal } = require('../dist-electron/skills/os/terminal');
+const { registerSkill, unregisterSkill, getSkillsForPrompt } = require('../dist-electron/agent/executor');
 
 function resetTmp() {
     fs.rmSync(TMP_ROOT, { recursive: true, force: true });
@@ -141,6 +142,24 @@ async function testBuscarDuplicadosPorNome() {
     assert.strictEqual(result.dados.totalGrupos, 1);
     assert.strictEqual(result.dados.grupos[0].chave, 'relatorio.pdf');
     assert.strictEqual(result.dados.grupos[0].itens.length, 2);
+}
+
+async function testBuscarExamplesEntramNoPrompt() {
+    assert.strictEqual(osBuscar.exemplos.length, 5, 'os_buscar deve ter 5 exemplos completos');
+    for (const exemplo of osBuscar.exemplos) {
+        assert.match(exemplo, /^\/\/ .+\n\{ "skill": "os_buscar"/, 'cada exemplo deve unir comentario de uso real e chamada JSON');
+    }
+
+    registerSkill(osBuscar);
+    try {
+        const prompt = getSkillsForPrompt(1, ['os'], false);
+        assert(prompt.includes('**Exemplos:**'), 'prompt deve renderizar bloco de exemplos');
+        assert(prompt.includes('*2024*.pdf'), 'prompt deve incluir exemplo de PDF por ano');
+        assert(prompt.includes('rescisao contratual'), 'prompt deve incluir exemplo de busca por conteudo');
+        assert(prompt.includes('"modo": "duplicados_nome"'), 'prompt deve incluir exemplo de duplicados_nome');
+    } finally {
+        unregisterSkill(osBuscar.nome);
+    }
 }
 
 async function testListarFiltroOrdenacaoPaginacao() {
@@ -533,6 +552,131 @@ async function testArquivosLerEGrep() {
     assert.strictEqual(grep.sucesso, true, grep.erro || grep.mensagem);
     assert.strictEqual(grep.dados.total, 1);
     assert.strictEqual(grep.dados.resultados[0].arquivo, target);
+}
+
+async function testArquivosMapaProcessoExtraiIndicePje() {
+    const texto = `
+Processo n. 0886971-84.2025.8.14.0301
+MARIA DE FATIMA BORGES TRINDADE (AUTOR) LEANDRO ARTHUR OLIVEIRA LOUREIRO (ADVOGADO)
+MUNICIPIO DE BELEM (REU)
+
+Documentos
+Id. Data Documento Tipo
+157805297 29/09/25 12:43 Peticao Inicial Peticao Inicial
+157805305 29/09/25 12:43 PROCURACAO E DECLARACAO DE
+HIPOSSUFICIENCIA - MARIA DE FATIMA BORGES TRINDADE [assinado] Documento de Comprovacao
+157805306 29/09/25 12:43 IDENTIDADE - FRENTE e VERSO Documento de Comprovacao
+157805307 29/09/25 12:43 COMPROVANTE DE RESIDENCIA (3) Documento de Comprovacao
+157805311 29/09/25 12:43 Calculo Progressao MARIA DE FATIMA.xlsx - Planilha1 Documento de Comprovacao
+`;
+
+    const mapa = tools.analisarMapaProcessoTexto(texto, { paginas: 12 });
+
+    assert.strictEqual(mapa.processo, '0886971-84.2025.8.14.0301');
+    assert.strictEqual(mapa.indiceEncontrado, true);
+    assert.strictEqual(mapa.qualidadeMapa, 'boa');
+    assert.strictEqual(mapa.totalDocumentos, 5);
+    assert(mapa.partes.some(p => /MARIA DE FATIMA/i.test(p.nome) && p.papel === 'AUTOR'));
+    assert(mapa.partes.some(p => /MUNICIPIO DE BELEM/i.test(p.nome) && p.papel === 'REU'));
+    assert.match(mapa.documentos[1].documento, /PROCURACAO E DECLARACAO DE HIPOSSUFICIENCIA/i);
+    assert.match(mapa.documentos[1].tipo, /Documento de Comprovacao/i);
+    assert.strictEqual(mapa.documentos[0].id, '157805297');
+    assert.strictEqual(mapa.aliasesDocumentos.peticao_inicial.id, '157805297');
+}
+
+async function testArquivosMapaProcessoExtraiIndicePjeAchatado() {
+    const texto = 'Tribunal de Justica do Estado do Para - 1 Grau PJe - Processo Judicial Eletronico ' +
+        'Numero: 0886971-84.2025.8.14.0301 Partes Advogados MARIA DE FATIMA BORGES TRINDADE (AUTOR) ' +
+        'MUNICIPIO DE BELEM (REU) Documentos Id. Data Documento Tipo ' +
+        '157805297 29/09/2025 12:43 Peticao Inicial Peticao Inicial ' +
+        '157805305 29/09/2025 12:43 PROCURACAO E DECLARACAO DE HIPOSSUFICIENCIA - MARIA DE FATIMA BORGES TRINDADE [assinado] Documento de Comprovacao ' +
+        '157805306 29/09/2025 12:43 IDENTIDADE - FRENTE e VERSO Documento de Comprovacao ' +
+        '157805307 29/09/2025 12:43 COMPROVANTE DE RESIDENCIA (3) Documento de Comprovacao';
+
+    const mapa = tools.analisarMapaProcessoTexto(texto, { paginas: 10 });
+
+    assert.strictEqual(mapa.processo, '0886971-84.2025.8.14.0301');
+    assert.strictEqual(mapa.indiceEncontrado, true);
+    assert.strictEqual(mapa.totalDocumentos, 4);
+    assert.strictEqual(mapa.aliasesDocumentos.peticao_inicial.id, '157805297');
+    assert.match(mapa.documentos[1].documento, /PROCURACAO E DECLARACAO/i);
+}
+
+async function testArquivosMapaProcessoInferePaginasPorIdForaDoIndice() {
+    const texto = `
+Processo n. 0886971-84.2025.8.14.0301
+
+Documentos
+Id. Data Documento Tipo
+157805297 29/09/25 12:43 Peticao Inicial Peticao Inicial
+157805305 30/09/25 09:10 Contestacao Contestacao
+157805400 01/10/25 08:20 Decisao Decisao
+`;
+
+    const mapa = tools.analisarMapaProcessoTexto(texto, {
+        paginas: 6,
+        paginasTexto: [
+            { pagina: 1, texto },
+            { pagina: 2, texto: 'ID 157805297\nPeticao Inicial\nDos fatos e fundamentos.' },
+            { pagina: 3, texto: 'continuacao da peticao inicial' },
+            { pagina: 4, texto: 'ID 157805305\nContestacao\nPreliminares e merito.' },
+            { pagina: 5, texto: 'ID 157805400\nDecisao\nVistos.' },
+            { pagina: 6, texto: 'continua decisao' }
+        ]
+    });
+
+    assert.strictEqual(mapa.documentosComPaginas, 3);
+    assert.deepStrictEqual(mapa.paginasIndiceProvaveis, [1]);
+    assert.strictEqual(mapa.documentos[0].paginaInicial, 2);
+    assert.strictEqual(mapa.documentos[0].paginaFinal, 3);
+    assert.strictEqual(mapa.documentos[0].precisao, 'alta');
+    assert.strictEqual(mapa.documentos[1].paginaInicial, 4);
+    assert.strictEqual(mapa.documentos[1].paginaFinal, 4);
+    assert.strictEqual(mapa.documentos[2].paginaInicial, 5);
+    assert.strictEqual(mapa.documentos[2].paginaFinal, 6);
+    assert.strictEqual(mapa.aliasesDocumentos.ultima_decisao.id, '157805400');
+}
+
+async function testArquivosProcessoMapaSkillECacheHit() {
+    resetTmp();
+    const target = writeFile('processo-extraido.txt', `
+Processo n. 0886971-84.2025.8.14.0301
+Documentos
+Id. Data Documento Tipo
+157805297 29/09/25 12:43 Peticao Inicial Peticao Inicial
+157805305 30/09/25 09:10 Contestacao Contestacao
+157805400 01/10/25 08:20 Decisao Decisao
+`);
+
+    const first = await osArquivos.execute({ operacao: 'processo_mapa', caminho: target }, {});
+    const second = await osArquivos.execute({ operacao: 'processo_mapa', caminho: target }, {});
+    const alias = await osArquivos.execute({ processo_mapa: 'true', caminho: target }, {});
+    const acaoAlias = await osArquivos.execute({ acao: 'processo_mapa', caminho: target }, {});
+
+    assert.strictEqual(first.sucesso, true, first.erro || first.mensagem);
+    assert.strictEqual(second.sucesso, true, second.erro || second.mensagem);
+    assert.strictEqual(alias.sucesso, true, alias.erro || alias.mensagem);
+    assert.strictEqual(acaoAlias.sucesso, true, acaoAlias.erro || acaoAlias.mensagem);
+    assert.strictEqual(first.dados.cacheHit, false);
+    assert.strictEqual(second.dados.cacheHit, true);
+    assert.strictEqual(alias.dados.cacheHit, true);
+    assert.strictEqual(acaoAlias.dados.cacheHit, true);
+    assert.strictEqual(first.dados.processo, '0886971-84.2025.8.14.0301');
+    assert.strictEqual(second.dados.aliasesDocumentos.ultima_decisao.id, '157805400');
+    assert.strictEqual(alias.dados.processo, '0886971-84.2025.8.14.0301');
+    assert.strictEqual(acaoAlias.dados.processo, '0886971-84.2025.8.14.0301');
+    assert.match(first.mensagem, /Mapa do processo/);
+}
+
+async function testArquivosProcessoMapaPdfRealSemIndice() {
+    const target = path.join(ROOT, 'node_modules', 'pdf-parse', 'test', 'data', '01-valid.pdf');
+    const result = await osArquivos.execute({ operacao: 'processo_mapa', caminho: target }, {});
+
+    assert.strictEqual(result.sucesso, true, result.erro || result.mensagem);
+    assert.strictEqual(result.dados.fonte, 'texto_nativo');
+    assert.strictEqual(result.dados.indiceEncontrado, false);
+    assert.strictEqual(result.dados.qualidadeMapa, 'nao_encontrado');
+    assert(result.dados.paginas > 0);
 }
 
 async function testEscreverPedeConfirmacaoParaOverwrite() {
@@ -1031,6 +1175,7 @@ async function run() {
         testResolverEntradaUsaBaseEFuzzySeguro,
         testResolverEntradaNaoEscolheQuandoAmbiguo,
         testBuscarDuplicadosPorNome,
+        testBuscarExamplesEntramNoPrompt,
         testListarFiltroOrdenacaoPaginacao,
         testBuscarPorNomeEConteudo,
         testDeletarRequiresConfirmation,
@@ -1047,6 +1192,11 @@ async function run() {
         testMoverCopiarNaoSobrescreve,
         testArquivosReadOnly,
         testArquivosLerEGrep,
+        testArquivosMapaProcessoExtraiIndicePje,
+        testArquivosMapaProcessoExtraiIndicePjeAchatado,
+        testArquivosMapaProcessoInferePaginasPorIdForaDoIndice,
+        testArquivosProcessoMapaSkillECacheHit,
+        testArquivosProcessoMapaPdfRealSemIndice,
         testEscreverPedeConfirmacaoParaOverwrite,
         testEscreverCriaPastaArquivoESobrescreveComConfirmacao,
         testConfirmadoStringFalseContinuaPedindoConfirmacao,

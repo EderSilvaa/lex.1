@@ -3,6 +3,7 @@ import { BrowserContext, Page } from 'playwright-core';
 export declare function setUserDataDir(dir: string): void;
 export declare function initBrowser(): Promise<void>;
 export declare function reInitBrowser(): Promise<void>;
+export declare function attemptPassiveBrowserReconnect(): Promise<boolean>;
 export declare function getBrowserContext(): BrowserContext;
 /** Retorna a Page ativa (rastreia aba ativa por índice) */
 export declare function getActivePage(): Page | null;

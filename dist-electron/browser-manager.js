@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.setUserDataDir = setUserDataDir;
 exports.initBrowser = initBrowser;
 exports.reInitBrowser = reInitBrowser;
+exports.attemptPassiveBrowserReconnect = attemptPassiveBrowserReconnect;
 exports.getBrowserContext = getBrowserContext;
 exports.getActivePage = getActivePage;
 exports.setActivePage = setActivePage;
@@ -402,6 +403,31 @@ let chromeProc = null;
 let initPromise = null;
 let heartbeatTimer = null;
 let activePageIndex = 0;
+function chooseActivePage(preferPje = true) {
+    if (!context) {
+        activePageIndex = 0;
+        return;
+    }
+    const pages = context.pages();
+    if (pages.length === 0) {
+        activePageIndex = 0;
+        return;
+    }
+    if (preferPje) {
+        const pjeIndex = pages.findIndex(page => {
+            const url = page.url();
+            return url.includes('pje.') || url.includes('.jus.br');
+        });
+        if (pjeIndex >= 0) {
+            activePageIndex = pjeIndex;
+            return;
+        }
+    }
+    if (activePageIndex >= pages.length)
+        activePageIndex = pages.length - 1;
+    if (activePageIndex < 0)
+        activePageIndex = 0;
+}
 async function initBrowser() {
     if (initPromise)
         return initPromise;
@@ -456,7 +482,7 @@ async function _doInit() {
         context = contexts[0] ?? await cdpBrowser.newContext();
         if (context.pages().length === 0)
             await context.newPage();
-        activePageIndex = 0;
+        chooseActivePage(true);
         setupPageListeners();
         console.log('[Browser] Reconectado ao Chrome existente');
         startHeartbeat();
@@ -507,7 +533,7 @@ async function launchWithPlaywright(userDataDir, executablePath) {
     });
     if (context.pages().length === 0)
         await context.newPage();
-    activePageIndex = 0;
+    chooseActivePage(true);
     setupPageListeners();
     console.log('[Browser] Playwright Chromium conectado');
     startHeartbeat();
@@ -566,7 +592,7 @@ async function launchWithGoogleChrome(userDataDir) {
     });
     if (context.pages().length === 0)
         await context.newPage();
-    activePageIndex = 0;
+    chooseActivePage(true);
     setupPageListeners();
     console.log('[Browser] Google Chrome conectado via CDP bridge');
     startHeartbeat();
@@ -599,6 +625,40 @@ async function isOwnChromeUp(userDataDir) {
         return true;
     }
     catch {
+        return false;
+    }
+}
+async function attemptPassiveBrowserReconnect() {
+    if (context) {
+        chooseActivePage(true);
+        return true;
+    }
+    const userDataDir = path_1.default.join(getUserDataDir(), 'chrome-profile');
+    const ownChromeUp = await isOwnChromeUp(userDataDir);
+    if (!ownChromeUp)
+        return false;
+    try {
+        console.log('[Browser] Reconnect passivo: Chrome controlado ja estava aberto');
+        cdpBrowser = isElectronProcess()
+            ? await connectViaBridgeProxyOnly(CDP_PORT)
+            : await connectDirectCDP(CDP_PORT);
+        const contexts = cdpBrowser.contexts();
+        context = contexts[0] ?? null;
+        if (!context) {
+            cdpBrowser = null;
+            return false;
+        }
+        chooseActivePage(true);
+        setupPageListeners();
+        startHeartbeat();
+        console.log('[Browser] Reconnect passivo concluido');
+        return true;
+    }
+    catch (err) {
+        console.warn('[Browser] Reconnect passivo falhou:', err?.message || err);
+        context = null;
+        cdpBrowser = null;
+        activePageIndex = 0;
         return false;
     }
 }
@@ -667,7 +727,7 @@ async function ensureBrowser() {
             context = contexts[0] ?? await cdpBrowser.newContext();
             if (context.pages().length === 0)
                 await context.newPage();
-            activePageIndex = 0;
+            chooseActivePage(true);
             setupPageListeners();
             startHeartbeat();
             console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)');
@@ -1311,7 +1371,7 @@ async function reconnectPlaywright() {
     context = contexts[0] ?? await cdpBrowser.newContext();
     if (context.pages().length === 0)
         await context.newPage();
-    activePageIndex = 0;
+    chooseActivePage(true);
     setupPageListeners();
     startHeartbeat();
     console.log('[Browser] Playwright reconectado');

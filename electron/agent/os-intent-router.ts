@@ -63,22 +63,6 @@ function inferCaminho(objetivoNorm: string, ctx?: HintContext): string {
         || '~';
 }
 
-function extractSearchTerm(objetivo: string): string {
-    const raw = String(objetivo || '').trim();
-    const normalized = norm(raw);
-
-    const quoted = raw.match(/["“”']([^"“”']+)["“”']/);
-    if (quoted?.[1]) return quoted[1].trim();
-
-    const comMatch = normalized.match(/\b(?:com|contenha|contendo)\s+([a-z0-9_.-]+)/);
-    if (comMatch?.[1]) return comMatch[1];
-
-    const porMatch = normalized.match(/\b(?:procura|procurar|busca|buscar|encontra|encontrar|ache|achar)\s+(?:arquivo[s]?\s+)?(?:por\s+)?([a-z0-9_.-]+)/);
-    if (porMatch?.[1] && !['no', 'na', 'em', 'downloads', 'documentos'].includes(porMatch[1])) return porMatch[1];
-
-    return '*';
-}
-
 function isPcContext(text: string, ctx?: HintContext): boolean {
     const context = `${text}\n${norm(ctx?.chatHistory || '')}`;
     return hasAny(context, [
@@ -189,13 +173,9 @@ export function suggestOsPlannerAction(objetivo: string, ctx: HintContext = {}):
         return { tipo: 'skill', skill: 'os_tamanho', parametros: { caminho }, motivo: 'medir espaco de pasta deve usar os_tamanho' };
     }
 
-    if (hasAny(text, [/\bprocura/, /\bbusca/, /\bencontra/, /\bache\b/, /\bachar\b/])) {
-        const termo = extractSearchTerm(objetivo);
-        const params: Record<string, any> = { caminho };
-        if (hasAny(text, [/\bcom\b/, /\bcontenha\b/, /\bcontendo\b/])) params['conteudo'] = termo;
-        else params['padrao'] = termo === '*' ? '*' : `*${termo}*`;
-        return { tipo: 'skill', skill: 'os_buscar', parametros: params, motivo: 'busca de arquivo por nome/conteudo deve usar os_buscar' };
-    }
+    // Sprint 1 do OS-ROUTER-REWORK: busca foi removida do router determinístico.
+    // A descricao enriquecida em os_buscar.ts (formato WHEN/WHEN NOT/examples)
+    // guia o LLM diretamente. Manter apenas se descobrirmos regressão.
 
     if (hasAny(text, [/\blista/, /\bliste\b/, /\blistar/, /\bveja\b/, /\bver\b/, /\bmostra/, /\bmostrar/, /\bexibe/, /\bexibir/])) {
         return { tipo: 'skill', skill: 'os_listar', parametros: { caminho }, motivo: 'listar arquivos/pastas deve usar os_listar' };

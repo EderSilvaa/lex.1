@@ -20,6 +20,7 @@
     "test:os": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -p tsconfig.electron.json && npm run copy-assets && node scripts/test-os-skills.js",
     "test:planner:os": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -p tsconfig.electron.json && npm run copy-assets && node scripts/test-os-planner.js",
     "test:os:all": "npm run test:os && npm run test:planner:os",
+    "validate:router:sprint1": "node scripts/validate-os-router-sprint1.js",
     "lint": "eslint electron/**/*.ts",
     "clean": "rimraf dist-electron",
     "python:setup": "node scripts/download-python-embedded.js",

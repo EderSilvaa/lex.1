@@ -17,69 +17,80 @@ function formatBytes(bytes: number): string {
 
 export const osBuscar: Skill = {
     nome: 'os_buscar',
-    descricao: 'Busca RECURSIVA de arquivos/pastas por nome (glob ou substring) a partir de uma pasta base. Use isso em vez de os_listar quando o usuário pede "encontra X", "ache todos Y", ou quer varrer subpastas. Suporta filtro adicional por conteúdo (grep dentro de .txt/.pdf/.docx/.xlsx).',
+    descricao: `- Busca recursiva de arquivos/pastas no PC por nome (glob ou substring), opcionalmente filtrando por conteudo
+- Suporta padroes glob com * e ? ("*.pdf", "*2024*", "processo*.docx") ou substring case-insensitive ("memorial")
+- Modo "duplicados_nome" detecta nomes obviamente duplicados (ex: "doc.pdf" e "doc (1).pdf")
+- Filtro de conteudo via "conteudo" varre o texto dentro de .txt/.md/.json/.pdf/.docx/.xlsx achados
+- Use quando o usuario quer "encontra/ache/procura/cade/tem algum" arquivo por nome parcial ou padrao
+- Se o usuario disser "cade aquele contrato/documento/arquivo do X?" sem mencionar PJe ou numero CNJ, assuma busca de arquivo local no PC
+- Nao pergunte a pasta exata quando ja houver termo buscavel; use caminho "~" para procurar no home inteiro
+- Use quando precisa varrer subpastas (recursivo por padrao)
+- Para listar UMA pasta sem recursao ou filtragem, use os_listar
+- Para ler/grep conteudo de UM arquivo ja conhecido, use os_arquivos
+- Para buscar PROCESSO judicial (numero CNJ, movimentacoes), use pje_consultar — e PJe, nao PC
+- Para "find/dir /s/ls -R" no shell, use esta skill — NAO use terminal_executar`,
     categoria: 'os',
 
     parametros: {
         caminho: {
             tipo: 'string',
-            descricao: 'Pasta base onde iniciar a busca. Atalhos: "downloads", "desktop", "documentos", "~". Ou absoluto.',
+            descricao: 'Pasta base onde iniciar a busca. Atalhos: "downloads", "desktop", "documentos", "imagens", "~". Ou absoluto Windows ("C:\\\\Users\\\\..."). Default "~" (home).',
             obrigatorio: false,
             default: '~'
         },
         modo: {
             tipo: 'string',
-            descricao: 'Modo da busca. "nome" busca por padrao/conteudo. "duplicados_nome" encontra duplicatas obvias por nome, sem usar terminal.',
+            descricao: 'modo="nome" (default) — busca por padrao/conteudo. modo="duplicados_nome" — encontra arquivos com nomes obviamente duplicados (variantes "(1)", "- copia", "_v2", etc) sem precisar de terminal.',
             obrigatorio: false,
             enum: ['nome', 'duplicados_nome'],
             default: 'nome'
         },
         padrao: {
             tipo: 'string',
-            descricao: 'Padrão do nome. Glob com * e ? (ex: "*.pdf", "*2024*", "processo*.docx") ou substring case-insensitive (ex: "memorial"). Vazio = qualquer nome (só útil com conteudo).',
+            descricao: 'Padrao do nome. Glob com * e ? ("*.pdf", "*2024*", "processo*.docx") ou substring case-insensitive ("memorial"). Vazio = qualquer nome — so util quando "conteudo" e passado.',
             obrigatorio: false,
             default: ''
         },
         nome: {
             tipo: 'string',
-            descricao: 'Alias de "padrao" para busca por nome. Ex: { nome: "documentos importantes" }.',
+            descricao: 'Alias de "padrao" para chamadas como { nome: "documentos importantes" }. Use "padrao" preferencialmente.',
             obrigatorio: false,
             default: ''
         },
         filtro: {
             tipo: 'string',
-            descricao: 'Alias de "padrao" para compatibilidade com os_listar.',
+            descricao: 'Alias de "padrao" para compatibilidade com os_listar. Use "padrao" preferencialmente.',
             obrigatorio: false,
             default: ''
         },
         conteudo: {
             tipo: 'string',
-            descricao: 'Opcional. Se passado, filtra também os arquivos pelo conteúdo (grep). Suporta .txt/.md/.json/.pdf/.docx/.xlsx. Mais lento — só use se o usuário pediu "arquivos que contenham X".',
+            descricao: 'Texto a procurar DENTRO dos arquivos achados (grep). Suporta .txt/.md/.json/.pdf/.docx/.xlsx. Mais lento que busca so por nome — use quando o usuario pediu "arquivos que contenham X" ou "que falam sobre Y".',
             obrigatorio: false,
             default: ''
         },
         limite: {
             tipo: 'number',
-            descricao: 'Máximo de resultados (default 100, máx 500).',
+            descricao: 'Maximo de resultados retornados (default 100, max 500). Reduza pra pastas gigantes.',
             obrigatorio: false,
             default: 100
         },
         profundidade_max: {
             tipo: 'number',
-            descricao: 'Profundidade máxima de subpastas (default 10).',
+            descricao: 'Profundidade maxima de subpastas exploradas (default 10, max 20). Reduza pra cortar tempo em pastas profundas.',
             obrigatorio: false,
             default: 10
         }
     },
 
-    retorno: 'Lista de matches com { caminho, tipo, tamanho, modificado }. Se conteudo!="", inclui "ocorrencias" e "trechos".',
+    retorno: 'Lista de matches com { caminho, tipo, tamanho, modificado }. Se "conteudo" foi passado, inclui "ocorrencias" e "trechos" por arquivo. Modo duplicados_nome retorna grupos { chave, itens[] }.',
 
     exemplos: [
-        '{ "skill": "os_buscar", "parametros": { "caminho": "documentos", "padrao": "*.pdf" } }',
-        '{ "skill": "os_buscar", "parametros": { "caminho": "downloads", "padrao": "*2024*" } }',
-        '{ "skill": "os_buscar", "parametros": { "caminho": "downloads", "modo": "duplicados_nome" } }',
-        '{ "skill": "os_buscar", "parametros": { "caminho": "documentos", "padrao": "*.docx", "conteudo": "memorial" } }',
-        '{ "skill": "os_buscar", "parametros": { "caminho": "documentos", "padrao": "processo" } }'
+        '// "ache todos os PDFs de 2024 nos meus downloads"\n{ "skill": "os_buscar", "parametros": { "caminho": "downloads", "padrao": "*2024*.pdf" } }',
+        '// "tem algum arquivo memorial em documentos?"\n{ "skill": "os_buscar", "parametros": { "caminho": "documentos", "padrao": "*memorial*" } }',
+        '// "tem cópias duplicadas obvias na pasta downloads?"\n{ "skill": "os_buscar", "parametros": { "caminho": "downloads", "modo": "duplicados_nome" } }',
+        '// "procura .docx que falem sobre rescisão contratual"\n{ "skill": "os_buscar", "parametros": { "caminho": "documentos", "padrao": "*.docx", "conteudo": "rescisao contratual" } }',
+        '// "cadê aquele contrato do João?"\n{ "skill": "os_buscar", "parametros": { "caminho": "~", "padrao": "*contrato*joao*" } }'
     ],
 
     async execute(params: Record<string, any>, _context: AgentContext): Promise<SkillResult> {

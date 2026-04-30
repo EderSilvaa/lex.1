@@ -27,6 +27,13 @@ function expectPergunta(name, objective, ctx = {}) {
     assert(Array.isArray(hint.opcoes), `${name}: expected options`);
 }
 
+// Sprint 1 OS-ROUTER-REWORK: router NAO deve mais sugerir hint para prompts cobertos
+// pela descricao enriquecida da skill (estilo Claude Code). LLM escolhe pela descricao.
+function expectNoHint(name, objective, ctx = {}) {
+    const hint = suggestOsPlannerAction(objective, ctx);
+    assert.strictEqual(hint, null, `${name}: router devia ficar silencioso, retornou ${JSON.stringify(hint)}`);
+}
+
 function testOsPlannerRouting() {
     expectSkill(
         'listar downloads',
@@ -104,11 +111,33 @@ function testOsPlannerRouting() {
         { chatHistory: 'Contexto PC: C:\\Users\\EDER\\Downloads\\doc.pdf' }
     );
 
-    expectSkill(
-        'procurar memorial',
-        'procura arquivo com memorial no downloads',
-        'os_buscar',
-        { caminho: 'downloads', conteudo: 'memorial' }
+    // Sprint 1 OS-ROUTER-REWORK: busca foi removida do router — descricao enriquecida
+    // de os_buscar.ts guia o LLM. Router fica silencioso pra esses prompts.
+    expectNoHint(
+        'procura por nome — router silencioso',
+        'procura arquivo com memorial no downloads'
+    );
+    expectNoHint(
+        'ache substring — router silencioso',
+        'ache todos os PDFs com 2024 no nome em downloads'
+    );
+    expectNoHint(
+        'cade arquivo — router silencioso',
+        'cade aquele contrato_joao.pdf?'
+    );
+    expectNoHint(
+        'encontra glob — router silencioso',
+        'encontra *.docx em documentos'
+    );
+    expectNoHint(
+        'tem algum — router silencioso',
+        'tem algum arquivo memorial em documentos?'
+    );
+
+    // "buscar processo" e PJe, nao OS — router OS nao deve confundir
+    expectNoHint(
+        'buscar processo PJe — router OS nao captura',
+        'busca o processo 0000123-45.2024.8.14.0301'
     );
 
     expectSkill(

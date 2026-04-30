@@ -15,6 +15,10 @@ electron_1.contextBridge.exposeInMainWorld('workspacesApi', {
     add: (path) => electron_1.ipcRenderer.invoke('workspace-add', path),
     remove: (path) => electron_1.ipcRenderer.invoke('workspace-remove', path),
 });
+electron_1.contextBridge.exposeInMainWorld('lexEngineApi', {
+    getStatus: () => electron_1.ipcRenderer.invoke('lex-engine-status'),
+    ask: (prompt) => electron_1.ipcRenderer.invoke('lex-engine-ask', { prompt }),
+});
 electron_1.contextBridge.exposeInMainWorld('lexApi', {
     saveHistory: (mensagens) => electron_1.ipcRenderer.invoke('save-history', mensagens),
     getHistory: () => electron_1.ipcRenderer.invoke('get-history'),
@@ -265,6 +269,7 @@ electron_1.contextBridge.exposeInMainWorld('docKnowledgeApi', {
 electron_1.contextBridge.exposeInMainWorld('terminalApi', {
     create: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
     createLex: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
+    createEngine: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create-engine', { sessionId, ...opts }),
     write: (sessionId, data, opts) => electron_1.ipcRenderer.invoke('terminal-write', { sessionId, data, ...opts }),
     resize: (sessionId, cols, rows) => electron_1.ipcRenderer.invoke('terminal-resize', { sessionId, cols, rows }),
     kill: (sessionId) => electron_1.ipcRenderer.invoke('terminal-kill', sessionId),

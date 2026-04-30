@@ -867,6 +867,23 @@ if (sendBtn) {
         routingLoadingId = addLoadingToUI();
 
         try {
+            const engineMatch = textForAI.match(/^\/(?:motor|engine)\s+([\s\S]+)/i);
+            if (engineMatch && window.lexEngineApi?.ask) {
+                const enginePrompt = engineMatch[1].trim();
+                const result = await window.lexEngineApi.ask(enginePrompt);
+                if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
+
+                if (!result?.success) {
+                    addMessageToUI(`Motor local: ${result?.error || 'falha ao responder'}`, 'system');
+                } else {
+                    const aiText = result.data?.text || 'Sem resposta do motor local.';
+                    addMessageToUI(aiText, 'ai');
+                    trackMessage('assistant', aiText);
+                    saveCurrentConversation();
+                }
+                return;
+            }
+
             if (window.lexApi) {
                 let routeDecision = { useAgent: USE_AGENT_LOOP, reason: 'feature_flag' };
 

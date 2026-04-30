@@ -27,7 +27,7 @@ export interface PtySession {
     shell: string;
     cwd: string;
     createdAt: number;
-    mode: 'shell' | 'lex';
+    mode: 'shell' | 'lex' | 'engine';
 }
 
 export interface RunCommandResult {
@@ -76,7 +76,7 @@ export class PtyManager extends EventEmitter {
     }
 
     /** Cria uma sessão interativa de terminal */
-    async createSession(id: string, opts?: { shell?: string; args?: string[]; cwd?: string; cols?: number; rows?: number; env?: Record<string, string>; mode?: 'shell' | 'lex' }): Promise<void> {
+    async createSession(id: string, opts?: { shell?: string; args?: string[]; cwd?: string; cols?: number; rows?: number; env?: Record<string, string>; mode?: 'shell' | 'lex' | 'engine' }): Promise<void> {
         if (this.sessions.has(id)) {
             throw new Error(`Session "${id}" already exists`);
         }
@@ -143,7 +143,7 @@ export class PtyManager extends EventEmitter {
     write(id: string, data: string, opts?: { paste?: boolean }): void {
         const session = this.sessions.get(id);
         if (!session) throw new Error(`Session "${id}" not found`);
-        const payload = session.mode === 'lex' && this.shouldNormalizeLexInput(data, opts?.paste)
+        const payload = (session.mode === 'lex' || session.mode === 'engine') && this.shouldNormalizeLexInput(data, opts?.paste)
             ? this.normalizeLexPaste(data)
             : data;
         if (payload) session.pty.write(payload);
@@ -176,7 +176,7 @@ export class PtyManager extends EventEmitter {
     }
 
     /** Lista sessões ativas */
-    listSessions(): Array<{ id: string; shell: string; cwd: string; createdAt: number; mode: 'shell' | 'lex' }> {
+    listSessions(): Array<{ id: string; shell: string; cwd: string; createdAt: number; mode: 'shell' | 'lex' | 'engine' }> {
         return [...this.sessions.values()].map(s => ({
             id: s.id,
             shell: s.shell,

@@ -11,16 +11,26 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { setUserDataDir, getActivePage, ensureBrowser } from '../browser-manager';
+import { setUserDataDir, getActivePage, ensureBrowser, attemptPassiveBrowserReconnect } from '../browser-manager';
 import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
+import { inspectPjeContext } from '../pje/context-inspector';
+import { fillPjeProcessNumber } from '../pje/process-number-filler';
+import { clickPjeSearch } from '../pje/search-clicker';
+import { readPjeSearchResults } from '../pje/search-results-reader';
+import { openPjeSearchResult } from '../pje/process-result-opener';
 import { initCheckpointStore } from '../agent/checkpoint-store';
 import { initSessionManager } from '../agent/session';
 import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
 import { EventEmitter } from 'events';
 import { execSync } from 'child_process';
 import { initPythonEnv, ensurePythonEnvSetup, getPythonEnv } from '../python';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import type { BrainStore } from '../brain/brain-store';
+import type { BrainNode } from '../brain/types';
+import { writeBatchToBrain } from '../observer/writer-brain';
+import { sanitizeInput, sanitizeOutputPreview } from '../observer/privacy';
+import type { Observation, ObservationAfter, ObservationBefore } from '../observer/types';
 
 // ── Config via env vars (passadas pelo Electron main ao spawnar) ──
 const PORT = parseInt(process.env['LEX_BACKEND_PORT'] || '19876', 10);
@@ -38,6 +48,14 @@ initMemoryDir(USER_DATA_DIR);
 initRouteMemory(USER_DATA_DIR);
 initCheckpointStore(USER_DATA_DIR);
 initSessionManager(USER_DATA_DIR);
+
+void attemptPassiveBrowserReconnect()
+    .then((connected) => {
+        if (connected) console.log('[Backend] Browser reconectado passivamente no boot');
+    })
+    .catch((err: any) => {
+        console.warn('[Backend] Reconnect passivo do browser falhou:', err?.message || String(err));
+    });
 
 // MCP Manager: cria template e conecta servers declarados em ~/.lex/mcp.json.
 // Best-effort — falhas individuais não travam o backend.
@@ -390,6 +408,9 @@ async function buildPjeStatus(): Promise<{
     tribunalPreferido: string | null;
 }> {
     try {
+        if (!getActivePage()) {
+            await attemptPassiveBrowserReconnect();
+        }
         const page = getActivePage();
         const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
@@ -406,6 +427,264 @@ async function buildPjeStatus(): Promise<{
 }
 
 // ── RPC Handlers ──
+function isAllowedPjeUrl(rawUrl: unknown): rawUrl is string {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) return false;
+    try {
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'https:') return false;
+        const host = parsed.hostname.toLowerCase();
+        return host.startsWith('pje') && host.endsWith('.jus.br');
+    } catch {
+        return false;
+    }
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function compactBrainData(data: unknown, maxChars = 2500): unknown {
+    const raw = JSON.stringify(data ?? {});
+    if (raw.length <= maxChars) return data ?? {};
+    return {
+        truncated: true,
+        preview: raw.slice(0, maxChars),
+    };
+}
+
+function compactBrainNode(node: BrainNode | null): any {
+    if (!node) return null;
+    return {
+        id: node.id,
+        type: node.type,
+        label: node.label,
+        confidence: node.confidence,
+        source: node.source,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+        accessedAt: node.accessedAt,
+        data: compactBrainData(node.data),
+    };
+}
+
+function summarizeFlowNode(flow: BrainNode): any {
+    return {
+        flowId: flow.id,
+        label: flow.label,
+        tribunal: flow.data?.['tribunal'],
+        pjeContext: flow.data?.['pjeContext'],
+        canonicalContext: flow.data?.['canonicalContext'],
+        tools: Array.isArray(flow.data?.['tools']) ? flow.data['tools'] : [],
+        instances: Number(flow.data?.['instances']) || 0,
+        flowKind: flow.data?.['flowKind'],
+        confidence: flow.confidence || 0,
+        avgScore: Number(flow.data?.['avgScore']) || undefined,
+        lastDetectedAt: Number(flow.data?.['lastDetectedAt']) || flow.updatedAt,
+        updatedAt: flow.updatedAt,
+    };
+}
+
+function listBrainFlows(brain: BrainStore, limit: number): any {
+    const flows = brain.getNodesByType('flow', 500)
+        .map(summarizeFlowNode)
+        .sort((a, b) => {
+            const scoreA = (Number(a.instances) || 0) * (Number(a.confidence) || 0);
+            const scoreB = (Number(b.instances) || 0) * (Number(b.confidence) || 0);
+            if (scoreB !== scoreA) return scoreB - scoreA;
+            return (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+        })
+        .slice(0, limit);
+
+    return {
+        ok: true,
+        count: flows.length,
+        flows,
+    };
+}
+
+function getBestEdge(edges: ReturnType<BrainStore['getEdgesFrom']>): ReturnType<BrainStore['getEdgesFrom']>[number] | null {
+    if (!edges.length) return null;
+    return [...edges].sort((a, b) => (b.weight || 0) - (a.weight || 0))[0] || null;
+}
+
+function getBrainFlowDetail(brain: BrainStore, flowRef: string): any {
+    const ref = String(flowRef || '').trim();
+    if (!ref) return { ok: false, error: 'flow_id_required' };
+
+    const flow = brain.getNode(ref) || brain.getNodeByTypeAndLabel('flow', ref);
+    if (!flow || flow.type !== 'flow') {
+        return { ok: false, error: 'flow_not_found', flowRef: ref };
+    }
+
+    const startEdge = getBestEdge(brain.getEdgesFrom(flow.id, 'starts_at'));
+    const startState = startEdge ? brain.getNode(startEdge.targetId) : null;
+    const partOfEdges = brain.getEdgesTo(flow.id, 'part_of');
+    const flowActionIds = new Set(partOfEdges.map(edge => edge.sourceId));
+    const steps: any[] = [];
+
+    let currentState = startState && startState.type === 'page_state' ? startState : null;
+    const visited = new Set<string>(currentState ? [currentState.id] : []);
+    const maxSteps = 25;
+
+    for (let index = 0; currentState && index < maxSteps; index += 1) {
+        const performs = brain.getEdgesFrom(currentState.id, 'performs')
+            .filter(edge => flowActionIds.has(edge.targetId));
+        const actionEdge = getBestEdge(performs);
+        if (!actionEdge) break;
+
+        const action = brain.getNode(actionEdge.targetId);
+        if (!action || action.type !== 'action' || visited.has(action.id)) break;
+        visited.add(action.id);
+
+        const resultEdge = getBestEdge(brain.getEdgesFrom(action.id, 'results_in'));
+        const nextState = resultEdge ? brain.getNode(resultEdge.targetId) : null;
+        const input = action.data?.['input'] || {};
+
+        steps.push({
+            index: index + 1,
+            actionId: action.id,
+            label: action.label,
+            tool: String(action.data?.['tool'] || action.label.split(':')[0] || 'unknown'),
+            input: compactBrainData(input, 1800),
+            observedCount: actionEdge.weight,
+            success: action.data?.['lastSuccess'],
+            durationHistory: Array.isArray(action.data?.['durationHistory'])
+                ? action.data['durationHistory'].slice(-5)
+                : undefined,
+            expectedNextState: compactBrainNode(nextState && nextState.type === 'page_state' ? nextState : null),
+        });
+
+        if (!nextState || nextState.type !== 'page_state' || visited.has(nextState.id)) break;
+        visited.add(nextState.id);
+        currentState = nextState;
+    }
+
+    return {
+        ok: true,
+        flow: compactBrainNode(flow),
+        summary: summarizeFlowNode(flow),
+        startState: compactBrainNode(startState),
+        actionCount: steps.length,
+        steps,
+    };
+}
+
+function sha256Text(value: string): string {
+    return createHash('sha256').update(value).digest('hex');
+}
+
+function limitText(value: unknown, maxChars: number): string {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
+function limitedObject(value: unknown, maxChars: number): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const raw = JSON.stringify(value);
+    if (raw.length <= maxChars) return value as Record<string, unknown>;
+    return {
+        truncated: true,
+        preview: raw.slice(0, maxChars),
+    };
+}
+
+function normalizeObservationState(value: unknown): ObservationBefore | ObservationAfter | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    const state: ObservationBefore & ObservationAfter = {};
+
+    const url = limitText(raw['url'], 800);
+    const title = limitText(raw['title'], 300);
+    const domHash = limitText(raw['domHash'], 128);
+    const tribunal = limitText(raw['tribunal'], 40).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const pjeContext = limitText(raw['pjeContext'], 120);
+    const canonicalUrl = limitText(raw['canonicalUrl'], 800);
+    const canonicalContext = limitText(raw['canonicalContext'], 120);
+    const canonicalStateKey = limitText(raw['canonicalStateKey'], 600);
+
+    if (url) state.url = url;
+    if (title) state.title = title;
+    if (domHash) state.domHash = domHash;
+    if (tribunal) state.tribunal = tribunal;
+    if (pjeContext) state.pjeContext = pjeContext;
+    if (canonicalUrl) state.canonicalUrl = canonicalUrl;
+    if (canonicalContext) state.canonicalContext = canonicalContext;
+    if (canonicalStateKey) state.canonicalStateKey = canonicalStateKey;
+
+    if (Array.isArray(raw['newTabs'])) {
+        state.newTabs = raw['newTabs']
+            .map((tab: any) => ({
+                id: limitText(tab?.id, 80),
+                url: limitText(tab?.url, 800),
+            }))
+            .filter(tab => tab.id && tab.url)
+            .slice(0, 10);
+    }
+
+    return Object.keys(state).length > 0 ? state : null;
+}
+
+function recordBrainObservation(brain: BrainStore, params: any): any {
+    const tool = limitText(params?.tool, 160) || limitText(params?.toolName, 160);
+    if (!tool) return { ok: false, error: 'tool_required' };
+
+    const server = limitText(params?.server, 80) || 'lex-desktop-mcp';
+    const input = sanitizeInput(limitedObject(params?.input, 5000)) as Record<string, unknown>;
+    const output = limitText(params?.output || params?.outputPreview, 5000);
+    const outputPreview = sanitizeOutputPreview(output.slice(0, 500));
+    const success = params?.success !== false;
+    const error = success ? null : (limitText(params?.error, 500) || 'manual_observation_failed');
+    const durationMs = clampNumber(params?.durationMs, 0, 0, 10 * 60 * 1000);
+    const before = normalizeObservationState(params?.before);
+    const after = normalizeObservationState(params?.after);
+    const traceId = limitText(params?.traceId, 120) || `mcp-${randomUUID()}`;
+
+    const observation: Observation = {
+        ts: Date.now(),
+        server,
+        tool,
+        input,
+        outputPreview,
+        outputHash: output ? sha256Text(output) : '',
+        outputSize: output.length,
+        durationMs,
+        success,
+        error,
+        before,
+        after,
+        traceId,
+    };
+
+    writeBatchToBrain(brain, [observation]);
+
+    let flowReport: any = null;
+    if (params?.detectFlows === true) {
+        const { detectFlows } = require('../brain/flow-detector') as typeof import('../brain/flow-detector');
+        flowReport = detectFlows(brain, {
+            minActions: clampNumber(params?.flowOptions?.minActions, 1, 1, 12),
+            minInstances: clampNumber(params?.flowOptions?.minInstances, 1, 1, 20),
+            minEdgeWeight: clampNumber(params?.flowOptions?.minEdgeWeight, 1, 1, 20),
+        });
+    }
+
+    return {
+        ok: true,
+        traceId,
+        recorded: {
+            server,
+            tool,
+            success,
+            hasBefore: !!before,
+            hasAfter: !!after,
+            outputSize: output.length,
+        },
+        flowReport,
+    };
+}
+
 async function handleRPC(ws: WebSocket, method: string, params: any): Promise<any> {
     const clientId = getClientId(ws);
     switch (method) {
@@ -582,6 +861,52 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             return buildPjeStatus();
         }
 
+        case 'pje-open-url': {
+            const url = params?.url;
+            if (!isAllowedPjeUrl(url)) {
+                return { ok: false, error: 'invalid_pje_url' };
+            }
+
+            await ensureBrowser();
+            const page = getActivePage();
+            if (!page) {
+                return { ok: false, error: 'no_active_page', status: await buildPjeStatus() };
+            }
+
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            try {
+                await page.bringToFront();
+            } catch (err: any) {
+                console.warn('[pje-open-url] bringToFront falhou:', err?.message || err);
+            }
+
+            return {
+                ok: true,
+                url: page.url(),
+                status: await buildPjeStatus(),
+            };
+        }
+
+        case 'pje-inspect-context': {
+            return inspectPjeContext(params);
+        }
+
+        case 'pje-fill-process-number': {
+            return fillPjeProcessNumber(params);
+        }
+
+        case 'pje-click-search': {
+            return clickPjeSearch(params);
+        }
+
+        case 'pje-read-search-results': {
+            return readPjeSearchResults(params);
+        }
+
+        case 'pje-open-search-result': {
+            return openPjeSearchResult(params);
+        }
+
         case 'browser-focus': {
             // NÃO chama ensureBrowser() — só foca se Chrome já estiver aberto.
             const page = getActivePage();
@@ -641,6 +966,27 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
                 types: params.types,
                 limit: params.limit ?? 20,
             });
+        }
+
+        case 'brain-flows': {
+            const { getBrainSafe } = await ensureBrain();
+            const brain = getBrainSafe();
+            if (!brain) return { ok: false, count: 0, flows: [], error: 'brain_not_initialized' };
+            return listBrainFlows(brain, clampNumber(params?.limit, 10, 1, 50));
+        }
+
+        case 'brain-get-flow': {
+            const { getBrainSafe } = await ensureBrain();
+            const brain = getBrainSafe();
+            if (!brain) return { ok: false, error: 'brain_not_initialized' };
+            return getBrainFlowDetail(brain, String(params?.flowId || params?.label || ''));
+        }
+
+        case 'brain-record-observation': {
+            const { getBrainSafe } = await ensureBrain();
+            const brain = getBrainSafe();
+            if (!brain) return { ok: false, error: 'brain_not_initialized' };
+            return recordBrainObservation(brain, params || {});
         }
 
         case 'brain-graph': {

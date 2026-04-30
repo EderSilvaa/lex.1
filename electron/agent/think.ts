@@ -244,7 +244,7 @@ Você opera em um loop de **Think → Critic → Act → Observe** até completa
 
 ### Sistema de Arquivos e OS
 - \`os_listar\`: lista arquivos/pastas. Atalhos de caminho: "downloads", "desktop", "documentos", "imagens", "~" (home). Ex: \`os_listar { "caminho": "downloads" }\`
-- \`os_arquivos\`: somente ler arquivo, grep por conteudo e info/metadados. Nao move, copia, deleta, cria ou busca por nome.
+- \`os_arquivos\`: ler arquivo, grep por conteudo, info/metadados e \`processo_mapa\` para mapear indice de PDF de processo PJe. Nao move, copia, deleta, cria ou busca por nome.
 - \`os_buscar\`: buscar arquivos por nome/conteudo; para "duplicados por nome obvio", use \`os_buscar { "caminho": "downloads", "modo": "duplicados_nome" }\`. Nao use terminal para isso.
 - \`os_deletar\`: deletar arquivos/pastas do PC. Padrao: manda para a Lixeira. Use \`alvos\` para lote e, apos o usuario confirmar, rechame com \`batch_confirmado:true\`. Se o usuario pedir para conferir/simular/mostrar antes, use \`dry_run:true\`.
 - \`os_mover\`: mover, renomear, copiar e criar pastas. Use \`dry_run:true\` quando o usuario pedir para conferir/simular/mostrar o plano antes ou para organizar pastas. Se retornar \`codigo=organizacao_incompleta\`, nao diga que terminou: use os arquivos em \`dados.posOrganizacao.arquivosRestantes\` para propor/executar novo dry-run apenas dos pendentes. Tambem aceita deletar em lotes, mas para delete simples prefira \`os_deletar\`.

@@ -356,6 +356,33 @@ let initPromise: Promise<void> | null = null
 let heartbeatTimer: NodeJS.Timeout | null = null
 let activePageIndex = 0
 
+function chooseActivePage(preferPje = true): void {
+  if (!context) {
+    activePageIndex = 0
+    return
+  }
+
+  const pages = context.pages()
+  if (pages.length === 0) {
+    activePageIndex = 0
+    return
+  }
+
+  if (preferPje) {
+    const pjeIndex = pages.findIndex(page => {
+      const url = page.url()
+      return url.includes('pje.') || url.includes('.jus.br')
+    })
+    if (pjeIndex >= 0) {
+      activePageIndex = pjeIndex
+      return
+    }
+  }
+
+  if (activePageIndex >= pages.length) activePageIndex = pages.length - 1
+  if (activePageIndex < 0) activePageIndex = 0
+}
+
 export async function initBrowser(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = _doInit().finally(() => { initPromise = null })
@@ -407,7 +434,7 @@ async function _doInit(): Promise<void> {
     const contexts = cdpBrowser.contexts()
     context = contexts[0] ?? await cdpBrowser.newContext()
     if (context.pages().length === 0) await context.newPage()
-    activePageIndex = 0
+    chooseActivePage(true)
     setupPageListeners()
     console.log('[Browser] Reconectado ao Chrome existente')
     startHeartbeat()
@@ -462,7 +489,7 @@ async function launchWithPlaywright(userDataDir: string, executablePath: string)
   })
 
   if (context.pages().length === 0) await context.newPage()
-  activePageIndex = 0
+  chooseActivePage(true)
   setupPageListeners()
 
   console.log('[Browser] Playwright Chromium conectado')
@@ -517,7 +544,7 @@ async function launchWithGoogleChrome(userDataDir: string): Promise<void> {
   })
 
   if (context.pages().length === 0) await context.newPage()
-  activePageIndex = 0
+  chooseActivePage(true)
   setupPageListeners()
 
   console.log('[Browser] Google Chrome conectado via CDP bridge')
@@ -544,6 +571,41 @@ async function isOwnChromeUp(userDataDir: string): Promise<boolean> {
     })
     return true
   } catch { return false }
+}
+
+export async function attemptPassiveBrowserReconnect(): Promise<boolean> {
+  if (context) {
+    chooseActivePage(true)
+    return true
+  }
+
+  const userDataDir = path.join(getUserDataDir(), 'chrome-profile')
+  const ownChromeUp = await isOwnChromeUp(userDataDir)
+  if (!ownChromeUp) return false
+
+  try {
+    console.log('[Browser] Reconnect passivo: Chrome controlado ja estava aberto')
+    cdpBrowser = isElectronProcess()
+      ? await connectViaBridgeProxyOnly(CDP_PORT)
+      : await connectDirectCDP(CDP_PORT)
+    const contexts = cdpBrowser.contexts()
+    context = contexts[0] ?? null
+    if (!context) {
+      cdpBrowser = null
+      return false
+    }
+    chooseActivePage(true)
+    setupPageListeners()
+    startHeartbeat()
+    console.log('[Browser] Reconnect passivo concluido')
+    return true
+  } catch (err: any) {
+    console.warn('[Browser] Reconnect passivo falhou:', err?.message || err)
+    context = null
+    cdpBrowser = null
+    activePageIndex = 0
+    return false
+  }
 }
 
 
@@ -611,7 +673,7 @@ export async function ensureBrowser(): Promise<void> {
       const contexts = cdpBrowser.contexts()
       context = contexts[0] ?? await cdpBrowser.newContext()
       if (context.pages().length === 0) await context.newPage()
-      activePageIndex = 0
+      chooseActivePage(true)
       setupPageListeners()
       startHeartbeat()
       console.log('[Browser] Reconectado ao Chrome via novo bridge (recovery)')
@@ -1272,7 +1334,7 @@ export async function reconnectPlaywright(): Promise<void> {
   const contexts = cdpBrowser.contexts()
   context = contexts[0] ?? await cdpBrowser.newContext()
   if (context.pages().length === 0) await context.newPage()
-  activePageIndex = 0
+  chooseActivePage(true)
   setupPageListeners()
   startHeartbeat()
   console.log('[Browser] Playwright reconectado')

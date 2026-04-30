@@ -4,12 +4,16 @@
  * Gerencia sessões de terminal embutido no LEX.
  */
 
-/* global Terminal, FitAddon, WebLinksAddon, terminalApi */
+/* global Terminal, FitAddon, WebLinksAddon, terminalApi, lexEngineApi */
 
 let terminalInitialized = false;
 let sessions = {}; // { id: { terminal, fitAddon, active } }
 let activeSessionId = null;
 let sessionCounter = 0;
+
+function isLexLikeMode(mode) {
+    return mode === 'lex' || mode === 'engine';
+}
 
 function normalizeLexPastedText(text) {
     const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -30,7 +34,7 @@ function writeTerminalInput(sessionId, data, opts = {}) {
     const session = sessions[sessionId];
     if (!session || session.exited) return;
 
-    const payload = opts.paste && session.mode === 'lex'
+    const payload = opts.paste && isLexLikeMode(session.mode)
         ? normalizeLexPastedText(data)
         : data;
 
@@ -43,7 +47,7 @@ function installPasteHandler(sessionId, wrapper) {
 
     wrapper.addEventListener('paste', (event) => {
         const text = event.clipboardData?.getData('text/plain') || '';
-        if (!text || session.mode !== 'lex') return;
+        if (!text || !isLexLikeMode(session.mode)) return;
 
         event.preventDefault();
         event.stopPropagation();
@@ -82,6 +86,43 @@ const XTERM_THEME = {
 /**
  * Inicializa o terminal view (lazy — chamado ao abrir a tab).
  */
+function setEngineStatus(kind, text, title) {
+    const button = document.getElementById('terminal-engine-status');
+    const dot = button?.querySelector('.terminal-status-dot');
+    const label = document.getElementById('terminal-engine-status-text');
+    if (dot) dot.className = `terminal-status-dot ${kind}`;
+    if (label) label.textContent = text;
+    if (button && title) button.title = title;
+}
+
+async function refreshEngineStatus() {
+    if (!window.lexEngineApi?.getStatus) {
+        setEngineStatus('error', 'Motor off', 'lexEngineApi indisponivel');
+        return null;
+    }
+
+    setEngineStatus('checking', 'Verificando', 'Verificando motor local...');
+    try {
+        const result = await window.lexEngineApi.getStatus();
+        if (!result?.success) {
+            setEngineStatus('error', 'Motor off', result?.error || 'Falha ao verificar motor local');
+            return null;
+        }
+
+        const status = result.data;
+        if (status?.ok) {
+            setEngineStatus('ok', 'Motor local ativo', `${status.wsl?.distro || 'WSL'}: ${status.wsl?.projectPath || ''}`);
+        } else {
+            const detail = (status?.messages || []).join('\n') || 'Lex Engine incompleto';
+            setEngineStatus('error', 'Motor off', detail);
+        }
+        return status;
+    } catch (err) {
+        setEngineStatus('error', 'Motor off', err?.message || String(err));
+        return null;
+    }
+}
+
 function initTerminalView() {
     if (terminalInitialized) {
         // Apenas re-fit o terminal ativo
@@ -116,11 +157,23 @@ function initTerminalView() {
     // Botão de nova sessão
     const newBtn = document.getElementById('terminal-new-session');
     if (newBtn) {
-        newBtn.addEventListener('click', () => createTerminalSession());
+        newBtn.addEventListener('click', () => createTerminalSession({ mode: 'lex' }));
     }
 
     // Cria primeira sessão automaticamente
-    createTerminalSession();
+    const newEngineBtn = document.getElementById('terminal-new-engine-session');
+    if (newEngineBtn) {
+        newEngineBtn.addEventListener('click', () => createTerminalSession({ mode: 'engine' }));
+    }
+
+    const engineStatusBtn = document.getElementById('terminal-engine-status');
+    if (engineStatusBtn) {
+        engineStatusBtn.addEventListener('click', refreshEngineStatus);
+    }
+
+    refreshEngineStatus();
+
+    createTerminalSession({ mode: 'engine' });
 
     // Resize observer para fit automático
     const container = document.querySelector('.terminal-container');
@@ -144,7 +197,11 @@ async function createTerminalSession(opts = {}) {
 
     sessionCounter++;
     const sessionId = requestedSessionId || `term-${sessionCounter}-${Date.now()}`;
-    const displayName = opts.displayName || (mode === 'lex' ? `LEX ${sessionCounter}` : `Shell ${sessionCounter}`);
+    const displayName = opts.displayName || (
+        mode === 'engine' ? `Engine ${sessionCounter}` :
+        mode === 'lex' ? `LEX ${sessionCounter}` :
+        `Shell ${sessionCounter}`
+    );
 
     // Cria instância xterm.js
     const terminal = new Terminal({
@@ -217,15 +274,23 @@ async function createTerminalSession(opts = {}) {
     const rows = Math.floor((container?.clientHeight || 400) / 18);
 
     try {
-        terminal.write('\x1b[90mIniciando Lex...\x1b[0m\r\n');
-        const result = mode === 'lex'
-            ? await window.terminalApi.createLex(sessionId, { cols, rows })
-            : await window.terminalApi.create(sessionId, { cols, rows });
+        terminal.write(`\x1b[90mIniciando ${mode === 'engine' ? 'Lex Engine' : 'Lex'}...\x1b[0m\r\n`);
+        const result = mode === 'engine'
+            ? await window.terminalApi.createEngine(sessionId, { cols, rows })
+            : mode === 'lex'
+                ? await window.terminalApi.createLex(sessionId, { cols, rows })
+                : await window.terminalApi.create(sessionId, { cols, rows });
         if (!result.success) {
             terminal.write(`\x1b[31mErro ao criar terminal: ${result.error}\x1b[0m\r\n`);
+            if (mode === 'engine') {
+                setEngineStatus('error', 'Motor off', result.error || 'Falha ao abrir Console do motor local');
+            }
         } else {
             const liveSession = sessions[sessionId];
             if (liveSession) liveSession.ptyReady = true;
+            if (mode === 'engine') {
+                setEngineStatus('ok', 'Motor local ativo', 'Console do motor local aberto');
+            }
         }
     } catch (err) {
         terminal.write(`\x1b[31mErro: ${err.message || err}\x1b[0m\r\n`);

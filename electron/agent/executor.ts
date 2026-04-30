@@ -528,7 +528,7 @@ ${params || '  Nenhum parâmetro'}
 **Retorna:** ${skill.retorno}`;
 
     if (skill.exemplos && skill.exemplos.length > 0) {
-        texto += `\n\n**Exemplo:**\n\`\`\`json\n${skill.exemplos[0]}\n\`\`\``;
+        texto += `\n\n**Exemplos:**\n\`\`\`text\n${skill.exemplos.join('\n')}\n\`\`\``;
     }
 
     return texto;

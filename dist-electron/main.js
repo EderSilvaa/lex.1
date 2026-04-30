@@ -51,6 +51,8 @@ const provider_config_1 = require("./provider-config");
 const supabase_client_1 = require("./auth/supabase-client");
 const license_1 = require("./auth/license");
 const analytics_1 = require("./analytics");
+const lex_desktop_bridge_1 = require("./lex-desktop-bridge");
+const lex_engine_1 = require("./lex-engine");
 const electron_updater_1 = require("electron-updater");
 const privacy_1 = require("./privacy");
 const ollama_manager_1 = require("./ollama-manager");
@@ -1227,6 +1229,23 @@ electron_1.app.whenReady().then(async () => {
     (0, supabase_client_1.initSupabase)(store);
     createWindow();
     (0, crawler_1.registerCrawlerHandlers)();
+    (0, lex_desktop_bridge_1.startLexDesktopBridge)();
+    electron_1.ipcMain.handle('lex-engine-status', async () => {
+        try {
+            return { success: true, data: { ...(await (0, lex_engine_1.getLexEngineStatus)()), bridge: (0, lex_desktop_bridge_1.getLexDesktopBridgeState)() } };
+        }
+        catch (err) {
+            return { success: false, error: err.message || String(err) };
+        }
+    });
+    electron_1.ipcMain.handle('lex-engine-ask', async (_event, { prompt }) => {
+        try {
+            return { success: true, data: await (0, lex_engine_1.askLexEngine)(prompt) };
+        }
+        catch (err) {
+            return { success: false, error: err.message || String(err) };
+        }
+    });
     // Terminal embutido (xterm.js + node-pty)
     // Registrado logo após createWindow — o renderer chama createLex nos primeiros 200ms.
     try {
@@ -1273,6 +1292,27 @@ electron_1.app.whenReady().then(async () => {
             return { success: true, data: ptyMgr.listSessions() };
         });
         // Sessão especial: roda o LEX CLI dentro do PTY
+        electron_1.ipcMain.handle('terminal-create-engine', async (_, opts) => {
+            try {
+                const spawn = (0, lex_engine_1.getLexEngineConsoleSpawn)(opts.sessionId);
+                await ptyMgr.createSession(opts.sessionId, {
+                    shell: spawn.shell,
+                    args: spawn.args,
+                    cwd: spawn.cwd,
+                    cols: opts.cols,
+                    rows: opts.rows,
+                    mode: 'engine',
+                    env: {
+                        ...spawn.env,
+                        NODE_OPTIONS: '--max-old-space-size=4096',
+                    },
+                });
+                return { success: true };
+            }
+            catch (err) {
+                return { success: false, error: err.message };
+            }
+        });
         electron_1.ipcMain.handle('terminal-create-lex', async (_, opts) => {
             try {
                 const path = await Promise.resolve().then(() => __importStar(require('path')));
@@ -1547,6 +1587,7 @@ electron_1.app.on('window-all-closed', async function () {
     if (trayModeActive)
         return;
     // Encerra backend (flush + close browser + sessions)
+    (0, lex_desktop_bridge_1.stopLexDesktopBridge)();
     await (0, backend_client_1.stopBackend)();
     // Fallback local caso backend não estivesse rodando
     (0, route_memory_1.flush)();
