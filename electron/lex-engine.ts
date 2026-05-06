@@ -32,7 +32,7 @@ export interface LexEngineConsoleSpawn {
     env: Record<string, string>;
 }
 
-const STATUS_TIMEOUT_MS = 20000;
+const STATUS_TIMEOUT_MS = 5000;
 const ASK_TIMEOUT_MS = 180000;
 
 function execFileSafe(file: string, args: string[], timeoutMs = STATUS_TIMEOUT_MS): Promise<ExecResult> {
@@ -97,37 +97,46 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     let error: string | undefined;
 
     if (process.platform === 'win32') {
-        const projectCandidates = Array.from(new Set([projectPath, mountedProjectPath]));
-        const wslArgs = ['-d', distro, '--'];
-        const probeErrors: string[] = [];
-
-        try {
-            const result = await execFileSafe('wsl.exe', [...wslArgs, 'echo', 'WSL_OK']);
-            available = result.stdout.includes('WSL_OK');
-        } catch (err: any) {
-            probeErrors.push(err?.message || String(err));
-        }
-
-        if (available) {
-            for (const candidate of projectCandidates) {
-                const exists = await execFileSucceeds('wsl.exe', [...wslArgs, 'test', '-d', candidate]);
-                if (exists) {
-                    projectPathExists = true;
-                    resolvedProjectPath = candidate;
-                    break;
-                }
-            }
+        const quickStatus = process.env['LEX_ENGINE_DEEP_STATUS'] !== '1';
+        if (quickStatus) {
+            available = true;
+            projectPathExists = windowsPathExists;
+            resolvedProjectPath = projectPath;
+            hermesAvailable = windowsPathExists;
+            hermesPath = windowsPathExists ? 'hermes' : undefined;
+        } else {
+            const projectCandidates = Array.from(new Set([projectPath, mountedProjectPath]));
+            const wslArgs = ['-d', distro, '--'];
+            const probeErrors: string[] = [];
 
             try {
-                const result = await execFileSafe('wsl.exe', [...wslArgs, 'bash', '-lc', 'command -v hermes']);
-                hermesPath = result.stdout.trim() || undefined;
-                hermesAvailable = Boolean(hermesPath);
+                const result = await execFileSafe('wsl.exe', [...wslArgs, 'echo', 'WSL_OK']);
+                available = result.stdout.includes('WSL_OK');
             } catch (err: any) {
                 probeErrors.push(err?.message || String(err));
             }
-        }
 
-        error = probeErrors.join('\n') || undefined;
+            if (available) {
+                for (const candidate of projectCandidates) {
+                    const exists = await execFileSucceeds('wsl.exe', [...wslArgs, 'test', '-d', candidate]);
+                    if (exists) {
+                        projectPathExists = true;
+                        resolvedProjectPath = candidate;
+                        break;
+                    }
+                }
+
+                try {
+                    const result = await execFileSafe('wsl.exe', [...wslArgs, 'bash', '-lc', 'command -v hermes']);
+                    hermesPath = result.stdout.trim() || undefined;
+                    hermesAvailable = Boolean(hermesPath);
+                } catch (err: any) {
+                    probeErrors.push(err?.message || String(err));
+                }
+            }
+
+            error = probeErrors.join('\n') || undefined;
+        }
     } else {
         available = true;
         projectPathExists = fs.existsSync(projectPath);
@@ -170,16 +179,21 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
     const projectPath = getDefaultWslProjectPath();
     const windowsPath = getDefaultWindowsEnginePath();
     const cwd = fs.existsSync(windowsPath) ? windowsPath : app.getPath('home');
+    const env = {
+        LEX_DESKTOP: '1',
+        LEX_ENGINE_SESSION_ID: sessionId,
+        LEX_STATUS_BROWSER: 'verifique pelo indicador do Desktop',
+        LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
+        LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
+        LEX_STATUS_URL: '',
+    };
 
     if (process.platform === 'win32') {
         return {
             shell: 'wsl.exe',
             args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && hermes`],
             cwd,
-            env: {
-                LEX_DESKTOP: '1',
-                LEX_ENGINE_SESSION_ID: sessionId,
-            },
+            env,
         };
     }
 
@@ -187,10 +201,7 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
         shell: 'bash',
         args: ['-lc', `cd ${bashQuote(projectPath)} && hermes`],
         cwd,
-        env: {
-            LEX_DESKTOP: '1',
-            LEX_ENGINE_SESSION_ID: sessionId,
-        },
+        env,
     };
 }
 

@@ -176,13 +176,22 @@ function normalizeTribunal(value: unknown): string | null {
     return code && code.trim() ? code.trim().toUpperCase() : null;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(fallback), timeoutMs);
+        promise
+            .then((value) => resolve(value))
+            .catch(() => resolve(fallback))
+            .finally(() => clearTimeout(timer));
+    });
+}
+
 async function handleHealth(res: http.ServerResponse): Promise<void> {
-    let engine: unknown = null;
-    try {
-        engine = await getLexEngineStatus();
-    } catch (err: any) {
-        engine = { ok: false, error: err?.message || String(err) };
-    }
+    const engine: unknown = await withTimeout<unknown>(
+        getLexEngineStatus(),
+        4000,
+        { ok: false, error: 'engine_status_timeout' },
+    );
 
     sendJson(res, 200, {
         ok: true,
