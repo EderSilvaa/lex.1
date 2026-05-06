@@ -24,6 +24,11 @@
     flex-shrink: 0;
 }
 
+.terminal-status-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
 .terminal-engine-status {
     display: inline-flex;
     align-items: center;
@@ -64,6 +69,73 @@
 
 .terminal-status-dot.checking {
     background: var(--warning-color);
+}
+
+.terminal-status-panel {
+    position: absolute;
+    top: 34px;
+    left: 0;
+    z-index: 30;
+    width: min(460px, calc(100vw - 330px));
+    max-width: 460px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.45);
+}
+
+.terminal-status-panel.hidden {
+    display: none;
+}
+
+.terminal-status-panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.terminal-status-panel-head strong {
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.terminal-status-panel-head span {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.terminal-status-panel-body {
+    display: grid;
+    gap: 7px;
+    padding-top: 10px;
+    font-size: 12px;
+}
+
+.terminal-status-row {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 10px;
+}
+
+.terminal-status-row span:first-child {
+    color: var(--text-muted);
+}
+
+.terminal-status-row span:last-child {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.terminal-status-row.warning span:last-child {
+    color: var(--warning-color);
+    white-space: normal;
 }
 
 .terminal-tabs {
@@ -172,6 +244,27 @@
 }
 
 /* ── Terminal Container ── */
+
+.terminal-shortcuts {
+    height: 28px;
+    max-width: 190px;
+    padding: 0 30px 0 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.terminal-shortcuts:hover,
+.terminal-shortcuts:focus {
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+    outline: none;
+}
 
 .terminal-container {
     flex: 1;

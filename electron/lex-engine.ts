@@ -144,7 +144,7 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     if (!windowsPathExists) messages.push(`Pasta Windows nao encontrada: ${windowsPath}`);
     if (!available) messages.push(`WSL/distro nao disponivel: ${distro}`);
     if (!projectPathExists) messages.push(`Projeto no WSL nao encontrado: ${projectPath} ou ${mountedProjectPath}`);
-    if (!hermesAvailable) messages.push('Comando hermes nao encontrado no ambiente do Engine.');
+    if (!hermesAvailable) messages.push('Comando interno do motor nao encontrado no ambiente do Lex Engine.');
     if (error) messages.push(error);
 
     return {
