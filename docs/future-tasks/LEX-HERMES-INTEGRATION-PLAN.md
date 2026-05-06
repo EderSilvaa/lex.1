@@ -15,6 +15,47 @@ do Hermes/Lex Engine.
 
 ## Decisao de Arquitetura
 
+### Destino: monorepo Lex com fronteiras claras
+
+O destino recomendado e um monorepo da Lex, mas sem misturar as camadas.
+
+O monorepo deve versionar junto o que precisa evoluir junto: Desktop, bridge,
+MCP, Brain operacional, prompts/politicas Lex e o runtime do Engine usado pelo
+produto. Isso evita a duvida pratica de "qual repositorio editar?" quando uma
+mudanca envolve UI, PJe, MCP e comportamento do agente.
+
+Monorepo nao significa acoplamento interno livre. A fronteira continua sendo:
+
+```text
+apps/desktop ou electron-app = Lex Desktop/Electron
+engine/hermes ou vendor/hermes = Lex Engine/Hermes
+packages/brain = Brain operacional da Lex
+packages/mcp-lex-desktop = contrato MCP com o Desktop
+packages/shared = schemas, tipos e contratos compartilhados
+```
+
+Regra de fronteira:
+
+- Electron nao importa codigo interno do Hermes diretamente.
+- Hermes nao manipula PJe/Windows diretamente.
+- Comunicacao entre motor e desktop acontece por MCP/HTTP/JSON estruturado.
+- O Brain operacional da Lex fica acessivel por contrato, nao por acesso solto a
+  arquivos internos.
+- O Hermes pode continuar isolado como fork, subtree, submodule ou pasta
+  versionada, desde que a versao usada pela Lex seja explicita.
+
+### Repositorio canonico
+
+A decisao recomendada agora e tratar a Lex como produto principal e caminhar para
+um repositorio canonico unico da Lex. O conteudo do Electron atual deve entrar no
+monorepo como camada Desktop. O Hermes/Lex Engine deve entrar como camada Engine,
+mantendo sua propria fronteira para facilitar atualizacoes futuras do upstream.
+
+Enquanto a migracao nao for concluida, `lex-test1` continua sendo o corpo
+Desktop operacional e `lex_engine` continua sendo o motor Hermes usado pela Lex.
+Durante esse periodo, qualquer mudanca deve deixar claro qual lado esta sendo
+alterado.
+
 ### Manter o Electron como produto principal
 
 O Electron continua sendo a experiencia que o usuario baixa e abre no Windows.
@@ -396,26 +437,43 @@ Status esperado:
 
 - plano aprovado;
 - responsabilidades definidas;
-- repositorio Electron e repositorio Engine identificados;
+- repositorio canonico do monorepo Lex definido;
+- repositorio Electron e repositorio Engine identificados como fontes de
+  importacao/transicao;
 - decisoes de licenca/creditos documentadas.
 
 Entrega:
 
 - este documento;
+- decisao de monorepo documentada;
 - checklist de importacao;
 - lista de riscos.
 
 ### Fase 1: importar sem integrar
 
-Se este repositorio for o Electron antigo, nao mover tudo agora. Primeiro criar
-um limite claro entre `electron/`, `src/`, `scripts/` e o futuro motor.
+Criar a estrutura alvo do monorepo e importar sem trocar comportamento.
 
-Se este repositorio for o Engine, importar o Electron antigo para `electron-app/`
-sem alterar comportamento.
+Estrutura sugerida:
+
+```text
+apps/desktop/
+engine/hermes/
+packages/mcp-lex-desktop/
+packages/brain/
+packages/shared/
+docs/
+scripts/
+```
+
+Se o repositorio canonico escolhido for o fork Hermes, importar o Electron atual
+para `apps/desktop/` ou `electron-app/`. Se o repositorio canonico escolhido for
+o Electron atual, trazer o Engine como `engine/hermes/`, `vendor/hermes/`,
+subtree ou submodule. Em ambos os casos, a primeira importacao nao deve mudar o
+comportamento.
 
 Entrega:
 
-- codigo importado ou separado;
+- codigo importado com fronteiras de pasta claras;
 - build atual ainda funcionando;
 - nenhuma troca de motor ainda.
 
@@ -592,16 +650,18 @@ escopo. Skills de Nivel 3 nao executam ato sensivel sem confirmacao.
 ## Ordem Recomendada Agora
 
 1. Aprovar este plano como norte.
-2. Decidir qual repositorio sera o produto principal.
-3. Se o principal for o fork Hermes, importar este Electron para `electron-app/`.
-4. Se o principal for este Electron, adicionar o Lex Engine como dependencia/local runtime.
-5. Criar tela de status do Engine.
-6. Fazer o chat visual chamar o Engine.
-7. Criar MCP minimo.
-8. Migrar primeiro fluxo juridico de documento.
-9. Validar Brain + Hermes em modo descoberta.
-10. Migrar PJe read-only.
-11. So depois ligar PJe com acoes sensiveis.
+2. Definir o repositorio canonico do monorepo Lex.
+3. Criar a estrutura alvo com Desktop, Engine, Brain, MCP e shared separados por
+   pastas.
+4. Importar o outro lado sem integrar nem mudar comportamento.
+5. Fixar a versao/caminho do Lex Engine usado pelo Desktop.
+6. Criar tela de status do Engine.
+7. Fazer o chat visual chamar o Engine.
+8. Criar MCP minimo.
+9. Migrar primeiro fluxo juridico de documento.
+10. Validar Brain + Hermes em modo descoberta.
+11. Migrar PJe read-only.
+12. So depois ligar PJe com acoes sensiveis.
 
 ## Decisao Recomendada
 

@@ -14,6 +14,17 @@ interface PageSummary {
   title: string;
 }
 
+type NativeDialogPolicy = 'dismiss' | 'accept';
+
+interface NativeDialogResult {
+  type: string;
+  message: string;
+  defaultValue: string;
+  handledAction: NativeDialogPolicy;
+  handled: boolean;
+  error?: string;
+}
+
 interface ResultActionCandidate {
   actionIndex: number;
   tag: string;
@@ -624,11 +635,60 @@ async function clickAccessWarningAccept(page: Page, warning: AccessWarningCandid
   };
 }
 
-async function clickResultAndWait(page: Page, target: SearchResultCandidate, waitAfterMs: number): Promise<any> {
+function waitForNativeDialog(page: Page, waitAfterMs: number, policy: NativeDialogPolicy): Promise<NativeDialogResult | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const finish = (value: NativeDialogResult | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      page.off('dialog', onDialog);
+      resolve(value);
+    };
+
+    const onDialog = async (dialog: any) => {
+      const result: NativeDialogResult = {
+        type: String(dialog.type?.() || ''),
+        message: String(dialog.message?.() || ''),
+        defaultValue: String(dialog.defaultValue?.() || ''),
+        handledAction: policy,
+        handled: false,
+      };
+
+      try {
+        if (policy === 'accept') {
+          await dialog.accept();
+        } else {
+          await dialog.dismiss();
+        }
+        result.handled = true;
+      } catch (err: any) {
+        result.error = err?.message || String(err);
+      }
+
+      finish(result);
+    };
+
+    page.on('dialog', onDialog);
+    timer = setTimeout(() => finish(null), waitAfterMs);
+  });
+}
+
+async function clickResultAndWait(
+  page: Page,
+  target: SearchResultCandidate,
+  waitAfterMs: number,
+  nativeDialogPolicy: NativeDialogPolicy = 'dismiss',
+): Promise<any> {
   const context = page.context();
+  const nativeDialogPromise = waitForNativeDialog(page, waitAfterMs, nativeDialogPolicy);
+  const popupPromise = page.waitForEvent('popup', { timeout: waitAfterMs }).catch(() => null);
   const newPagePromise = context.waitForEvent('page', { timeout: waitAfterMs }).catch(() => null);
   const click = await clickSelectedResult(page, target);
-  const newPage = await newPagePromise;
+  const [nativeDialog, popupPage, contextPage] = await Promise.all([nativeDialogPromise, popupPromise, newPagePromise]);
+  const newPage = popupPage || contextPage;
   if (newPage) {
     await newPage.waitForLoadState('domcontentloaded', { timeout: waitAfterMs }).catch(() => undefined);
     await newPage.bringToFront().catch(() => undefined);
@@ -640,6 +700,7 @@ async function clickResultAndWait(page: Page, target: SearchResultCandidate, wai
   }
   return {
     ...click,
+    nativeDialog,
     newPageOpened: !!newPage,
     activePage: await summarizePage(newPage || page),
   };
@@ -719,7 +780,33 @@ export async function openPjeSearchResult(paramsRaw: OpenSearchResultParams = {}
           browserAutomationExecuted: false,
         };
       }
-      openClick = await clickResultAndWait(page, selectedCandidate, waitAfterMs);
+      openClick = await clickResultAndWait(page, selectedCandidate, waitAfterMs, 'accept');
+      if (openClick?.nativeDialog?.handledAction === 'accept' && openClick?.nativeDialog?.handled && openClick?.newPageOpened) {
+        return {
+          ok: openClick?.ok !== false,
+          mode: 'open_search_result',
+          dryRun: false,
+          aceitarAviso,
+          browserAutomationExecuted: true,
+          pageBefore,
+          selectedCandidate,
+          warning: {
+            kind: 'native_confirm',
+            text: openClick.nativeDialog.message,
+          },
+          openClick,
+          acceptClick: {
+            ok: true,
+            clicked: true,
+            kind: 'native_confirm',
+            label: 'Confirm nativo do PJe aceito',
+            newPageOpened: openClick.newPageOpened,
+            activePage: openClick.activePage,
+          },
+          openedAutos: true,
+          nextActions: ['inspecionar_contexto_dos_autos', 'ler_capa_ou_movimentacoes_somente_read_only'],
+        };
+      }
       warning = await inspectAccessWarning(getActivePage() || page);
     }
 
@@ -781,8 +868,16 @@ export async function openPjeSearchResult(paramsRaw: OpenSearchResultParams = {}
     };
   }
 
-  const openClick = await clickResultAndWait(page, selectedCandidate, waitAfterMs);
+  const openClick = await clickResultAndWait(page, selectedCandidate, waitAfterMs, 'dismiss');
   const warning = await inspectAccessWarning(getActivePage() || page);
+  const nativeWarning = openClick?.nativeDialog?.message
+    ? {
+        kind: 'native_confirm',
+        text: openClick.nativeDialog.message,
+        handledAction: openClick.nativeDialog.handledAction,
+        handled: openClick.nativeDialog.handled,
+      }
+    : null;
   return {
     ok: openClick?.ok !== false,
     mode: 'open_search_result',
@@ -792,14 +887,16 @@ export async function openPjeSearchResult(paramsRaw: OpenSearchResultParams = {}
     pageBefore,
     selectedCandidate,
     openClick,
-    warning,
+    warning: warning || nativeWarning,
     acceptedAccessWarning: false,
     openedAutos: false,
-    requiresHumanConfirmation: !!warning,
+    requiresHumanConfirmation: !!warning || !!nativeWarning,
     message: warning
       ? 'Aviso/modal de entrada detectado. A Lex nao clicou em Continuar/Aceitar.'
+      : nativeWarning
+        ? 'Aviso nativo de entrada detectado e recusado pela Lex. Os autos nao foram abertos.'
       : 'Link do processo acionado, mas nenhum aviso/modal foi detectado.',
-    nextActions: warning
+    nextActions: warning || nativeWarning
       ? ['revisar_aviso_no_chrome', 'executar_pje_abrir_resultado_com_aceitarAviso_true_se_o_usuario_autorizar']
       : ['inspecionar_contexto_antes_de_qualquer_novo_clique'],
   };

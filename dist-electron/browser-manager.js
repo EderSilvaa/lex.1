@@ -403,6 +403,18 @@ let chromeProc = null;
 let initPromise = null;
 let heartbeatTimer = null;
 let activePageIndex = 0;
+const dialogObservedPages = new WeakSet();
+const listenerObservedContexts = new WeakSet();
+function observeNativeDialogs(page) {
+    if (dialogObservedPages.has(page))
+        return;
+    dialogObservedPages.add(page);
+    page.on('dialog', (dialog) => {
+        // Important: do not accept/dismiss here. With a listener attached, Chromium keeps
+        // native PJe confirm dialogs visible for human-in-the-loop manual clicks.
+        console.log(`[Browser] Dialogo nativo detectado (${dialog.type()}): ${dialog.message().slice(0, 180)}`);
+    });
+}
 function chooseActivePage(preferPje = true) {
     if (!context) {
         activePageIndex = 0;
@@ -414,9 +426,17 @@ function chooseActivePage(preferPje = true) {
         return;
     }
     if (preferPje) {
+        const autosIndex = pages.findIndex(page => {
+            const url = page.url();
+            return /\/Processo\/ConsultaProcesso\/Detalhe\/listProcessoCompleto/i.test(url);
+        });
+        if (autosIndex >= 0) {
+            activePageIndex = autosIndex;
+            return;
+        }
         const pjeIndex = pages.findIndex(page => {
             const url = page.url();
-            return url.includes('pje.') || url.includes('.jus.br');
+            return (url.includes('pje.') || url.includes('.jus.br')) && !url.startsWith('chrome://');
         });
         if (pjeIndex >= 0) {
             activePageIndex = pjeIndex;
@@ -695,7 +715,13 @@ function getActivePageIndex() {
 function setupPageListeners() {
     if (!context)
         return;
+    for (const page of context.pages())
+        observeNativeDialogs(page);
+    if (listenerObservedContexts.has(context))
+        return;
+    listenerObservedContexts.add(context);
     context.on('page', (newPage) => {
+        observeNativeDialogs(newPage);
         const pages = context.pages();
         const newIndex = pages.indexOf(newPage);
         console.log(`[Browser] Nova aba detectada: [${newIndex}] ${newPage.url()}`);
@@ -703,6 +729,8 @@ function setupPageListeners() {
         if (newIndex >= 0) {
             activePageIndex = newIndex;
             console.log(`[Browser] Aba ativa atualizada para [${newIndex}]`);
+            // Traz nova aba pra frente — popups/redirects do PJe ficam invisíveis sem isso
+            newPage.bringToFront().catch(() => undefined);
         }
     });
     context.on('close', () => {
@@ -1330,6 +1358,33 @@ async function closeBrowser() {
         catch { /* ignorar */ }
         chromeProc = null;
     }
+    // Mata Chrome spawnado pelo bridge — nesse caminho chromeProc é null porque o bridge
+    // (subprocesso Node) é dono do Chrome. Sem isso, o Chrome vira órfão na porta CDP.
+    try {
+        const userDataDir = path_1.default.join(getUserDataDir(), 'chrome-profile');
+        const pidFile = path_1.default.join(userDataDir, 'chrome.pid');
+        if (fs_1.default.existsSync(pidFile)) {
+            const pid = parseInt(fs_1.default.readFileSync(pidFile, 'utf8').trim(), 10);
+            if (pid && !isNaN(pid)) {
+                try {
+                    if (process.platform === 'win32') {
+                        const { execSync } = await Promise.resolve().then(() => __importStar(require('child_process')));
+                        execSync(`taskkill /PID ${pid} /F /T`, { timeout: 3000 });
+                    }
+                    else {
+                        process.kill(pid, 'SIGTERM');
+                    }
+                    console.log(`[Browser] Chrome do bridge morto (PID: ${pid})`);
+                }
+                catch { /* já morto */ }
+            }
+            try {
+                fs_1.default.unlinkSync(pidFile);
+            }
+            catch { /* ok */ }
+        }
+    }
+    catch { /* userDataDir não configurado ainda — nada a fazer */ }
     activePageIndex = 0;
     console.log('[Browser] Chromium encerrado');
 }

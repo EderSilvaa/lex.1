@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog } from 'electron';
 import * as http from 'http';
+import * as path from 'path';
 import { rpcCall } from './backend-client';
 import { getLexEngineStatus } from './lex-engine';
 import { inferTribunalFromCNJ } from './datajud/datajud-client';
@@ -259,6 +260,11 @@ async function handlePjeStatus(res: http.ServerResponse): Promise<void> {
         mode: 'read_only',
         status,
     });
+}
+
+async function handleBrowserFocus(res: http.ServerResponse): Promise<void> {
+    const result = await rpcCall('browser-focus', {}, { timeoutMs: 15000 });
+    sendJson(res, result?.ok === false ? 400 : 200, result);
 }
 
 async function buildPjeConsultaPlan(payload: any): Promise<any> {
@@ -565,6 +571,86 @@ async function handlePjeLerResultados(req: http.IncomingMessage, res: http.Serve
     sendJson(res, result?.ok === false ? 400 : 200, result);
 }
 
+async function handlePjeLerAutos(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const payload = await readJsonBody(req);
+    const result = await rpcCall('pje-read-autos', payload, { timeoutMs: 30000 });
+    sendJson(res, result?.ok === false ? 400 : 200, result);
+}
+
+async function handlePjeBaixarDocumentoAtual(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const payload = await readJsonBody(req);
+    const dryRun = payload?.dryRun !== false;
+    const downloadDir = typeof payload?.downloadDir === 'string' && payload.downloadDir.trim()
+        ? payload.downloadDir.trim()
+        : path.join(app.getPath('downloads'), 'Lex PJe');
+
+    if (dryRun) {
+        const result = await rpcCall('pje-download-current-document', { ...payload, dryRun: true, downloadDir }, { timeoutMs: 30000 });
+        sendJson(res, result?.ok === false ? 400 : 200, result);
+        return;
+    }
+
+    const preview = await rpcCall('pje-download-current-document', { ...payload, dryRun: true, downloadDir }, { timeoutMs: 30000 });
+    if (preview?.ok === false) {
+        sendJson(res, 400, preview);
+        return;
+    }
+
+    const documentTitle = String(preview?.inspection?.document?.title || 'documento atual').trim();
+    const processNumber = String(preview?.inspection?.processNumber || 'processo atual').trim();
+    const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: 'Baixar documento do PJe',
+        message: `Baixar o documento atual "${documentTitle}"?`,
+        detail: `Processo: ${processNumber}\nDestino: ${downloadDir}\n\nA Lex vai clicar apenas em "Download do documento" no visualizador atual. Ela NAO vai baixar autos completos, nao vai peticionar e nao vai executar outro ato.`,
+        buttons: ['Cancelar', 'Baixar documento atual'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        normalizeAccessKeys: true,
+    };
+
+    const confirmation = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options);
+
+    if (confirmation.response !== 1) {
+        sendJson(res, 200, {
+            ok: true,
+            accepted: false,
+            dryRun: false,
+            preview,
+            result: null,
+        });
+        return;
+    }
+
+    const result = await rpcCall('pje-download-current-document', {
+        ...payload,
+        dryRun: false,
+        downloadDir,
+    }, { timeoutMs: 60000 });
+
+    sendJson(res, 200, {
+        ...result,
+        accepted: true,
+        preview,
+    });
+}
+
+async function handlePjeAnalisarDocumentoBaixado(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const payload = await readJsonBody(req);
+    const downloadDir = typeof payload?.downloadDir === 'string' && payload.downloadDir.trim()
+        ? payload.downloadDir.trim()
+        : path.join(app.getPath('downloads'), 'Lex PJe');
+    const result = await rpcCall('pje-analyze-downloaded-document', {
+        ...payload,
+        downloadDir,
+    }, { timeoutMs: 45000 });
+    sendJson(res, result?.ok === false ? 400 : 200, result);
+}
+
 async function handlePjeAbrirResultado(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const payload = await readJsonBody(req);
     const dryRun = payload?.dryRun !== false;
@@ -702,6 +788,13 @@ export function startLexDesktopBridge(): LexDesktopBridgeState {
             return;
         }
 
+        if ((method === 'GET' || method === 'POST') && url.pathname === '/browser/focus') {
+            handleBrowserFocus(res).catch((err) => {
+                sendJson(res, 500, { ok: false, error: err?.message || String(err) });
+            });
+            return;
+        }
+
         if (method === 'POST' && url.pathname === '/pje/consultar-processo') {
             handlePjeConsultarProcesso(req, res).catch((err) => {
                 const code = err?.message === 'invalid_json_body' ? 400 : 500;
@@ -744,6 +837,30 @@ export function startLexDesktopBridge(): LexDesktopBridgeState {
 
         if (method === 'POST' && url.pathname === '/pje/ler-resultados') {
             handlePjeLerResultados(req, res).catch((err) => {
+                const code = err?.message === 'invalid_json_body' ? 400 : 500;
+                sendJson(res, code, { ok: false, error: err?.message || String(err) });
+            });
+            return;
+        }
+
+        if (method === 'POST' && url.pathname === '/pje/ler-autos') {
+            handlePjeLerAutos(req, res).catch((err) => {
+                const code = err?.message === 'invalid_json_body' ? 400 : 500;
+                sendJson(res, code, { ok: false, error: err?.message || String(err) });
+            });
+            return;
+        }
+
+        if (method === 'POST' && url.pathname === '/pje/baixar-documento-atual') {
+            handlePjeBaixarDocumentoAtual(req, res).catch((err) => {
+                const code = err?.message === 'invalid_json_body' ? 400 : 500;
+                sendJson(res, code, { ok: false, error: err?.message || String(err) });
+            });
+            return;
+        }
+
+        if (method === 'POST' && url.pathname === '/pje/analisar-documento-baixado') {
+            handlePjeAnalisarDocumentoBaixado(req, res).catch((err) => {
                 const code = err?.message === 'invalid_json_body' ? 400 : 500;
                 sendJson(res, code, { ok: false, error: err?.message || String(err) });
             });

@@ -199,25 +199,46 @@ function writeSingle(brain: BrainStore, obs: Observation): void {
         upsertEdge(brain, action.id, stateAfter.id, relation, edgeData);
     }
 
-    // Se o input tiver um seletor CSS, reforça o selector node (reutiliza
+    // Se o input tiver seletor(es) CSS, reforça selector nodes (reutiliza
     // infra existente: recordSelectorSuccess no BrainStore).
-    const selector = extractSelector(obs.input);
-    if (selector && obs.before?.tribunal && obs.before?.pjeContext && obs.success) {
+    const selectors = extractSelectors(obs.input);
+    if (selectors.length > 0 && obs.before?.tribunal && obs.before?.pjeContext && obs.success) {
         try {
-            brain.recordSelectorSuccess(obs.before.tribunal, obs.before.pjeContext, selector);
+            for (const selector of selectors.slice(0, 12)) {
+                brain.recordSelectorSuccess(obs.before.tribunal, obs.before.pjeContext, selector);
+            }
         } catch {
             /* ignore — método pode não existir em versões antigas */
         }
     }
 }
 
-function extractSelector(input: Record<string, unknown>): string | null {
+function extractSelectors(input: Record<string, unknown>): string[] {
+    const selectors: string[] = [];
     const candidates = ['selector', 'css', 'css_selector', 'target'];
     for (const key of candidates) {
         const v = input[key];
         if (typeof v === 'string' && v.length > 0 && v.length < 200) {
-            return v;
+            selectors.push(v);
         }
     }
-    return null;
+
+    const rawSelectors = input['selectors'];
+    if (Array.isArray(rawSelectors)) {
+        for (const item of rawSelectors) {
+            if (typeof item === 'string' && item.length > 0 && item.length < 200) {
+                selectors.push(item);
+                continue;
+            }
+            if (item && typeof item === 'object') {
+                const record = item as Record<string, unknown>;
+                const selector = record['selector'] || record['css'] || record['target'];
+                if (typeof selector === 'string' && selector.length > 0 && selector.length < 200) {
+                    selectors.push(selector);
+                }
+            }
+        }
+    }
+
+    return Array.from(new Set(selectors));
 }

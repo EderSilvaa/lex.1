@@ -11,7 +11,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { setUserDataDir, getActivePage, ensureBrowser, attemptPassiveBrowserReconnect } from '../browser-manager';
+import { setUserDataDir, getActivePage, ensureBrowser, attemptPassiveBrowserReconnect, getBrowserContext, setActivePage } from '../browser-manager';
 import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
 import { inspectPjeContext } from '../pje/context-inspector';
@@ -19,6 +19,9 @@ import { fillPjeProcessNumber } from '../pje/process-number-filler';
 import { clickPjeSearch } from '../pje/search-clicker';
 import { readPjeSearchResults } from '../pje/search-results-reader';
 import { openPjeSearchResult } from '../pje/process-result-opener';
+import { readPjeAutos } from '../pje/autos-reader';
+import { downloadPjeCurrentDocument } from '../pje/document-downloader';
+import { analyzePjeDownloadedDocument } from '../pje/document-analyzer';
 import { initCheckpointStore } from '../agent/checkpoint-store';
 import { initSessionManager } from '../agent/session';
 import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
@@ -427,6 +430,35 @@ async function buildPjeStatus(): Promise<{
 }
 
 // ── RPC Handlers ──
+async function focusPageWithoutClosingSiblings(page: any): Promise<{ focusedUrl: string | null }> {
+    try {
+        const context = getBrowserContext();
+        const pages = context.pages();
+        const targetIndex = pages.indexOf(page);
+        if (targetIndex >= 0) setActivePage(targetIndex);
+
+        try {
+            await page.bringToFront();
+        } catch (err: any) {
+            console.warn('[focusPageWithoutClosingSiblings] bringToFront falhou:', err?.message || err);
+        }
+
+        try {
+            const session = await page.context().newCDPSession(page);
+            await session.send('Page.bringToFront');
+            await session.detach().catch(() => undefined);
+        } catch (err: any) {
+            console.warn('[focusPageWithoutClosingSiblings] CDP Page.bringToFront falhou:', err?.message || err);
+        }
+
+        await page.waitForTimeout?.(250).catch(() => undefined);
+        return { focusedUrl: String(page?.url?.() || '') || null };
+    } catch (err: any) {
+        console.warn('[focusPageWithoutClosingSiblings] Falha geral:', err?.message || err);
+        return { focusedUrl: String(page?.url?.() || '') || null };
+    }
+}
+
 function isAllowedPjeUrl(rawUrl: unknown): rawUrl is string {
     if (typeof rawUrl !== 'string' || !rawUrl.trim()) return false;
     try {
@@ -868,21 +900,27 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             }
 
             await ensureBrowser();
-            const page = getActivePage();
+            const context = getBrowserContext();
+            const pages = context.pages();
+            const blankPage = pages.find((candidate: any) => candidate.url() === 'about:blank');
+            const page = blankPage || getActivePage();
             if (!page) {
                 return { ok: false, error: 'no_active_page', status: await buildPjeStatus() };
             }
 
+            const targetIndex = pages.indexOf(page);
+            if (targetIndex >= 0) setActivePage(targetIndex);
+
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            try {
-                await page.bringToFront();
-            } catch (err: any) {
-                console.warn('[pje-open-url] bringToFront falhou:', err?.message || err);
-            }
+            // Reconsulta a active page — popups/redirects podem ter migrado pra outra aba via setupPageListeners
+            const finalPage = getActivePage() || page;
+            const focusResult = await focusPageWithoutClosingSiblings(finalPage);
 
             return {
                 ok: true,
-                url: page.url(),
+                url: finalPage.url(),
+                focus: focusResult,
+                navigationTarget: blankPage ? 'blank_page_reused' : 'active_page',
                 status: await buildPjeStatus(),
             };
         }
@@ -907,18 +945,26 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             return openPjeSearchResult(params);
         }
 
+        case 'pje-read-autos': {
+            return readPjeAutos(params);
+        }
+
+        case 'pje-download-current-document': {
+            return downloadPjeCurrentDocument(params);
+        }
+
+        case 'pje-analyze-downloaded-document': {
+            return analyzePjeDownloadedDocument(params);
+        }
+
         case 'browser-focus': {
             // NÃO chama ensureBrowser() — só foca se Chrome já estiver aberto.
             const page = getActivePage();
             if (!page) {
                 return { ok: false, error: 'no_active_page', status: await buildPjeStatus() };
             }
-            try {
-                await page.bringToFront();
-            } catch (err: any) {
-                console.warn('[Backend] Falha ao focar aba do browser:', err?.message || err);
-            }
-            return { ok: true, status: await buildPjeStatus() };
+            const focus = await focusPageWithoutClosingSiblings(page);
+            return { ok: true, focus, status: await buildPjeStatus() };
         }
 
         // ── Memory ──
