@@ -1,0 +1,6 @@
+# Auto-generated files - collapse diffs and exclude from language stats
+web/package-lock.json linguist-generated=true
+
+# Keep executable scripts runnable from WSL/Linux checkouts.
+*.sh text eol=lf
+hermes text eol=lf

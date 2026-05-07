@@ -8,9 +8,16 @@ interface ExecResult {
     stderr: string;
 }
 
+type LexEngineMode = 'external-wsl' | 'repo-wsl' | 'repo-windows';
+
 export interface LexEngineStatus {
     ok: boolean;
     platform: NodeJS.Platform;
+    engineMode: string;
+    engineSource: string;
+    engineRuntimePath: string;
+    repoEnginePath: string;
+    repoEnginePathExists: boolean;
     windowsPath: string;
     windowsPathExists: boolean;
     wsl: {
@@ -23,6 +30,17 @@ export interface LexEngineStatus {
         error?: string;
     };
     messages: string[];
+}
+
+interface LexEngineRuntime {
+    mode: LexEngineMode;
+    source: string;
+    windowsPath: string;
+    wslPath: string;
+    command: string;
+    cwd: string;
+    supported: boolean;
+    unsupportedReason?: string;
 }
 
 export interface LexEngineConsoleSpawn {
@@ -65,6 +83,16 @@ function getDefaultWindowsEnginePath(): string {
     return process.env['LEX_ENGINE_WINDOWS_PATH'] || path.join(app.getPath('home'), 'lex_engine');
 }
 
+function getRepoEnginePath(): string {
+    return process.env['LEX_ENGINE_REPO_PATH'] || path.join(app.getAppPath(), 'engine', 'lex-engine');
+}
+
+function getLexEngineMode(): LexEngineMode {
+    const mode = process.env['LEX_ENGINE_MODE'] || 'repo-wsl';
+    if (mode === 'repo-wsl' || mode === 'repo-windows' || mode === 'external-wsl') return mode;
+    return 'external-wsl';
+}
+
 function getDefaultWslDistro(): string {
     return process.env['LEX_ENGINE_WSL_DISTRO'] || 'Ubuntu';
 }
@@ -73,8 +101,70 @@ function getDefaultWslProjectPath(): string {
     return process.env['LEX_ENGINE_WSL_PATH'] || `/home/${getWindowsUserSlug()}/lex_engine`;
 }
 
+function getDefaultWslPythonPath(): string {
+    return process.env['LEX_ENGINE_WSL_PYTHON'] || `${getDefaultWslProjectPath()}/venv/bin/python`;
+}
+
+function windowsPathToWslPath(windowsPath: string): string {
+    const normalized = path.resolve(windowsPath).replace(/\\/g, '/');
+    const match = /^([A-Za-z]):\/(.*)$/.exec(normalized);
+    if (!match) return normalized;
+    const drive = match[1] || 'c';
+    const rest = match[2] || '';
+    return `/mnt/${drive.toLowerCase()}/${rest}`;
+}
+
+function getRepoWslProjectPath(): string {
+    return process.env['LEX_ENGINE_REPO_WSL_PATH'] || windowsPathToWslPath(getRepoEnginePath());
+}
+
+function getRepoWslPythonPath(): string {
+    return process.env['LEX_ENGINE_REPO_PYTHON'] || getDefaultWslPythonPath();
+}
+
 function getWindowsMountedWslEnginePath(): string {
     return `/mnt/c/Users/${path.basename(app.getPath('home') || 'EDER')}/lex_engine`;
+}
+
+function resolveLexEngineRuntime(): LexEngineRuntime {
+    const mode = getLexEngineMode();
+    const repoEnginePath = getRepoEnginePath();
+    const externalWindowsPath = getDefaultWindowsEnginePath();
+
+    if (mode === 'repo-wsl') {
+        return {
+            mode,
+            source: 'repo-wsl',
+            windowsPath: repoEnginePath,
+            wslPath: getRepoWslProjectPath(),
+            command: `${bashQuote(getRepoWslPythonPath())} hermes`,
+            cwd: fs.existsSync(repoEnginePath) ? repoEnginePath : app.getPath('home'),
+            supported: true,
+        };
+    }
+
+    if (mode === 'repo-windows') {
+        return {
+            mode,
+            source: 'repo-windows',
+            windowsPath: repoEnginePath,
+            wslPath: getRepoWslProjectPath(),
+            command: 'python hermes',
+            cwd: fs.existsSync(repoEnginePath) ? repoEnginePath : app.getPath('home'),
+            supported: false,
+            unsupportedReason: 'LEX_ENGINE_MODE=repo-windows ainda nao e runtime suportado. Use external-wsl ou repo-wsl.',
+        };
+    }
+
+    return {
+        mode: 'external-wsl',
+        source: 'external-wsl',
+        windowsPath: externalWindowsPath,
+        wslPath: getDefaultWslProjectPath(),
+        command: 'hermes',
+        cwd: fs.existsSync(externalWindowsPath) ? externalWindowsPath : app.getPath('home'),
+        supported: true,
+    };
 }
 
 function bashQuote(value: string): string {
@@ -82,11 +172,15 @@ function bashQuote(value: string): string {
 }
 
 export async function getLexEngineStatus(): Promise<LexEngineStatus> {
-    const windowsPath = getDefaultWindowsEnginePath();
+    const runtime = resolveLexEngineRuntime();
+    const engineMode = runtime.mode;
+    const repoEnginePath = getRepoEnginePath();
+    const repoEnginePathExists = fs.existsSync(repoEnginePath);
+    const windowsPath = runtime.windowsPath;
     const windowsPathExists = fs.existsSync(windowsPath);
     const distro = getDefaultWslDistro();
-    const projectPath = getDefaultWslProjectPath();
-    const mountedProjectPath = getWindowsMountedWslEnginePath();
+    const projectPath = runtime.wslPath;
+    const mountedProjectPath = runtime.mode === 'external-wsl' ? getWindowsMountedWslEnginePath() : getRepoWslProjectPath();
     const messages: string[] = [];
 
     let available = false;
@@ -102,7 +196,7 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
             available = true;
             projectPathExists = windowsPathExists;
             resolvedProjectPath = projectPath;
-            hermesAvailable = windowsPathExists;
+            hermesAvailable = runtime.supported && windowsPathExists;
             hermesPath = windowsPathExists ? 'hermes' : undefined;
         } else {
             const projectCandidates = Array.from(new Set([projectPath, mountedProjectPath]));
@@ -150,6 +244,7 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
         }
     }
 
+    if (!runtime.supported) messages.push(runtime.unsupportedReason || 'Modo de Engine nao suportado.');
     if (!windowsPathExists) messages.push(`Pasta Windows nao encontrada: ${windowsPath}`);
     if (!available) messages.push(`WSL/distro nao disponivel: ${distro}`);
     if (!projectPathExists) messages.push(`Projeto no WSL nao encontrado: ${projectPath} ou ${mountedProjectPath}`);
@@ -157,8 +252,13 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     if (error) messages.push(error);
 
     return {
-        ok: available && projectPathExists && hermesAvailable,
+        ok: runtime.supported && available && projectPathExists && hermesAvailable,
         platform: process.platform,
+        engineMode,
+        engineSource: runtime.source,
+        engineRuntimePath: resolvedProjectPath || projectPath,
+        repoEnginePath,
+        repoEnginePathExists,
         windowsPath,
         windowsPathExists,
         wsl: {
@@ -175,23 +275,29 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
 }
 
 export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpawn {
+    const runtime = resolveLexEngineRuntime();
+    const engineMode = runtime.mode;
     const distro = getDefaultWslDistro();
-    const projectPath = getDefaultWslProjectPath();
-    const windowsPath = getDefaultWindowsEnginePath();
-    const cwd = fs.existsSync(windowsPath) ? windowsPath : app.getPath('home');
+    const projectPath = runtime.wslPath;
+    const cwd = runtime.cwd;
     const env = {
         LEX_DESKTOP: '1',
         LEX_ENGINE_SESSION_ID: sessionId,
+        LEX_ENGINE_MODE: engineMode,
         LEX_STATUS_BROWSER: 'verifique pelo indicador do Desktop',
         LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
         LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
         LEX_STATUS_URL: '',
     };
 
+    if (!runtime.supported) {
+        throw new Error(runtime.unsupportedReason || 'Modo de Engine nao suportado.');
+    }
+
     if (process.platform === 'win32') {
         return {
             shell: 'wsl.exe',
-            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && hermes`],
+            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && ${runtime.command}`],
             cwd,
             env,
         };
@@ -199,7 +305,7 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
 
     return {
         shell: 'bash',
-        args: ['-lc', `cd ${bashQuote(projectPath)} && hermes`],
+        args: ['-lc', `cd ${bashQuote(projectPath)} && ${runtime.command}`],
         cwd,
         env,
     };
@@ -231,7 +337,11 @@ export async function askLexEngine(prompt: string): Promise<{ text: string; stde
         throw new Error('Prompt vazio.');
     }
 
-    const projectPath = getDefaultWslProjectPath();
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        throw new Error(runtime.unsupportedReason || 'Modo de Engine nao suportado.');
+    }
+    const projectPath = runtime.wslPath;
     const guardedPrompt = buildGuardedPrompt(trimmedPrompt);
     const args = [
         'chat',
@@ -246,12 +356,12 @@ export async function askLexEngine(prompt: string): Promise<{ text: string; stde
 
     if (process.platform === 'win32') {
         const distro = getDefaultWslDistro();
-        const command = `cd ${bashQuote(projectPath)} && hermes ${args.map(bashQuote).join(' ')}`;
+        const command = `cd ${bashQuote(projectPath)} && ${runtime.command} ${args.map(bashQuote).join(' ')}`;
         const result = await execFileSafe('wsl.exe', ['-d', distro, '--', 'bash', '-lc', command], ASK_TIMEOUT_MS);
         return { text: cleanHermesText(result.stdout), stderr: result.stderr.trim() || undefined };
     }
 
-    const command = `cd ${bashQuote(projectPath)} && hermes ${args.map(bashQuote).join(' ')}`;
+    const command = `cd ${bashQuote(projectPath)} && ${runtime.command} ${args.map(bashQuote).join(' ')}`;
     const result = await execFileSafe('bash', ['-lc', command], ASK_TIMEOUT_MS);
     return { text: cleanHermesText(result.stdout), stderr: result.stderr.trim() || undefined };
 }

@@ -129,6 +129,14 @@ function renderStatusRow(label, value, className = '') {
     `;
 }
 
+function formatEngineSource(status) {
+    const mode = status?.engineMode || status?.engineSource || 'external-wsl';
+    if (mode === 'external-wsl') return 'fallback WSL externo';
+    if (mode === 'repo-wsl') return 'engine do repo via WSL';
+    if (mode === 'repo-windows') return 'engine do repo via Windows';
+    return mode;
+}
+
 function renderEngineStatusPanel(status, errorText = '') {
     const summary = document.getElementById('terminal-status-panel-summary');
     const body = document.getElementById('terminal-status-panel-body');
@@ -146,8 +154,10 @@ function renderEngineStatusPanel(status, errorText = '') {
     const messages = Array.isArray(status.messages) ? status.messages.filter(Boolean) : [];
     body.innerHTML = [
         renderStatusRow('Motor', statusValue(status.ok, 'on', 'off')),
+        renderStatusRow('Fonte', formatEngineSource(status)),
         renderStatusRow('MCP', `lex-desktop ${statusValue(mcpReady, 'pronto', 'indisponivel')}`),
         renderStatusRow('Bridge', bridgeRunning ? status.bridge.url : 'offline'),
+        renderStatusRow('Engine repo', status.repoEnginePathExists ? status.repoEnginePath : 'nao importado'),
         renderStatusRow('Windows', status.windowsPath || ''),
         renderStatusRow('WSL', `${status.wsl?.distro || '-'} · ${statusValue(status.wsl?.available, 'ok', 'off')}`),
         renderStatusRow('Projeto', status.wsl?.projectPath || ''),
@@ -171,6 +181,8 @@ function buildEngineStatusTitle(status) {
     const bridgeRunning = !!status.bridge?.running;
     const lines = [
         `Motor: ${status.ok ? 'ativo' : 'incompleto'}`,
+        `Fonte: ${formatEngineSource(status)}`,
+        `Engine repo: ${status.repoEnginePathExists ? status.repoEnginePath : '(nao importado)'}`,
         `Windows: ${status.windowsPath || '(nao informado)'}`,
         `WSL: ${status.wsl?.distro || '(nao informado)'}`,
         `Projeto: ${status.wsl?.projectPath || '(nao informado)'}`,
