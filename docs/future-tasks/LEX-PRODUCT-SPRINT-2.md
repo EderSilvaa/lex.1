@@ -1,5 +1,11 @@
 # Lex Product Sprint 2 - Produto e interface unificada
 
+> **Atualizacao em 2026-05-09:** a antiga area `Lotes` foi removida da
+> superficie de produto e substituida por `Agora`, quadro de workflows duraveis
+> do Hermes/Lex Engine. O chat visual, quando voltar, nao sera apenas para tarefas
+> simples: ele tambem pode executar multiagentes inline. A diferenca correta e
+> inline conversacional vs workflow duravel/auditavel.
+
 Objetivo da sprint: transformar o Lex Desktop na superficie principal do produto,
 sem matar o Console Lex. O usuario deve sentir que esta usando um unico produto:
 status, PJe, arquivos, Brain, documentos e Console precisam conversar entre si.
@@ -9,6 +15,8 @@ status, PJe, arquivos, Brain, documentos e Console precisam conversar entre si.
 ```text
 Lex Desktop = centro de comando do produto
 Console Lex = modo operador/avancado, ainda principal para automacao
+Chat inline = execucao conversacional, inclusive com multiagentes
+Agora = workflows complexos, duraveis, retomaveis e auditaveis
 Fluxos = caminho guiado para usuario nao tecnico
 PJe/Browser = area operacional controlada
 Arquivos = entrada e saida de documentos
@@ -34,7 +42,7 @@ O foco e fazer o Desktop parecer unificado ao redor dele.
 
 ## Estado atual observado
 
-- Sidebar tem `Arquivos`, `Brain`, `Console`, `Lotes`, `Configuracoes`.
+- Sidebar tem `Arquivos`, `Brain`, `Console`, `Ágora`, `Configuracoes`.
 - `Chat` existe no HTML, mas esta escondido.
 - Console Lex abre o motor via WSL e MCP `lex-desktop`.
 - Status `Motor on/off` foi corrigido e nao deve travar o app.
@@ -74,7 +82,7 @@ Areas:
 - `Console`: comando e automacao guiada;
 - `Arquivos`: documentos locais, downloads, PDFs e saidas;
 - `Brain`: memoria operacional e aprendizado de fluxos;
-- `Lotes`: producao em massa, ainda secundario;
+- `Ágora`: workflows complexos/duraveis supervisionados pelo Hermes;
 - `Configuracoes`: perfil, provedor, privacidade, canais e tribunal padrao;
 - `Conversas`: historico/sessoes;
 - `Chat`: legado escondido, nao ativar sem desenho novo.
@@ -84,7 +92,7 @@ Entregas:
 - [ ] tabela `area -> funcao -> usuario alvo -> status atual -> decisao`;
 - [ ] marcar o que fica visivel para usuario comum;
 - [ ] marcar o que fica como modo tecnico/suporte;
-- [ ] listar strings ainda confusas: chat, terminal, engine, brain, lote.
+- [ ] listar strings ainda confusas: chat, terminal, engine, brain, Agora.
 
 Pronto quando:
 
@@ -329,7 +337,10 @@ Pronto quando:
 
 ## Task 10 - Decisao controlada sobre Chat visual
 
-Nao implementar o chat final ainda. Mapear criterios.
+Nao implementar o chat final ainda. Mapear criterios. Observacao: chat visual
+nao significa "tarefa simples"; ele deve conseguir usar o Lex Engine/Hermes,
+planner, tools e subagentes inline. A decisao de produto e quando uma tarefa
+fica inline e quando vira workflow duravel na Agora.
 
 Criterios para reativar chat visual:
 
@@ -340,13 +351,16 @@ Criterios para reativar chat visual:
 - ter HITL no Desktop;
 - nao esconder erros de PJe;
 - nao duplicar memoria/sessao com o Console.
+- nao duplicar workflow duravel que pertence a Agora.
 
 Possiveis caminhos:
 
 1. Console continua principal e chat fica para depois.
-2. Chat simples para analise de documento, Console para automacao.
+2. Chat inline para trabalho conversacional, Console para power use.
 3. Chat vira camada principal e Console vira modo avancado.
 4. Hibrido: chat normal + painel de execucao tipo terminal/trace.
+5. Agora recebe automaticamente tarefas massivas/duraveis, com cards,
+   checkpoints e retomada.
 
 Pronto quando:
 
@@ -423,4 +437,3 @@ Sprint 2 fica concluida quando:
 - Brain tem papel compreensivel;
 - existe roteiro demonstravel de ponta a ponta;
 - build passa e app reinicia.
-

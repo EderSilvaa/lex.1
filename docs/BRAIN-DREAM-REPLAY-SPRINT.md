@@ -2,6 +2,12 @@
 
 Atualizado em 2026-04-19.
 
+Nota de arquitetura em 2026-05-09: Brain continua memoria operacional do
+Desktop, especialmente para PJe/RPA/observacoes. O cerebro de raciocinio e
+orquestracao passa a ser Lex Engine/Hermes; Agora usa o Engine para workflows
+duraveis e deve consultar/registrar no Brain quando o trabalho envolver
+descoberta operacional.
+
 ## Status
 
 Fase automatizada do sprint concluida. O Brain, Dream, Observer, Replay, testes de servico e testes E2E/UX do renderer estao implementados e validados.

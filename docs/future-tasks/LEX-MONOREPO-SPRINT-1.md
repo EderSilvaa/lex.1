@@ -1,5 +1,10 @@
 # Lex Monorepo Sprint 1 - Unificacao tecnica do produto
 
+> **Estado atual em 2026-05-09:** Sprint 1 avancou alem da importacao segura: o
+> Engine importado em `engine/lex-engine` ja e o runtime padrao via `repo-wsl`,
+> com `external-wsl` preservado como rollback. A arquitetura atual resumida esta
+> em [`../CURRENT-ARCHITECTURE.md`](../CURRENT-ARCHITECTURE.md).
+
 Objetivo da sprint: transformar a Lex em um produto tecnico unico, com Desktop e
 Lex Engine evoluindo no mesmo repositorio canonico, sem quebrar o fluxo que ja
 funciona hoje.
@@ -15,6 +20,7 @@ Motor inteligente = Lex Engine
 Contrato = MCP/HTTP/JSON estruturado
 Repositorio canonico = Lex monorepo
 Console = interface operacional enquanto o produto final amadurece
+Agora = workflow duravel para tarefas complexas
 PJe = controlado pelo Desktop, nunca pelo Engine direto
 ```
 
@@ -91,13 +97,22 @@ C:\Users\EDER\lex_engine          # copia Windows atual do Engine
 /home/eder/lex_engine             # copia WSL atual usada pelo Console
 ```
 
-Regra:
+Regra historica inicial:
 
 - importar o Engine para `lex-test1/engine/lex-engine/` nao muda o runtime;
 - o Desktop continua usando `/home/eder/lex_engine` ate validarmos o novo modo;
 - se a importacao ficar incompleta, o produto atual continua funcionando;
 - se alguma integracao nova quebrar, voltamos para `LEX_ENGINE_MODE=external-wsl`;
 - nenhuma etapa da Sprint 1 pode depender de deletar ou renomear o fallback.
+
+Estado atual:
+
+- `repo-wsl` e o padrao;
+- `external-wsl` continua como rollback;
+- `repo-wsl` carrega o projeto em
+  `/mnt/c/Users/EDER/lex-test1/engine/lex-engine`;
+- o fallback nao deve ser apagado enquanto o venv/dependencias ainda forem
+  usados pelo launcher.
 
 Pronto quando:
 

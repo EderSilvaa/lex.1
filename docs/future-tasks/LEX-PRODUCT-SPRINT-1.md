@@ -1,5 +1,10 @@
 # Lex Product Sprint 1 - Console Lex como produto provisorio
 
+> **Atualizacao em 2026-05-09:** Console Lex continua interface operacional, mas
+> a arquitetura agora distingue inline multiagente (chat/Console) de workflow
+> duravel (Agora). A aba Lotes foi substituida por Agora e nao deve guiar produto
+> novo.
+
 Objetivo da sprint: deixar a Lex com cara de produto unificado usando o terminal
 como interface principal por enquanto. A decisao sobre chat visual fica para o
 fim; nesta sprint o Console Lex deve parecer intencional, funcional e seguro.

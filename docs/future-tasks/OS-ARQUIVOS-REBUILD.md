@@ -1,5 +1,11 @@
 # OS Arquivos — Reconstrução Correta
 
+> **Atualizacao em 2026-05-09:** este plano descreve recuperacao de skills OS
+> legadas do Electron. Na arquitetura atual, o caminho preferido para
+> raciocinio, planner, multiagentes e workflows e Lex Engine/Hermes; o Electron
+> deve ficar como executor/bridge local. Workflows longos devem ir para Agora,
+> nao para um novo pipeline dentro de `electron/agent`.
+
 **Status:** Phase 1 (`processo_mapa`) implementada e validada; Phase 2 (routing/loop) pendente.
 **Origem:** versão expandida foi implementada uma vez, quebrou o que funcionava, foi removida (`stash@{0}` no commit anterior a `e6b03bd9`).
 **Discussão:** 2026-04-27.

@@ -1,5 +1,11 @@
 # Auto-criacao de Skills pela IA — Estado Atual e Gaps para a Lex
 
+> **Atualizacao em 2026-05-09:** este documento continua valido para a camada
+> Engine/Hermes. Skills criadas ou ajustadas pelo agente devem alimentar chat
+> inline, Console e workflows duraveis da Agora. O Desktop/Electron supervisiona
+> permissoes, PJe, arquivos e auditoria; nao recriar essa logica em
+> `electron/agent`.
+
 Este documento mapeia o que existe no Hermes hoje sobre skills criadas pelo
 agente, e o que falta construir para tornar a feature segura, auditavel e
 diferenciada num produto juridico (Lex).

@@ -122,6 +122,10 @@ function getRepoWslPythonPath(): string {
     return process.env['LEX_ENGINE_REPO_PYTHON'] || getDefaultWslPythonPath();
 }
 
+export function getLexEngineAgoraBoardPath(): string {
+    return process.env['LEX_AGORA_BOARD_PATH'] || path.join(app.getPath('userData'), 'agora', 'engine-board.json');
+}
+
 function getWindowsMountedWslEnginePath(): string {
     return `/mnt/c/Users/${path.basename(app.getPath('home') || 'EDER')}/lex_engine`;
 }
@@ -280,10 +284,17 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
     const distro = getDefaultWslDistro();
     const projectPath = runtime.wslPath;
     const cwd = runtime.cwd;
+    const agoraBoardPath = getLexEngineAgoraBoardPath();
+    try {
+        fs.mkdirSync(path.dirname(agoraBoardPath), { recursive: true });
+    } catch {
+        // Best-effort; the engine tool also creates its parent directory.
+    }
     const env = {
         LEX_DESKTOP: '1',
         LEX_ENGINE_SESSION_ID: sessionId,
         LEX_ENGINE_MODE: engineMode,
+        LEX_AGORA_BOARD_PATH: agoraBoardPath,
         LEX_STATUS_BROWSER: 'verifique pelo indicador do Desktop',
         LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
         LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
@@ -295,9 +306,10 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
     }
 
     if (process.platform === 'win32') {
+        const wslAgoraBoardPath = windowsPathToWslPath(agoraBoardPath);
         return {
             shell: 'wsl.exe',
-            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && ${runtime.command}`],
+            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && LEX_AGORA_BOARD_PATH=${bashQuote(wslAgoraBoardPath)} ${runtime.command}`],
             cwd,
             env,
         };

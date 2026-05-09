@@ -2,6 +2,13 @@
 
 Data: 2026-04-30
 
+Atualizacao em 2026-05-09:
+
+- Engine/Hermes segue como cerebro e cliente de tools.
+- Desktop executa PJe/Brain/arquivos e aplica HITL/auditoria.
+- Agora armazena workflows duraveis; chat/Console seguem inline.
+- Compactacao nao deve esconder checkpoints ou eventos de workflows Agora.
+
 ## Objetivo
 
 Reduzir consumo de tokens/API na integracao Lex Desktop + Lex Engine/Hermes sem perder qualidade juridica nem seguranca operacional no PJe.
@@ -220,4 +227,3 @@ A estrategia correta agora e observar dados reais primeiro. Depois, se algum cam
 3. Identificar quais tools passam de 8k/12k caracteres.
 4. Compactar apenas as fontes caras confirmadas.
 5. Considerar um `debugId/rawRef` local no futuro, para salvar bruto em disco e mandar ao modelo apenas uma referencia.
-

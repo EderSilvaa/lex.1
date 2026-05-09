@@ -1,5 +1,10 @@
 # Lex Agent Engine Fork Notes
 
+Updated 2026-05-09: Lex Desktop now runs the imported Engine through
+`LEX_ENGINE_MODE=repo-wsl` by default. The Desktop remains the Windows/PJe shell;
+the Engine remains the Hermes-derived brain; Agora is the durable workflow
+surface for complex legal work.
+
 ## Decision
 
 Lex Agent Engine uses Hermes Agent as the base engine and adds a Brazilian legal
@@ -30,6 +35,11 @@ WSL2/Linux
 Local bridge
   localhost API, RPC, or MCP
   Lex tools exposed to the agent with confirmation and audit
+
+Agora
+  shared board via LEX_AGORA_BOARD_PATH
+  Engine-native agora tool
+  durable workflow state for mass/complex work
 ```
 
 ## First Migration Targets
@@ -40,6 +50,7 @@ Local bridge
 4. Research/jurisprudence tools.
 5. Privacy, PII masking, and action audit.
 6. Windows/WSL2 installer and health checks.
+7. Agora workflow integration for durable multi-agent legal work.
 
 ## Non-Goals For The First Fork
 
@@ -48,6 +59,7 @@ Local bridge
 - Make WSL control certificates, PJe, or Windows browser sessions directly.
 - Remove upstream credits.
 - Rebuild the agent loop from scratch.
+- Recreate Lotes/batch as the workflow architecture.
 
 ## Validation Spike
 

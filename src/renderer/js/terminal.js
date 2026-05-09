@@ -97,15 +97,41 @@ const LEX_PROMPT_SHORTCUTS = {
 function sendShortcutPrompt(shortcutId) {
     const prompt = LEX_PROMPT_SHORTCUTS[shortcutId];
     if (!prompt) return;
-    if (!activeSessionId || !sessions[activeSessionId] || sessions[activeSessionId].exited) {
-        createTerminalSession({ mode: 'engine' }).then((result) => {
-            const sessionId = result?.sessionId;
-            if (sessionId) setTimeout(() => writeTerminalInput(sessionId, `${prompt}\r`, { paste: true }), 600);
-        }).catch(() => undefined);
-        return;
-    }
-    writeTerminalInput(activeSessionId, `${prompt}\r`, { paste: true });
+    sendTerminalPrompt(prompt, { mode: 'engine' }).catch(() => undefined);
 }
+
+function sendTerminalPrompt(prompt, opts = {}) {
+    const text = String(prompt || '').trim();
+    if (!text) return Promise.resolve({ success: false, error: 'empty_prompt' });
+
+    const mode = opts.mode || 'engine';
+    const delayMs = Number.isFinite(Number(opts.delayMs)) ? Number(opts.delayMs) : 600;
+
+    if (!terminalInitialized) {
+        initTerminalView();
+    }
+
+    const active = activeSessionId ? sessions[activeSessionId] : null;
+
+    const sendToSession = (sessionId) => new Promise((resolve) => {
+        setTimeout(() => {
+            writeTerminalInput(sessionId, `${text}\r`, { paste: true });
+            resolve({ success: true, sessionId });
+        }, delayMs);
+    });
+
+    if (active && !active.exited && (!mode || active.mode === mode)) {
+        return sendToSession(activeSessionId);
+    }
+
+    return createTerminalSession({ mode }).then((result) => {
+        const sessionId = result?.sessionId;
+        if (!sessionId) return { success: false, error: 'no_session' };
+        return sendToSession(sessionId);
+    });
+}
+
+window.lexTerminalSendPrompt = sendTerminalPrompt;
 
 function setEngineStatus(kind, text, title) {
     const button = document.getElementById('terminal-engine-status');

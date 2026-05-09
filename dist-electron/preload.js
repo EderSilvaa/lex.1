@@ -221,6 +221,17 @@ electron_1.contextBridge.exposeInMainWorld('pluginsApi', {
     disconnect: (pluginId) => electron_1.ipcRenderer.invoke('plugins-disconnect', pluginId),
     onReady: (cb) => electron_1.ipcRenderer.on('plugins-ready', () => cb()),
 });
+electron_1.contextBridge.exposeInMainWorld('agoraApi', {
+    listCards: () => electron_1.ipcRenderer.invoke('agora-list-cards'),
+    getCard: (id) => electron_1.ipcRenderer.invoke('agora-get-card', id),
+    createCard: (input) => electron_1.ipcRenderer.invoke('agora-create-card', input),
+    updateCard: (id, updates) => electron_1.ipcRenderer.invoke('agora-update-card', { id, updates }),
+    moveCard: (id, direction) => electron_1.ipcRenderer.invoke('agora-move-card', { id, direction }),
+    removeCard: (id) => electron_1.ipcRenderer.invoke('agora-remove-card', id),
+    commentCard: (id, body, author) => electron_1.ipcRenderer.invoke('agora-comment-card', { id, body, author }),
+    onAgoraEvent: (cb) => electron_1.ipcRenderer.on('agora-event', (_, e) => cb(e)),
+    offAgoraEvent: () => electron_1.ipcRenderer.removeAllListeners('agora-event'),
+});
 electron_1.contextBridge.exposeInMainWorld('batchApi', {
     // Lote CRUD
     listLotes: () => electron_1.ipcRenderer.invoke('batch-list-lotes'),

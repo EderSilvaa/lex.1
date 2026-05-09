@@ -1,5 +1,11 @@
 # Lex Engine Integration Plan
 
+> **Status em 2026-05-09:** este plano e historico. A integracao ja foi feita no
+> monorepo Lex Desktop em `C:\Users\EDER\lex-test1`, com Engine importado em
+> `engine/lex-engine` e runtime padrao `repo-wsl`. O estado atual esta em
+> `docs/CURRENT-ARCHITECTURE.md` no repo Desktop e em
+> `LEX_ENGINE_IMPORT.md` neste Engine.
+
 Plano operacional para integrar o Lex Electron antigo ao fork Hermes,
 transformando este repositorio no Lex Agent Engine local-first.
 
@@ -9,6 +15,7 @@ transformando este repositorio no Lex Agent Engine local-first.
 Lex Electron (Windows) = corpo do produto
 Lex Engine / Hermes (WSL/Linux) = cerebro do agente
 MCP Bridge local = sistema nervoso entre os dois
+Agora = workflow duravel para tarefas massivas/complexas
 ```
 
 O produto final continua sendo um app desktop Lex. O Hermes nao aparece como
@@ -51,8 +58,10 @@ WSL/Ubuntu
    novas herdam niveis de permissao.
 7. **Acoes sensiveis exigem confirmacao:** protocolo, assinatura, envio,
    exclusao, pagamento e alteracao de dados nunca rodam no escuro.
-8. **CLI e debug, chat visual e produto:** xterm pode existir como console, mas
-   a interface principal sera chat normal no Electron.
+8. **Console e chat sao interfaces inline:** xterm/Console existe para operador
+   avancado; chat visual pode executar multiagentes inline quando voltar.
+9. **Agora e workflow duravel:** tarefas massivas, auditaveis, retomaveis ou com
+   muitas dependencias devem virar workflow/card, nao apenas uma conversa.
 
 ## O Que Vem Do Lex Antigo
 
@@ -77,7 +86,7 @@ Nao misturar imports no motor Hermes ate o app antigo rodar isolado.
 | `electron/auth/` | licenca, trial, Supabase/comercial |
 | `electron/brain/` | manter TS e expor tools via MCP |
 | `electron/datajud/` | manter credenciais no Electron; expor consulta segura |
-| `electron/batch/` | hibrido: UI fica, estrategia pode virar skill |
+| `electron/batch/` | legado; nao usar como superficie nova da Agora |
 | modelos/documentos juridicos | migrar gradualmente para `skills/legal/` |
 
 ### Desligar Ou Substituir
@@ -148,7 +157,9 @@ declarar nivel e superficie de permissao.
 
 ## Chat Visual
 
-Nao usar xterm como chat principal do produto.
+Nao usar xterm como unica interface de produto. O Console Lex continua util para
+operador avancado, debug e execucao direta do Engine. O chat visual, quando
+reativado, tambem deve chamar o Engine/Hermes e pode usar multiagentes inline.
 
 ```text
 Produto:
@@ -161,6 +172,11 @@ Produto:
 
 Debug:
   xterm opcional para logs, terminal e Hermes CLI
+
+Workflow duravel:
+  Agora
+  cards/eventos/comentarios/checkpoints
+  retomada de tarefas massivas
 ```
 
 O chat visual chama o engine por uma interface controlada. Opcoes de transporte:
@@ -171,6 +187,9 @@ O chat visual chama o engine por uma interface controlada. Opcoes de transporte:
 
 Decisao MVP: comecar pelo caminho mais simples que entregue streaming e
 cancelamento sem mexer profundo no Hermes.
+
+Regra de roteamento: trabalho conversacional fica inline no chat/Console; trabalho
+massivo, retomavel, auditavel ou com muitas dependencias vira Agora.
 
 ## Canais Externos
 
@@ -352,23 +371,22 @@ Tarefas:
 
 ## Ordem Recomendada Agora
 
-1. Revisar e aprovar este plano.
-2. Commitar `TRIAGE.md` + `INTEGRATION-PLAN.md`.
-3. Decidir origem exata do Lex Electron antigo.
-4. Importar em `electron-app/` sem integrar.
-5. Criar tela/status do Lex Engine.
-6. Fazer chat visual chamar Hermes.
-7. Criar MCP server minimo.
+1. Manter `repo-wsl` como runtime padrao.
+2. Evoluir o contrato Desktop/Engine sem duplicar cerebro no Electron.
+3. Usar chat/Console para execucao inline, inclusive multiagente.
+4. Usar Agora para workflow duravel, massivo, retomavel e auditavel.
+5. Manter PJe/Brain/arquivos como execucao supervisionada no Desktop.
 
 ## Anti-Objetivos
 
 - Nao portar Hermes para Windows nativo agora.
-- Nao usar xterm como chat principal do produto.
+- Nao usar xterm como unica interface de produto.
 - Nao vender terminal/file access amplo como padrao.
 - Nao portar PJe direto para Python no MVP.
 - Nao manter BYOK antigo como fonte principal.
 - Nao deletar `brain/` sem expor via MCP primeiro.
 - Nao abrir gateway publico sem autenticacao/rede segura.
+- Nao reviver Lotes/batch como superficie de workflow.
 
 ## Decisoes Pendentes
 

@@ -1,5 +1,10 @@
 # Lex como Copiloto de Pecas Juridicas
 
+> **Atualizacao em 2026-05-09:** a redacao juridica usa Lex Engine/Hermes como
+> motor de raciocinio e skills. Edicoes pequenas podem ficar inline no
+> chat/Console/editor; producao massiva ou com etapas retomaveis deve virar
+> workflow na Agora. O antigo Lotes/batch nao e a arquitetura nova.
+
 Este documento descreve a visao de produto e o caminho tecnico para a Lex
 atuar como copiloto de redacao de pecas juridicas (contestacao, agravo,
 embargos, replica, recurso, etc.).

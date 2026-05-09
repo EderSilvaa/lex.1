@@ -250,6 +250,19 @@ contextBridge.exposeInMainWorld('pluginsApi', {
     onReady: (cb: () => void) => ipcRenderer.on('plugins-ready', () => cb()),
 });
 
+contextBridge.exposeInMainWorld('agoraApi', {
+    listCards: () => ipcRenderer.invoke('agora-list-cards'),
+    getCard: (id: string) => ipcRenderer.invoke('agora-get-card', id),
+    createCard: (input: any) => ipcRenderer.invoke('agora-create-card', input),
+    updateCard: (id: string, updates: any) => ipcRenderer.invoke('agora-update-card', { id, updates }),
+    moveCard: (id: string, direction: number) => ipcRenderer.invoke('agora-move-card', { id, direction }),
+    removeCard: (id: string) => ipcRenderer.invoke('agora-remove-card', id),
+    commentCard: (id: string, body: string, author?: string) =>
+        ipcRenderer.invoke('agora-comment-card', { id, body, author }),
+    onAgoraEvent: (cb: (event: any) => void) => ipcRenderer.on('agora-event', (_, e) => cb(e)),
+    offAgoraEvent: () => ipcRenderer.removeAllListeners('agora-event'),
+});
+
 contextBridge.exposeInMainWorld('batchApi', {
     // Lote CRUD
     listLotes: () => ipcRenderer.invoke('batch-list-lotes'),

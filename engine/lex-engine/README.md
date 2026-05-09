@@ -4,6 +4,12 @@
 
 # Hermes Agent ☤
 
+> **Lex import note (2026-05-09):** this checkout is vendored into the Lex
+> monorepo at `engine/lex-engine` and is the reasoning/workflow engine for Lex
+> Desktop. Lex runs it through `LEX_ENGINE_MODE=repo-wsl`; the Electron app stays
+> the supervised Windows/PJe/files UI, and Agora is the durable workflow board.
+> Upstream Hermes documentation below is preserved for Engine development.
+
 <p align="center">
   <a href="https://hermes-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
   <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>

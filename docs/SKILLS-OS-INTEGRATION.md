@@ -2,6 +2,11 @@
 
 Estado em 2026-04-27, contra o commit `e6b03bd9` (HEAD `main`).
 
+Atualizacao em 2026-05-09: este relatorio descreve skills OS do agente
+TypeScript/Electron. A arquitetura atual usa Lex Engine/Hermes como cerebro; as
+skills OS do Electron devem ser tratadas como legado/ponte local, nao como lugar
+para expandir orquestracao. Workflows duraveis devem passar pela Agora.
+
 Esse relatório cobre apenas a categoria **`os`**. Próximas partes (browser, pje, documentos, pesquisa, plugins) virão em arquivos separados.
 
 ---

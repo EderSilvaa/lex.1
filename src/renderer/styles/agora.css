@@ -1,0 +1,566 @@
+/* ============================================================================
+   Agora -- supervised Hermes workflow board
+   ============================================================================ */
+
+.agora-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(10, 10, 10, 0.98), rgba(13, 13, 13, 0.98));
+}
+
+.agora-header {
+    min-height: 66px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    padding: 16px 160px 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.agora-title-block {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.agora-title-block h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.agora-subtitle {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.agora-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.agora-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+}
+
+.btn-sm {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+}
+
+.btn-primary {
+    border: none;
+    background: var(--accent-color);
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.btn-primary:hover {
+    background: var(--accent-strong);
+}
+
+.agora-icon-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.agora-icon-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--bg-tertiary);
+}
+
+.agora-loading {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 28px 2px;
+}
+
+.agora-shell {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.agora-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.agora-metric {
+    min-height: 64px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.agora-metric-label {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.agora-metric strong {
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 650;
+    line-height: 1.1;
+}
+
+.agora-metric-wide strong {
+    font-size: 13px;
+}
+
+.agora-workspace {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 276px;
+    gap: 14px;
+}
+
+.agora-board {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(184px, 1fr));
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+
+.agora-board::-webkit-scrollbar,
+.agora-column-body::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+}
+
+.agora-board::-webkit-scrollbar-thumb,
+.agora-column-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+}
+
+.agora-column {
+    min-width: 184px;
+    min-height: 420px;
+    max-height: calc(100vh - 220px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.018);
+}
+
+.agora-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 11px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.agora-column-header strong {
+    min-width: 22px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    font-size: 11px;
+}
+
+.agora-column-info .agora-column-header {
+    border-top: 2px solid rgba(120, 156, 190, 0.65);
+}
+
+.agora-column-active .agora-column-header {
+    border-top: 2px solid rgba(var(--accent-rgb), 0.85);
+}
+
+.agora-column-warning .agora-column-header {
+    border-top: 2px solid rgba(193, 154, 98, 0.85);
+}
+
+.agora-column-success .agora-column-header {
+    border-top: 2px solid rgba(121, 170, 138, 0.85);
+}
+
+.agora-column-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.agora-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    border-radius: var(--radius-sm);
+    background: rgba(22, 22, 22, 0.96);
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.agora-card:hover,
+.agora-card:focus-visible,
+.agora-card.selected {
+    border-color: rgba(var(--accent-rgb), 0.65);
+    background: rgba(29, 28, 27, 0.98);
+    outline: none;
+}
+
+.agora-card:hover {
+    transform: translateY(-1px);
+}
+
+.agora-card-top,
+.agora-card-meta,
+.agora-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.agora-card-top,
+.agora-card-meta {
+    justify-content: space-between;
+}
+
+.agora-card-type,
+.agora-priority,
+.agora-card-meta span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agora-card-type {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.agora-priority {
+    max-width: 72px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.055);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.agora-priority-alta {
+    background: rgba(184, 126, 126, 0.18);
+    color: var(--danger-color);
+}
+
+.agora-priority-media {
+    background: rgba(193, 154, 98, 0.16);
+    color: var(--warning-color);
+}
+
+.agora-priority-baixa {
+    background: rgba(121, 170, 138, 0.15);
+    color: var(--success-color);
+}
+
+.agora-card h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.35;
+}
+
+.agora-card p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
+.agora-progress-line {
+    width: 100%;
+    height: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.agora-progress-line span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
+}
+
+.agora-card-meta {
+    color: var(--text-muted);
+    font-size: 10.5px;
+}
+
+.agora-card-actions {
+    justify-content: flex-end;
+}
+
+.agora-card-actions button {
+    width: 24px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.agora-card-actions button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.agora-card-actions button:not(:disabled):hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+}
+
+.agora-empty-lane {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed rgba(255, 255, 255, 0.09);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.agora-inspector {
+    min-height: 420px;
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(16, 16, 16, 0.92);
+}
+
+.agora-inspector-kicker {
+    color: var(--accent-color);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.agora-inspector h3 {
+    margin: 8px 0 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1.3;
+}
+
+.agora-inspector p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.agora-inspector-grid {
+    display: grid;
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 9px 10px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+    font-size: 12px;
+}
+
+.agora-inspector-grid span {
+    color: var(--text-muted);
+}
+
+.agora-inspector-grid strong {
+    min-width: 0;
+    color: var(--text-primary);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.agora-inspector-section {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+.agora-inspector-section h4 {
+    margin: 0 0 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.agora-comment-list,
+.agora-event-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.agora-comment {
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.agora-comment div,
+.agora-event {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.agora-comment strong {
+    color: var(--text-primary);
+    font-size: 11px;
+}
+
+.agora-comment span,
+.agora-event small {
+    color: var(--text-muted);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.agora-comment p {
+    margin-top: 5px;
+    font-size: 11.5px;
+}
+
+.agora-event {
+    color: var(--text-secondary);
+    font-size: 11.5px;
+}
+
+.agora-muted-row {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.agora-inspector-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.agora-secondary-btn {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.agora-secondary-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--bg-tertiary);
+}
+
+.agora-inspector-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+@media (max-width: 1180px) {
+    .agora-overview {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+    }
+
+    .agora-workspace {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .agora-inspector {
+        min-height: auto;
+        max-height: none;
+    }
+}
+
+@media (max-width: 780px) {
+    .agora-header {
+        align-items: flex-start;
+        padding-right: 24px;
+    }
+
+    .agora-overview {
+        grid-template-columns: 1fr;
+    }
+
+    .agora-board {
+        grid-template-columns: repeat(5, 210px);
+    }
+}

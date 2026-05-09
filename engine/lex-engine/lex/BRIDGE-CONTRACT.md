@@ -1,5 +1,10 @@
 # Lex Windows Bridge Contract
 
+> **Status em 2026-05-09:** o contrato ativo usa o Desktop como executor
+> supervisionado e o Lex Engine/Hermes como cerebro. A Agora usa board JSON
+> compartilhado via `LEX_AGORA_BOARD_PATH` e tool nativa `agora` no Engine; ela
+> nao passa pelo pipeline Lotes.
+
 This contract describes the first bridge between Lex Agent Engine running in
 WSL2/Linux and the Lex Electron app running on Windows.
 
@@ -58,16 +63,25 @@ Example response:
 
 ## First Tool Names
 
-- `pje.consultar_processo`
-- `pje.abrir_processo`
-- `pje.baixar_documentos`
-- `pje.protocolar_peticao`
-- `documento.analisar`
-- `documento.gerar_peticao`
-- `jurisprudencia.buscar`
-- `os.listar`
-- `os.buscar`
-- `os.mover`
+Implemented/current names include:
+
+- `lex_health`
+- `lex_confirm`
+- `brain_search`
+- `brain_flows`
+- `brain_get_flow`
+- `brain_record_observation`
+- `pje_status`
+- `pje_consultar_processo`
+- `pje_abrir_consulta`
+- `pje_inspecionar_contexto`
+- `pje_preencher_numero`
+- `pje_clicar_consultar`
+- `pje_ler_resultados`
+- Engine-native `agora`
+
+Conceptual future names may still use dotted capability style, but docs and
+prompts should prefer the implemented names unless a mapper exists.
 
 ## Safety
 

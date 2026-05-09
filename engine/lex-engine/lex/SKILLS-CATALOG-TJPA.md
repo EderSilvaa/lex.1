@@ -1,5 +1,10 @@
 # Catalogo de Skills para Uso Juridico / TJPA
 
+> **Atualizacao em 2026-05-09:** este catalogo pertence ao Lex Engine/Hermes.
+> A allowlist de skills alimenta chat inline, Console e workflows da Agora. O
+> Desktop/Electron continua como executor supervisionado para PJe/arquivos e
+> confirmacoes humanas.
+
 Este catalogo separa as skills herdadas do Lex_Engine por utilidade no produto
 juridico. A recomendacao principal e **nao apagar skills herdadas agora**.
 Para auditoria e evolucao segura, o melhor caminho e empacotar a Lex com uma

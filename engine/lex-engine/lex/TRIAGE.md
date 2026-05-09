@@ -1,5 +1,12 @@
 # Lex Migration Triage — lex.1 (Electron) → lex_engine (Hermes fork)
 
+> **Atualizacao em 2026-05-09:** esta triagem e historica e deve ser lida junto
+> com `docs/CURRENT-ARCHITECTURE.md` e `engine/lex-engine/LEX_ENGINE_IMPORT.md`.
+> O Engine/Hermes ja foi importado para o monorepo e roda por padrao em
+> `LEX_ENGINE_MODE=repo-wsl`. Chat/Console podem usar multiagentes inline. A
+> Agora e a superficie de workflows duraveis e complexos. Lotes/batch antigo
+> nao deve guiar a arquitetura nova.
+
 Triagem feita lendo a estrutura pública do repositório `EderSilvaa/lex.1` no
 GitHub. Classifica cada pasta/arquivo do `electron/` do lex.1 em uma das quatro
 categorias, e lista o que precisa ser lido em código pra confirmar.
@@ -21,7 +28,7 @@ categorias, e lista o que precisa ser lido em código pra confirmar.
 | 🟢 LEGAL | `legal/`, `pje/`, `datajud/`, `skills/pje/`, `skills/documentos/`, `skills/pesquisa/` | **Migrar pra `skills/legal/` (Python)** |
 | 🔵 SHELL | `auth/`, `privacy/`, `terminal/`, `python/`, `main.ts`, `preload.ts`, `src/renderer/` | **Manter no Electron** |
 | 🔴 INFRA | `agent/`, `browser/`, `tools/`, `scheduler/`, `plugins/`, `cli/`, `observer/`, `eval/`, `skills/browser/`, `skills/os/`, `skills/pc/` | **Deletar** |
-| 🟡 HÍBRIDO | `batch/`, `brain/` | UI dos Lotes fica; estratégia/auditor migra; Brain fica em TS e expõe tools via MCP |
+| 🟡 HÍBRIDO | `batch/`, `brain/` | `batch/` fica legado; Agora substitui Lotes como superficie. Brain fica em TS e expoe tools via MCP |
 | ⚪ INVESTIGAR | `backend/`, `typings/` | TBD |
 
 ---
@@ -101,22 +108,27 @@ Apenas 2 arquivos. **Migra para `skills/legal/jurisprudencia`** usando `tools/we
 
 **Esforço:** 3-5 dias.
 
-### 🟡 `electron/batch/` — HÍBRIDO
-**Esse é o caso interessante.** É lógica de domínio (orquestração de petições em lote: estratégia, aprovação, auditoria) **mas** com forte acoplamento à UI dos Lotes e ao Telegram-HITL.
+### 🟡 `electron/batch/` — HÍBRIDO / LEGADO
+**Estado atual:** nao usar Lotes/batch como arquitetura nova. A orquestracao
+duravel deve passar pelo Hermes/Lex Engine e aparecer na Agora. O codigo antigo
+de `electron/batch/` ainda pode servir como referencia historica de dominio
+(estrategia, auditoria, templates), mas a superficie de produto e o contrato
+novo sao Agora + tool `agora` + board compartilhado.
 
 | Arquivo | Destino |
 |---|---|
-| `pipeline.ts`, `worker.ts`, `protocol-queue.ts` | → `skills/legal/peticao-batch` (orquestração no Hermes) |
+| `pipeline.ts`, `worker.ts`, `protocol-queue.ts` | referência para workflows jurídicos no Hermes/Agora, não pipeline novo |
 | `estrategista.ts` | → skill (estratégia jurídica é domínio) |
 | `auditor.ts` | → skill (validação jurídica é domínio) |
 | `diff-engine.ts` | → tool Python `tools/legal_diff.py` |
 | `legal-templates.ts` | → consolida com `legal/` na nova skill `doc-templates` |
-| `lote-store.ts` | → adapter pra memória Hermes |
+| `lote-store.ts` | legado; se algum dado for útil, migrar para estado de workflow da Agora |
 | `telegram-hitl.ts` | → **deletar** — Hermes já tem gateway Telegram pronto em `gateway/platforms/telegram.py`. Se quiser HITL via Telegram, configura no Hermes. |
 | `modelos/` | → data em `skills/legal/peticao-batch/data/` |
 | `types.ts`, `index.ts` | descartar/reescrever |
 
-**Esforço:** 1-1.5 semanas. UI dos Lotes (canais IPC `batch-*`) **fica no renderer** e chama Hermes via subprocess pra executar cada wave.
+**Decisao atual:** nao manter UI dos Lotes no renderer. A UI de produto e
+Agora; canais `batch-*` so devem sobreviver ate uma limpeza/migracao dedicada.
 
 ### 🔵 `electron/auth/` — SHELL
 | Arquivo | Destino |

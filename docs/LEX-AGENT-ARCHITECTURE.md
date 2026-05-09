@@ -1,5 +1,12 @@
 # Lex Agent Architecture
 
+> **Status em 2026-05-09:** este documento descreve a arquitetura historica do
+> agent loop TypeScript/Electron. A direcao atual esta em
+> [`CURRENT-ARCHITECTURE.md`](CURRENT-ARCHITECTURE.md): Lex Engine/Hermes e o
+> cerebro; Electron e Desktop/supervisao/PJe/Brain; Agora e workflow duravel; o
+> agent loop TS fica como legado/transicional e nao deve receber novas
+> capacidades de orquestracao.
+
 > Arquitetura do agente autônomo do Lex, inspirada no OpenClaw, especializada em Direito brasileiro.
 > **v5.0** — BYOK multi-provider: Anthropic, OpenAI, OpenRouter, Google AI, Groq.
 

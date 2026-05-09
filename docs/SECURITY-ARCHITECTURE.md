@@ -1,5 +1,11 @@
 # LEX Security Architecture
 
+> **Atualizacao em 2026-05-09:** a fronteira de seguranca atual e
+> Lex Engine/Hermes como cerebro e Lex Desktop/Electron como executor
+> supervisionado. PJe, arquivos, confirmacoes, auditoria e Brain operacional
+> ficam no Desktop. Workflows duraveis entram pela Agora e devem herdar os mesmos
+> niveis HITL/auditoria; Lotes/batch antigo e legado.
+
 Documento de referencia para implementacao das camadas de seguranca, privacidade e conformidade LGPD.
 
 ---

@@ -21,10 +21,25 @@ C:\Users\EDER\lex-test1\engine\lex-engine
 
 ## Import mode
 
-Controlled copy, not runtime integration.
+Controlled copy promoted to repo-backed runtime.
 
-The Lex Desktop still uses the existing WSL fallback at `/home/eder/lex_engine`
-until a later step explicitly changes `LEX_ENGINE_MODE`.
+The first import was a safe copy into `engine/lex-engine/` without changing
+runtime behavior. After validation, Lex Desktop was switched to `repo-wsl` by
+default, so the Console Lex now launches the Engine source from:
+
+```text
+/mnt/c/Users/EDER/lex-test1/engine/lex-engine
+```
+
+The old WSL runtime remains available only as rollback/fallback:
+
+```text
+LEX_ENGINE_MODE=external-wsl -> /home/eder/lex_engine
+```
+
+Transitional detail: `repo-wsl` still uses the healthy Python/venv from the
+fallback Engine to execute the launcher, avoiding a dependency reinstall during
+this sprint.
 
 ## Copied
 
@@ -80,8 +95,19 @@ LEX_ENGINE_MODE=external-wsl
 
 ## Next steps
 
-1. Verify no secrets were imported.
-2. Run Desktop build.
-3. Confirm app still starts using the external WSL Engine.
-4. Add scripts/status that can distinguish external Engine from repo Engine.
+1. Keep `external-wsl` working as rollback.
+2. Move more durable workflow state into the Engine/Agora contract instead of
+   reviving the old Lotes pipeline.
+3. Avoid duplicating Hermes orchestration inside Electron; Electron should stay
+   as Desktop shell, bridge, PJe executor, and supervision UI.
 
+## Current integration notes
+
+- `LEX_ENGINE_MODE` defaults to `repo-wsl` in Desktop/scripts.
+- `electron/lex-engine.ts` resolves the repo Engine and exposes status in the
+  Console panel.
+- `LEX_AGORA_BOARD_PATH` points both Electron and the Engine to the same Agora
+  board JSON.
+- The Engine gained the `agora` tool so Hermes agents can create, inspect,
+  comment, move, and remove workflow cards.
+- The old batch/lote renderer surface is no longer used by Agora.

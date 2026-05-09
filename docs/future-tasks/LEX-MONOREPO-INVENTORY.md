@@ -2,6 +2,15 @@
 
 Data: 2026-05-07
 
+Atualizacao em 2026-05-09:
+
+- `repo-wsl` e o runtime padrao do Desktop.
+- `external-wsl` segue preservado como rollback.
+- Agora substituiu a superficie de Lotes no renderer e deve representar
+  workflows duraveis do Hermes/Lex Engine.
+- Lotes/batch antigo nao deve ser usado como arquitetura nova; fica apenas como
+  codigo legado ate limpeza/migracao dedicada.
+
 ## Repositorios e pastas
 
 ```text
@@ -37,7 +46,8 @@ Modulos principais identificados:
 | Brain TS | `electron/brain`, `src/renderer/js/brain.js` | Memoria operacional/observacao | manter, revisar papel depois |
 | Arquivos/docs | `electron/files*`, `src/renderer/js/file-manager.js` | Entrada/saida documental | manter |
 | Configuracoes/licenca | `electron/auth`, `electron/store*`, settings UI | Produto comercial | manter |
-| Agente antigo Electron | `electron/agent` | Loop/planner/skills legado | inventariar duplicidade depois |
+| Agente antigo Electron | `electron/agent` | Loop/planner/skills legado | nao expandir; Hermes e o cerebro |
+| Agora | `electron/agora`, `src/renderer/js/agora.js`, `src/renderer/styles/agora.css` | Workflows duraveis supervisionados | manter como superficie de trabalho complexo |
 
 ## Estado do Engine
 
@@ -240,4 +250,32 @@ Para forcar fallback temporariamente:
 ```powershell
 $env:LEX_ENGINE_MODE='external-wsl'
 npm run dev:desktop
+```
+
+## Agora e Remocao de Lotes da Superficie
+
+Data: 2026-05-09
+
+A aba antes chamada Lotes foi promovida para Agora:
+
+```text
+nav-agora -> .agora-wrapper -> src/renderer/js/agora.js
+```
+
+Decisoes:
+
+- a UI da Agora nao chama mais `batchApi`;
+- cards `source=batch`/`Legado` nao aparecem mais no quadro;
+- `src/renderer/js/lotes.js` e `src/renderer/styles/lotes.css` foram removidos;
+- `src/renderer/js/agora.js` e `src/renderer/styles/agora.css` sao a nova
+  superficie;
+- o board compartilhado com o Engine usa `LEX_AGORA_BOARD_PATH`;
+- a tool `agora` do Engine e o contrato para agentes criarem, comentarem e
+  moverem cards.
+
+Modelo mental:
+
+```text
+Chat/Console inline = execucao conversacional, mesmo com multiagentes
+Agora = workflow duravel, massivo, retomavel, auditavel
 ```

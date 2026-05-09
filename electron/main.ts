@@ -17,7 +17,7 @@ import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
 import { getLexDesktopBridgeState, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
-import { askLexEngine, getLexEngineConsoleSpawn, getLexEngineStatus } from './lex-engine';
+import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConsoleSpawn, getLexEngineStatus } from './lex-engine';
 import { autoUpdater } from 'electron-updater';
 import {
     initConsentManager, initAuditLog, flushAuditLog,
@@ -75,6 +75,7 @@ let tray: Tray | null = null;
 let trayModeActive = false;
 let store: any;
 let backendEventWiringReady = false;
+let agoraBoardWatchListener: ((curr: fs.Stats, prev: fs.Stats) => void) | null = null;
 const approvedWorkspaceSelections = new Set<string>();
 const approvedFileSelections = new Set<string>();
 const singleInstanceLock = app.requestSingleInstanceLock();
@@ -1313,6 +1314,7 @@ app.whenReady().then(async () => {
     createWindow();
     registerCrawlerHandlers();
     startLexDesktopBridge();
+    startAgoraBoardWatcher();
 
     ipcMain.handle('lex-engine-status', async () => {
         try {
@@ -1707,6 +1709,7 @@ app.on('window-all-closed', async function () {
 
     // Encerra backend (flush + close browser + sessions)
     stopLexDesktopBridge();
+    stopAgoraBoardWatcher();
     await stopBackend();
 
     // Fallback local caso backend não estivesse rodando
@@ -3159,6 +3162,316 @@ ipcMain.handle('doc-kb-select-and-import', async () => {
 // ============================================================================
 // IPC: Batch Petitioning (Produção em Lote)
 // ============================================================================
+
+function emitAgoraEvent(event: any) {
+    for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('agora-event', event);
+    }
+}
+
+function ensureEngineAgoraBoardFile(): void {
+    const boardPath = getLexEngineAgoraBoardPath();
+    try {
+        fs.mkdirSync(path.dirname(boardPath), { recursive: true });
+        if (!fs.existsSync(boardPath)) {
+            fs.writeFileSync(boardPath, JSON.stringify({ cards: {}, comments: {}, events: [] }, null, 2) + '\n', 'utf-8');
+        }
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao preparar board compartilhado:', err?.message || err);
+    }
+}
+
+function startAgoraBoardWatcher(): void {
+    if (agoraBoardWatchListener) return;
+    ensureEngineAgoraBoardFile();
+    const boardPath = getLexEngineAgoraBoardPath();
+    let lastEmitAt = 0;
+
+    agoraBoardWatchListener = (curr, prev) => {
+        if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return;
+        const now = Date.now();
+        if (now - lastEmitAt < 150) return;
+        lastEmitAt = now;
+        emitAgoraEvent({
+            type: 'board_changed',
+            cardId: null,
+            timestamp: new Date().toISOString(),
+        });
+    };
+
+    fs.watchFile(boardPath, { interval: 750 }, agoraBoardWatchListener);
+}
+
+function stopAgoraBoardWatcher(): void {
+    if (!agoraBoardWatchListener) return;
+    fs.unwatchFile(getLexEngineAgoraBoardPath(), agoraBoardWatchListener);
+    agoraBoardWatchListener = null;
+}
+
+function readEngineAgoraCards(): any[] {
+    try {
+        const raw = readEngineAgoraBoard();
+        const cards = Object.values(raw.cards || {});
+        return cards.map((card: any) => ({
+            ...card,
+            source: card.source || 'engine',
+            createdAt: card.createdAt || card.created_at,
+            updatedAt: card.updatedAt || card.updated_at,
+            comments: Array.isArray(raw.comments?.[card.id]) ? raw.comments[card.id] : [],
+            events: Array.isArray(raw.events)
+                ? raw.events.filter((event: any) => event.card_id === card.id).slice(-20)
+                : [],
+        }));
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao ler board do Engine:', err?.message || err);
+        return [];
+    }
+}
+
+const AGORA_COLUMN_ORDER = ['entrada', 'especificacao', 'execucao', 'revisao', 'pronto'];
+const AGORA_PRIORITIES = ['Alta', 'Media', 'Baixa'];
+
+function readEngineAgoraBoard(): any {
+    const boardPath = getLexEngineAgoraBoardPath();
+    if (!fs.existsSync(boardPath)) return { cards: {}, comments: {}, events: [] };
+    const raw = JSON.parse(fs.readFileSync(boardPath, 'utf-8'));
+    return {
+        cards: raw && raw.cards && typeof raw.cards === 'object' ? raw.cards : {},
+        comments: raw && raw.comments && typeof raw.comments === 'object' ? raw.comments : {},
+        events: Array.isArray(raw?.events) ? raw.events : [],
+    };
+}
+
+function writeEngineAgoraBoard(board: any): void {
+    const boardPath = getLexEngineAgoraBoardPath();
+    fs.mkdirSync(path.dirname(boardPath), { recursive: true });
+    fs.writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n', 'utf-8');
+}
+
+function normalizeEngineAgoraCard(card: any): any {
+    return {
+        ...card,
+        source: card.source || 'engine',
+        createdAt: card.createdAt || card.created_at,
+        updatedAt: card.updatedAt || card.updated_at,
+    };
+}
+
+function cleanAgoraText(value: any, fallback: string, limit: number): string {
+    const text = String(value ?? fallback).trim() || fallback;
+    return text.slice(0, limit);
+}
+
+function cleanAgoraColumn(value: any): string {
+    const column = String(value || 'entrada').trim();
+    return AGORA_COLUMN_ORDER.includes(column) ? column : 'entrada';
+}
+
+function cleanAgoraPriority(value: any): string {
+    const priority = String(value || 'Media').trim();
+    return AGORA_PRIORITIES.includes(priority) ? priority : 'Media';
+}
+
+function cleanAgoraProgress(value: any): number {
+    const progress = Number(value);
+    if (!Number.isFinite(progress)) return 0;
+    return Math.max(0, Math.min(100, Math.round(progress)));
+}
+
+function makeEngineAgoraId(board: any): string {
+    const stamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+    let id = `agora-${stamp}`;
+    let counter = 2;
+    while (board.cards[id]) {
+        id = `agora-${stamp}-${counter}`;
+        counter += 1;
+    }
+    return id;
+}
+
+function appendEngineAgoraEvent(board: any, kind: string, cardId: string, payload?: any): void {
+    board.events = Array.isArray(board.events) ? board.events : [];
+    board.events.push({
+        kind,
+        card_id: cardId,
+        payload: payload || {},
+        created_at: new Date().toISOString(),
+    });
+    board.events = board.events.slice(-200);
+}
+
+function createEngineAgoraCard(input: any): any | null {
+    try {
+        const board = readEngineAgoraBoard();
+        const now = new Date().toISOString();
+        const id = cleanAgoraText(input?.id || input?.card_id, '', 80) || makeEngineAgoraId(board);
+        if (board.cards[id]) return normalizeEngineAgoraCard(board.cards[id]);
+        const card = {
+            id,
+            column: cleanAgoraColumn(input?.column),
+            type: cleanAgoraText(input?.type, 'Tarefa', 40),
+            title: cleanAgoraText(input?.title, 'Nova tarefa juridica', 160),
+            summary: cleanAgoraText(input?.summary, 'Rascunho local pronto para conectar ao orquestrador.', 420),
+            agent: cleanAgoraText(input?.agent, 'Orquestrador', 80),
+            guardrail: cleanAgoraText(input?.guardrail, 'Aguardando escopo', 80),
+            priority: cleanAgoraPriority(input?.priority),
+            progress: cleanAgoraProgress(input?.progress ?? 5),
+            source: 'engine',
+            created_at: now,
+            updated_at: now,
+        };
+        board.cards[id] = card;
+        board.comments[id] = board.comments[id] || [];
+        appendEngineAgoraEvent(board, 'card_created', id, { title: card.title });
+        writeEngineAgoraBoard(board);
+        return normalizeEngineAgoraCard(card);
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao criar card no board compartilhado:', err?.message || err);
+        return null;
+    }
+}
+
+function updateEngineAgoraCard(id: string, updates: any): any | null {
+    try {
+        const board = readEngineAgoraBoard();
+        if (!board.cards[id]) return null;
+        const card = board.cards[id];
+        for (const [key, limit] of Object.entries({ type: 40, title: 160, summary: 420, agent: 80, guardrail: 80 })) {
+            if (updates && updates[key] !== undefined) card[key] = cleanAgoraText(updates[key], card[key] || '', Number(limit));
+        }
+        if (updates?.column !== undefined) card.column = cleanAgoraColumn(updates.column);
+        if (updates?.priority !== undefined) card.priority = cleanAgoraPriority(updates.priority);
+        if (updates?.progress !== undefined) card.progress = cleanAgoraProgress(updates.progress);
+        card.updated_at = new Date().toISOString();
+        appendEngineAgoraEvent(board, 'card_updated', id);
+        writeEngineAgoraBoard(board);
+        return normalizeEngineAgoraCard(card);
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao atualizar card do board compartilhado:', err?.message || err);
+        return null;
+    }
+}
+
+function moveEngineAgoraCard(id: string, direction: number): any | null {
+    try {
+        const raw = readEngineAgoraBoard();
+        if (!raw || !raw.cards || !raw.cards[id]) return null;
+        const card = raw.cards[id];
+        const current = AGORA_COLUMN_ORDER.includes(card.column) ? card.column : 'entrada';
+        const index = AGORA_COLUMN_ORDER.indexOf(current);
+        const next = AGORA_COLUMN_ORDER[index + Number(direction || 0)];
+        if (!next) return normalizeEngineAgoraCard(card);
+        card.column = next;
+        card.progress = Math.max(5, Math.min(100, Number(card.progress || 0) + (direction > 0 ? 20 : -20)));
+        if (next === 'pronto') card.progress = 100;
+        card.updated_at = new Date().toISOString();
+        raw.events = Array.isArray(raw.events) ? raw.events : [];
+        raw.events.push({
+            kind: 'card_moved',
+            card_id: id,
+            payload: { from: current, to: next },
+            created_at: new Date().toISOString(),
+        });
+        writeEngineAgoraBoard(raw);
+        return normalizeEngineAgoraCard(card);
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao mover card do Engine:', err?.message || err);
+        return null;
+    }
+}
+
+function removeEngineAgoraCard(id: string): boolean {
+    try {
+        const board = readEngineAgoraBoard();
+        if (!board.cards[id]) return false;
+        const card = board.cards[id];
+        delete board.cards[id];
+        delete board.comments[id];
+        appendEngineAgoraEvent(board, 'card_removed', id, { title: card.title });
+        writeEngineAgoraBoard(board);
+        return true;
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao remover card do board compartilhado:', err?.message || err);
+        return false;
+    }
+}
+
+function commentEngineAgoraCard(id: string, body: string, author = 'Electron'): any | null {
+    try {
+        const board = readEngineAgoraBoard();
+        if (!board.cards[id]) return null;
+        const comment = {
+            author: cleanAgoraText(author, 'Electron', 80),
+            body: cleanAgoraText(body, '', 2000),
+            created_at: new Date().toISOString(),
+        };
+        if (!comment.body) return null;
+        board.comments[id] = Array.isArray(board.comments[id]) ? board.comments[id] : [];
+        board.comments[id].push(comment);
+        board.cards[id].updated_at = new Date().toISOString();
+        appendEngineAgoraEvent(board, 'comment_added', id, { author: comment.author });
+        writeEngineAgoraBoard(board);
+        return {
+            ...normalizeEngineAgoraCard(board.cards[id]),
+            comments: board.comments[id],
+            events: board.events.filter((event: any) => event.card_id === id).slice(-20),
+        };
+    } catch (err: any) {
+        console.warn('[Agora] Falha ao comentar card do board compartilhado:', err?.message || err);
+        return null;
+    }
+}
+
+ipcMain.handle('agora-list-cards', async () => {
+    const { getAgoraStore } = await import('./agora');
+    const localCards = await getAgoraStore().getAllCards();
+    const engineCards = readEngineAgoraCards();
+    const seen = new Set(localCards.map((card: any) => card.id));
+    return [
+        ...engineCards.filter((card: any) => card && card.id && !seen.has(card.id)),
+        ...localCards,
+    ];
+});
+
+ipcMain.handle('agora-get-card', async (_event, id: string) => {
+    const { getAgoraStore } = await import('./agora');
+    const engineCard = readEngineAgoraCards().find((card: any) => card.id === id);
+    return engineCard || getAgoraStore().getCard(id);
+});
+
+ipcMain.handle('agora-create-card', async (_event, input: any) => {
+    const { getAgoraStore } = await import('./agora');
+    const card = createEngineAgoraCard(input || {}) || await getAgoraStore().addCard(input || {});
+    emitAgoraEvent({ type: 'card_created', cardId: card.id, card, timestamp: new Date().toISOString() });
+    return card;
+});
+
+ipcMain.handle('agora-update-card', async (_event, { id, updates }: { id: string; updates: any }) => {
+    const { getAgoraStore } = await import('./agora');
+    const card = updateEngineAgoraCard(id, updates || {}) || await getAgoraStore().updateCard(id, updates || {});
+    if (card) emitAgoraEvent({ type: 'card_updated', cardId: card.id, card, timestamp: new Date().toISOString() });
+    return card;
+});
+
+ipcMain.handle('agora-move-card', async (_event, { id, direction }: { id: string; direction: number }) => {
+    const { getAgoraStore } = await import('./agora');
+    const card = moveEngineAgoraCard(id, Number(direction || 0)) || await getAgoraStore().moveCard(id, Number(direction || 0));
+    if (card) emitAgoraEvent({ type: 'card_moved', cardId: card.id, card, timestamp: new Date().toISOString() });
+    return card;
+});
+
+ipcMain.handle('agora-remove-card', async (_event, id: string) => {
+    const { getAgoraStore } = await import('./agora');
+    const removed = removeEngineAgoraCard(id) || await getAgoraStore().removeCard(id);
+    if (removed) emitAgoraEvent({ type: 'card_removed', cardId: id, timestamp: new Date().toISOString() });
+    return removed;
+});
+
+ipcMain.handle('agora-comment-card', async (_event, { id, body, author }: { id: string; body: string; author?: string }) => {
+    const card = commentEngineAgoraCard(id, body, author || 'Electron');
+    if (card) emitAgoraEvent({ type: 'comment_added', cardId: id, card, timestamp: new Date().toISOString() });
+    return card;
+});
 
 ipcMain.handle('batch-list-lotes', async () => {
     const { getLoteStore } = await import('./batch');

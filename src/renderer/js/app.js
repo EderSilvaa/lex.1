@@ -1264,7 +1264,7 @@ const views = {
     'nav-history': null,
     'nav-brain': document.querySelector('.brain-wrapper'),
     'nav-terminal': document.querySelector('.terminal-wrapper'),
-    'nav-lotes': document.querySelector('.lotes-wrapper'),
+    'nav-agora': document.querySelector('.agora-wrapper'),
     'nav-settings': document.querySelector('.settings-wrapper')
 };
 
@@ -1290,9 +1290,9 @@ navItems.forEach(item => {
             loadProfileCard();
         }
 
-        // Init lotes view
-        if (viewId === 'nav-lotes') {
-            if (typeof initLotesView === 'function') initLotesView();
+        // Init Agora workflow view
+        if (viewId === 'nav-agora') {
+            if (typeof initAgoraView === 'function') initAgoraView();
         }
 
         // Init brain view

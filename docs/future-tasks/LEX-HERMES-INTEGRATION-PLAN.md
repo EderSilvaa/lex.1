@@ -1,12 +1,19 @@
 # Plano de Integracao Lex Electron + Lex Engine
 
+> **Estado atual em 2026-05-09:** a integracao planejada aqui ja avancou para
+> monorepo com Engine importado e runtime padrao `repo-wsl`. A fonte rapida de
+> verdade agora e [`../CURRENT-ARCHITECTURE.md`](../CURRENT-ARCHITECTURE.md).
+> Chat inline pode usar multiagentes; Agora e a superficie de workflows duraveis;
+> Lotes nao deve mais ser tratado como camada de produto.
+
 Este plano define como transformar o Hermes forkado no motor da Lex sem quebrar o
 produto Electron atual. A ideia central e simples:
 
 ```text
-Lex Electron = corpo do produto Windows
+Lex Desktop = corpo do produto Windows
 Lex Engine / Hermes = cerebro do agente
-MCP Bridge local = ponte segura entre os dois
+MCP/HTTP local = ponte segura entre os dois
+Agora = workflow duravel para tarefas complexas
 ```
 
 O objetivo nao e reescrever a Lex do zero. O objetivo e preservar o que ja e
@@ -371,11 +378,17 @@ Ferramentas posteriores:
 
 ## Chat e Console
 
-Nao bater o martelo em apenas uma interface agora. O melhor desenho inicial e
-ter duas abas com papeis diferentes:
+Estado atual: Console Lex continua sendo a interface operacional/power user do
+Engine. O chat visual nao e apenas para tarefas simples: quando ativado, ele
+tambem pode executar planner, subagentes e ferramentas inline. A fronteira
+correta e entre execucao conversacional e workflow duravel.
+
+Interfaces:
 
 - `Chat Lex`: interface visual normal, feita para o advogado.
 - `Console Engine`: terminal embutido para Hermes/Lex Engine, debug e power use.
+- `Agora`: quadro de workflows duraveis para tarefas massivas, retomaveis,
+  auditaveis e com checkpoints.
 
 O chat principal do produto deve ser React/Electron normal. O console pode usar
 `xterm.js` + `node-pty` e chamar WSL/Hermes por baixo quando necessario.
@@ -388,9 +401,9 @@ Motivo:
 - evita expor terminal para usuario comum;
 - preserva o CLI como ferramenta de diagnostico.
 
-Regra importante: no MVP, Chat e Console nao devem competir pela mesma sessao.
-O Console pode abrir uma sessao crua do Hermes. O Chat deve passar pelo caminho
-controlado do Electron. Depois, se valer a pena, as sessoes podem ser unificadas.
+Regra importante: Chat e Console podem executar multiagentes inline. Eles nao
+devem competir com a Agora quando a tarefa exige estado duravel, muitas unidades
+de trabalho, dependencias, retomada ou auditoria.
 
 Fluxo recomendado:
 
@@ -400,6 +413,13 @@ Chat React -> IPC Electron -> processo do Lex Engine -> resposta stream -> React
 
 No MVP, o Electron pode chamar o comando do Hermes/Lex Engine como subprocesso.
 Depois, se ficar necessario, criar um modo daemon local do motor.
+
+Fluxo para trabalho complexo:
+
+```text
+Pedido complexo -> Lex Engine/Hermes -> tool agora -> board duravel ->
+Desktop Agora renderiza cards/eventos/checkpoints -> Console/Chat assumem cards
+```
 
 ## Canais Externos
 
@@ -649,19 +669,18 @@ escopo. Skills de Nivel 3 nao executam ato sensivel sem confirmacao.
 
 ## Ordem Recomendada Agora
 
-1. Aprovar este plano como norte.
-2. Definir o repositorio canonico do monorepo Lex.
-3. Criar a estrutura alvo com Desktop, Engine, Brain, MCP e shared separados por
-   pastas.
-4. Importar o outro lado sem integrar nem mudar comportamento.
-5. Fixar a versao/caminho do Lex Engine usado pelo Desktop.
-6. Criar tela de status do Engine.
-7. Fazer o chat visual chamar o Engine.
-8. Criar MCP minimo.
-9. Migrar primeiro fluxo juridico de documento.
-10. Validar Brain + Hermes em modo descoberta.
-11. Migrar PJe read-only.
-12. So depois ligar PJe com acoes sensiveis.
+1. Manter `repo-wsl` como runtime padrao e `external-wsl` como rollback.
+2. Consolidar contratos compartilhados minimos entre Desktop e Engine.
+3. Reusar a atualizacao Nous/Hermes como motor: `delegate_task`, `todo`,
+   `cronjob`, approval callbacks, eventos `subagent.*`/`tool.*` e historico de
+   spawn. Nao reconstruir esse workflow do zero no Electron.
+4. Evoluir a Agora como superficie visual/auditavel desses workflows Hermes.
+5. Fazer o roteamento decidir entre inline multiagente e Agora por durabilidade,
+   volume, dependencias, risco e necessidade de retomada.
+6. Continuar expondo PJe/Brain/arquivos pelo Desktop com confirmacao e auditoria.
+7. Migrar capacidades novas para o Engine/Hermes, evitando duplicar orquestracao
+   no Electron.
+8. Tratar Lotes/batch antigo como legado ate remocao dedicada.
 
 ## Decisao Recomendada
 
@@ -672,6 +691,7 @@ Produto comercial = Electron
 Motor inteligente = Lex Engine/Hermes
 Contrato tecnico = MCP
 Terminal = apenas dev/debug
+Agora = workflow duravel supervisionado
 PJe = Electron controlado
 Brain = memoria operacional e discovery do PJe/RPA
 Skills = Hermes com guardrails juridicos

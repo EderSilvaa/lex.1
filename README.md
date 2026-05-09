@@ -1,6 +1,16 @@
 # LEX — Assistente Jurídico Agêntico para PJe
 
-> Aplicativo Desktop (Electron + TypeScript) com IA agnóstica e BYOK (Bring Your Own Key). CLI como motor principal, Electron como shell visual. Agente autônomo com loop Think → Critic → Act → Observe, MCP (Model Context Protocol) para tools extensíveis, automação de browser via browser-use MCP + Playwright CDP, controle de PC via Vision AI + nut-js, geração e análise de documentos jurídicos com LLM, acesso ao sistema de arquivos, e memória persistente com aprendizado contínuo. Suporta Anthropic, OpenAI, OpenRouter, Google AI e Groq.
+> **Arquitetura atual (2026-05-09):** Lex Desktop e o produto Windows; Lex
+> Engine/Hermes e o motor de raciocinio, chat inline, multiagentes e workflows;
+> MCP/HTTP local e o contrato entre os dois; Agora e a superficie de workflows
+> duraveis. Veja [`docs/CURRENT-ARCHITECTURE.md`](docs/CURRENT-ARCHITECTURE.md).
+
+> Aplicativo Desktop (Electron + TypeScript) com Lex Engine/Hermes como motor de
+> raciocinio local. O Desktop e a shell Windows supervisionada para PJe,
+> arquivos, Brain, confirmacoes e auditoria; o Engine cuida de chat inline,
+> multiagentes, tools, memoria e workflows. MCP/HTTP local conecta os dois, e a
+> Agora e a superficie para tarefas duraveis/complexas. Suporta BYOK via os
+> providers do Engine.
 
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
 ![Versão](https://img.shields.io/badge/versão-7.0-blue)
@@ -117,6 +127,19 @@ O Lex não requer chave própria. O usuário conecta o provider de sua escolha:
 ---
 
 ## Arquitetura
+
+Resumo atual:
+
+```text
+Lex Desktop (Electron) -> UI, PJe, arquivos, Brain, confirmacoes, auditoria
+Lex Engine/Hermes      -> raciocinio, chat inline, multiagentes, skills, tools
+MCP/HTTP local         -> contrato supervisionado Engine/Desktop
+Agora                  -> workflows duraveis para tarefas massivas/complexas
+```
+
+Algumas secoes abaixo ainda descrevem componentes legados do Electron. Para novas
+capacidades de orquestracao, prefira o Engine/Hermes e exponha ao Desktop por
+contrato.
 
 ```
 electron/
@@ -285,9 +308,9 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 
 - [ ] Suporte a mais tribunais (TRF, STJ, TJPA)
 - [ ] PJe-model fine-tuned para navegação
-- [ ] CLI → UI bridge (`uiNavigate`) para abrir arquivos/brain automaticamente
+- [ ] Console/CLI → UI bridge (`uiNavigate`) para abrir arquivos/brain automaticamente
 - [x] MCP — Model Context Protocol (provider-agnóstico)
-- [x] CLI como motor, Electron como shell (terminal embutido)
+- [x] Lex Engine/Hermes como motor, Electron como shell supervisionada
 - [x] browser-use MCP para automação PJe
 - [x] Auto-routing PJe: MCP vs Playwright legacy
 - [x] Retry 529 (Anthropic overloaded)
@@ -308,4 +331,4 @@ Novos tribunais podem ser adicionados em `electron/pje/tribunal-urls.ts`.
 
 ---
 
-*Última atualização: abril de 2026 — v7.0 (MCP provider-agnóstico, CLI como motor, terminal embutido, browser-use MCP, auto-routing PJe)*
+*Ultima atualizacao de arquitetura: 2026-05-09 — Lex Desktop + Lex Engine/Hermes + MCP/HTTP + Agora.*

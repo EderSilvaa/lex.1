@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Current Sprint Memory
 
@@ -29,25 +29,28 @@ npm run type-check
 
 ## Arquitetura
 
-**Estado atual em 2026-05-09:**
+### Estado atual (2026-05-09)
 
+- Fonte rapida de verdade: `docs/CURRENT-ARCHITECTURE.md`.
 - Lex Desktop/Electron e produto Windows, executor PJe/arquivos/Brain,
-  confirmacoes, auditoria e UI.
+  confirmacoes e auditoria.
 - Lex Engine/Hermes e o cerebro: raciocinio, chat inline, planner,
   multiagentes, tools, scheduler e workflows.
-- MCP/HTTP/JSON local e o contrato supervisionado entre Engine e Desktop.
+- Chat/Console inline podem usar multiagentes; nao sao limitados a tarefas
+  simples.
 - Agora e a superficie para workflows duraveis, massivos, retomaveis,
-  auditaveis e com checkpoints humanos.
+  auditaveis ou com checkpoints.
 - Lotes/batch antigo nao e arquitetura nova; nao expandir esse caminho.
 - `electron/agent` e legado/transicional. Novas capacidades de orquestracao
   devem ir para o Engine/Hermes e cruzar para o Desktop por MCP/HTTP/JSON.
 
 ### Engine/Hermes e Agora
 
+- Engine importado: `engine/lex-engine`.
 - Runtime padrao: `LEX_ENGINE_MODE=repo-wsl`.
 - Fallback preservado: `LEX_ENGINE_MODE=external-wsl`.
 - Board Agora compartilhado: `LEX_AGORA_BOARD_PATH`.
-- Tool Engine: `agora`.
+- Tool Engine: `agora` (`list/show/create/update/move/comment/remove`).
 - UI Agora: `src/renderer/js/agora.js` e `src/renderer/styles/agora.css`.
 
 ### Processos Electron
@@ -57,8 +60,8 @@ npm run type-check
 
 ### Agent Loop legado (`electron/agent/`)
 
-> Historico do loop TypeScript. A arquitetura atual usa Hermes/Lex Engine como
-> cerebro; manter este caminho apenas por compatibilidade ate migracao/limpeza.
+> Legado/transicional. Manter para compatibilidade ate migracao/remocao
+> dedicada, mas nao criar novas features de orquestracao aqui.
 
 Padrão: **Objetivo → LOOP(Think → Act → Observe) → Resposta**
 
@@ -166,7 +169,7 @@ Terminal xterm.js integrado no Electron como view padrão (chat widget está ocu
 ### Ágora (`electron/agora/`, `src/renderer/js/agora.js`)
 
 Quadro de workflow durável para tarefas complexas/massivas que não devem ficar
-presas a uma execução conversacional inline.
+apenas em uma conversa inline.
 
 Fluxo mental:
 
@@ -177,11 +180,10 @@ Electron observa board compartilhado -> UI Ágora mostra progresso/checkpoints
 
 Use Ágora para:
 
-- dezenas de processos PJe;
-- muitas petições;
-- protocolo supervisionado;
-- etapas com dependências, pausa e retomada;
-- auditoria e comentários por card.
+- dezenas de processos/petições;
+- tarefas com dependências e checkpoints;
+- trabalho retomável depois de pausa/restart;
+- auditoria de progresso e handoffs entre agentes.
 
 Não usar Lotes como base nova. `electron/batch` pode existir como legado, mas a
 UI de produto agora é Ágora.

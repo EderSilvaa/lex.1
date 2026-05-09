@@ -1,5 +1,10 @@
 # OS Router Rework — Regex → Tool Descriptions Estilo Claude Code
 
+> **Atualizacao em 2026-05-09:** este documento registra trabalho feito no
+> roteamento OS legado do Electron. Na arquitetura atual, Lex Engine/Hermes e o
+> cerebro para raciocinio, planner e multiagentes; o Electron fica como bridge
+> local supervisionada. Nao expandir `electron/agent` como novo motor.
+
 **Status:** Sprint 1 concluído e validado (2026-04-27). Pronto para Sprint 2.
 **Discussão:** 2026-04-27.
 **Contexto relacionado:** [`docs/SKILLS-OS-INTEGRATION.md`](../SKILLS-OS-INTEGRATION.md) seção 4.

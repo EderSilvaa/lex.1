@@ -1,5 +1,10 @@
 # Lex Migration Plan
 
+> **Status em 2026-05-09:** este plano e historico. A migracao operacional atual
+> usa o monorepo Desktop `lex-test1`, Engine importado em `engine/lex-engine`,
+> `LEX_ENGINE_MODE=repo-wsl` por padrao e `external-wsl` como rollback. Agora e a
+> superficie de workflows duraveis; Lotes/batch e legado.
+
 This file maps the current Lex Electron/TypeScript app into the Hermes-derived
 Lex Agent Engine.
 
@@ -34,6 +39,8 @@ Lex Agent Engine.
 | `../electron/legal/` | Reuse as legal knowledge/style/templates. |
 | `../electron/privacy/` | Preserve as product requirement; adapt to bridge and prompt policy. |
 | `../electron/agent/` | Treat as legacy reference; do not duplicate the Hermes loop. |
+| `../electron/batch/` | Legacy batch pipeline; do not use as the new workflow surface. |
+| `../electron/agora/` | Shared workflow board for durable Hermes work. |
 | `../src/` | Keep UI as Lex shell for the local engine. |
 
 ## Phase 1: Local Fork Viability
@@ -96,6 +103,12 @@ Why this first:
 - No irreversible action.
 - Useful to lawyers quickly.
 - Tests legal reasoning, document flow, and product tone.
+
+## Current Workflow Split
+
+Inline chat/Console can use multiagents and tools for one conversational mission.
+Agora is used when the task needs durable workflow state: many processes, many
+petitions, checkpoints, audit trail, dependencies, or restart/resume.
 
 ## Phase 4: PJe Read-Only
 

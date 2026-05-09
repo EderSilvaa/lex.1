@@ -1,5 +1,10 @@
 # Heranca Tecnica do Hermes — Inventario Completo
 
+> **Atualizacao em 2026-05-09:** a Lex usa o Hermes/Lex Engine importado como
+> runtime padrao via `repo-wsl`. O que herdamos do Hermes deve alimentar o Engine
+> e a execucao inline; workflows juridicos duraveis entram pela Agora/tool
+> `agora`, nao pela antiga superficie Lotes.
+
 Este documento mapeia tudo que o Lex_Engine herda do Hermes Agent (Nous Research):
 ferramentas, plataformas de gateway, adaptadores LLM, ambientes de execucao,
 features de plataforma, e comandos CLI. Para cada item, indica a relevancia

@@ -2,6 +2,16 @@
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
+## Lex Integration Context
+
+This checkout is imported into the Lex monorepo at `engine/lex-engine`.
+For Lex-specific work, treat this Engine as the reasoning/workflow layer:
+chat inline, subagents, tools, scheduler, skills, and durable workflow logic.
+Lex Desktop/Electron remains the supervised Windows/PJe/files executor and UI.
+Agora is the Lex workflow board, shared with the Engine through
+`LEX_AGORA_BOARD_PATH` and the `agora` tool. Do not recreate the old
+Lotes/batch pipeline as the product architecture.
+
 ## Development Environment
 
 ```bash

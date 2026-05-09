@@ -1,5 +1,10 @@
 # Lex como MCP — Posicionamento e Modelo de Licenciamento
 
+> **Atualizacao em 2026-05-09:** MCP continua sendo o contrato tecnico principal
+> entre Engine e Desktop, mas a arquitetura de produto atual tambem inclui Agora:
+> workflows duraveis ficam no board compartilhado/tool `agora`; execucoes
+> conversacionais continuam inline no chat/Console; Lotes/batch e legado.
+
 Este documento define a estrategia da Lex em relacao ao Model Context
 Protocol (MCP) — padrao aberto da Anthropic para comunicacao entre agentes
 de IA e ferramentas externas.
