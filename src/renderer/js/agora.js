@@ -22,6 +22,14 @@ const agoraColumns = [
     { id: 'pronto', label: 'Pronto', tone: 'success' },
 ];
 
+const agoraWorkflowTypes = [
+    { value: 'Workflow', label: 'Workflow juridico', assignee: 'default', guardrail: 'Revisao humana' },
+    { value: 'PJe', label: 'Pasta PJe', assignee: 'pje', guardrail: 'Somente leitura' },
+    { value: 'Peca', label: 'Peticoes/minutas', assignee: 'document', guardrail: 'Aprovar texto' },
+    { value: 'Pesquisa', label: 'Pesquisa juridica', assignee: 'research', guardrail: 'Conferir fontes' },
+    { value: 'Protocolo', label: 'Protocolo supervisionado', assignee: 'pje', guardrail: 'Confirmacao forte' },
+];
+
 const agoraSeedCards = [
     {
         id: 'agora-pje-consulta',
@@ -93,7 +101,7 @@ function initAgoraView() {
         if (back) back.addEventListener('click', showAgoraList);
 
         const newBtn = btnNewTask();
-        if (newBtn) newBtn.addEventListener('click', addAgoraLocalTask);
+        if (newBtn) newBtn.addEventListener('click', showAgoraTaskDialog);
 
         const refreshBtn = document.getElementById('btn-agora-refresh');
         if (refreshBtn) refreshBtn.addEventListener('click', refreshAgoraBoard);
@@ -480,22 +488,160 @@ async function submitAgoraComment(button) {
     }
 }
 
-async function addAgoraLocalTask() {
-    const input = {
-        column: 'entrada',
-        type: 'Workflow',
-        title: 'Nova tarefa complexa',
-        summary: 'Workflow duravel pronto para o Hermes decompor em etapas, agentes e checkpoints.',
-        agent: 'Orquestrador Hermes',
-        guardrail: 'Aguardando escopo',
-        priority: 'Media',
-        progress: 5,
+function showAgoraTaskDialog() {
+    closeAgoraTaskDialog();
+    const modal = document.createElement('div');
+    modal.className = 'agora-task-modal';
+    modal.innerHTML = `
+        <div class="agora-task-modal-backdrop" data-agora-task-close></div>
+        <form class="agora-task-modal-panel" id="agora-task-form">
+            <header class="agora-task-modal-header">
+                <div>
+                    <span>Agora</span>
+                    <h3>Nova tarefa complexa</h3>
+                </div>
+                <button type="button" class="agora-task-modal-close" data-agora-task-close aria-label="Fechar">x</button>
+            </header>
+            <div class="agora-task-modal-body">
+                <label class="agora-task-field agora-task-field-wide">
+                    <span>Objetivo</span>
+                    <input name="title" type="text" maxlength="180" required placeholder="Ex: analisar pasta PJe com 50 processos">
+                </label>
+                <label class="agora-task-field">
+                    <span>Tipo</span>
+                    <select name="type">
+                        ${agoraWorkflowTypes.map(type => `<option value="${escapeHtml(type.value)}">${escapeHtml(type.label)}</option>`).join('')}
+                    </select>
+                </label>
+                <label class="agora-task-field">
+                    <span>Prioridade</span>
+                    <select name="priority">
+                        <option>Media</option>
+                        <option>Alta</option>
+                        <option>Baixa</option>
+                    </select>
+                </label>
+                <label class="agora-task-field">
+                    <span>Perfil</span>
+                    <select name="assignee">
+                        <option value="default">default</option>
+                        <option value="research">research</option>
+                        <option value="document">document</option>
+                        <option value="pje">pje</option>
+                    </select>
+                </label>
+                <label class="agora-task-field">
+                    <span>Entrada</span>
+                    <select name="column">
+                        <option value="entrada">Entrada</option>
+                        <option value="especificacao">Especificacao</option>
+                        <option value="pronto_execucao">Pronto p/ execucao</option>
+                    </select>
+                </label>
+                <label class="agora-task-field">
+                    <span>Unidades</span>
+                    <input name="units" type="number" min="1" max="500" step="1" placeholder="1">
+                </label>
+                <label class="agora-task-field">
+                    <span>Controle</span>
+                    <select name="guardrail">
+                        <option>Revisao humana</option>
+                        <option>Somente leitura</option>
+                        <option>Conferir fontes</option>
+                        <option>Aprovar texto</option>
+                        <option>Confirmacao forte</option>
+                    </select>
+                </label>
+                <label class="agora-task-field agora-task-field-wide">
+                    <span>Escopo</span>
+                    <textarea name="summary" rows="4" maxlength="1200" placeholder="Inclua limites, documentos, prazos, cliente/caso e qualquer bloqueio humano esperado."></textarea>
+                </label>
+            </div>
+            <footer class="agora-task-modal-footer">
+                <button type="button" class="agora-secondary-btn" data-agora-task-close>Cancelar</button>
+                <button type="submit" class="agora-secondary-btn agora-secondary-btn-primary">Criar</button>
+            </footer>
+        </form>
+    `;
+    document.body.appendChild(modal);
+
+    const typeSelect = modal.querySelector('[name="type"]');
+    const assigneeSelect = modal.querySelector('[name="assignee"]');
+    const guardrailSelect = modal.querySelector('[name="guardrail"]');
+    typeSelect?.addEventListener('change', () => {
+        const selected = agoraWorkflowTypes.find(type => type.value === typeSelect.value);
+        if (!selected) return;
+        if (assigneeSelect) assigneeSelect.value = selected.assignee;
+        if (guardrailSelect) guardrailSelect.value = selected.guardrail;
+    });
+
+    modal.querySelectorAll('[data-agora-task-close]').forEach(button => {
+        button.addEventListener('click', closeAgoraTaskDialog);
+    });
+
+    modal.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeAgoraTaskDialog();
+    });
+
+    modal.querySelector('#agora-task-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const submit = form.querySelector('button[type="submit"]');
+        const input = buildAgoraTaskInput(new FormData(form));
+        if (!input.title) return;
+        if (submit) submit.disabled = true;
+        try {
+            await addAgoraLocalTask(input);
+            closeAgoraTaskDialog();
+        } finally {
+            if (submit) submit.disabled = false;
+        }
+    });
+
+    setTimeout(() => modal.querySelector('[name="title"]')?.focus(), 30);
+}
+
+function closeAgoraTaskDialog() {
+    document.querySelector('.agora-task-modal')?.remove();
+}
+
+function buildAgoraTaskInput(formData) {
+    const type = String(formData.get('type') || 'Workflow').trim();
+    const selected = agoraWorkflowTypes.find(item => item.value === type) || agoraWorkflowTypes[0];
+    const title = String(formData.get('title') || '').trim();
+    const rawSummary = String(formData.get('summary') || '').trim();
+    const units = Math.max(1, Math.min(500, Number(formData.get('units') || 1) || 1));
+    const guardrail = String(formData.get('guardrail') || selected.guardrail).trim();
+    const assignee = String(formData.get('assignee') || selected.assignee || 'default').trim();
+    const column = String(formData.get('column') || 'entrada').trim();
+    const priority = String(formData.get('priority') || 'Media').trim();
+    const summaryParts = [
+        rawSummary || 'Workflow duravel para decomposicao pelo Hermes em etapas, agentes e checkpoints.',
+        `Unidades estimadas: ${units}.`,
+        `Controle humano: ${guardrail}.`,
+    ];
+
+    return {
+        column,
+        type,
+        title,
+        summary: summaryParts.join('\n'),
+        body: summaryParts.join('\n'),
+        assignee,
+        agent: assignee,
+        guardrail,
+        priority,
+        progress: column === 'pronto_execucao' ? 40 : column === 'especificacao' ? 25 : 5,
         source: 'engine',
     };
+}
+
+async function addAgoraLocalTask(input) {
+    const taskInput = input || buildAgoraTaskInput(new FormData());
 
     if (window.agoraApi && window.agoraApi.createCard) {
         try {
-            const card = await window.agoraApi.createCard(input);
+            const card = await window.agoraApi.createCard(taskInput);
             if (card && card.id) agoraSelectedCardId = card.id;
             await refreshAgoraBoard();
             return;
@@ -507,7 +653,7 @@ async function addAgoraLocalTask() {
     const id = `agora-local-${Date.now()}`;
     agoraLocalCards.unshift({
         id,
-        ...input,
+        ...taskInput,
         source: 'local',
     });
     agoraSelectedCardId = id;
