@@ -229,6 +229,7 @@ electron_1.contextBridge.exposeInMainWorld('agoraApi', {
     moveCard: (id, direction) => electron_1.ipcRenderer.invoke('agora-move-card', { id, direction }),
     removeCard: (id) => electron_1.ipcRenderer.invoke('agora-remove-card', id),
     commentCard: (id, body, author) => electron_1.ipcRenderer.invoke('agora-comment-card', { id, body, author }),
+    getRuns: (id) => electron_1.ipcRenderer.invoke('agora-get-runs', id),
     onAgoraEvent: (cb) => electron_1.ipcRenderer.on('agora-event', (_, e) => cb(e)),
     offAgoraEvent: () => electron_1.ipcRenderer.removeAllListeners('agora-event'),
 });

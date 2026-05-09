@@ -259,6 +259,7 @@ contextBridge.exposeInMainWorld('agoraApi', {
     removeCard: (id: string) => ipcRenderer.invoke('agora-remove-card', id),
     commentCard: (id: string, body: string, author?: string) =>
         ipcRenderer.invoke('agora-comment-card', { id, body, author }),
+    getRuns: (id: string) => ipcRenderer.invoke('agora-get-runs', id),
     onAgoraEvent: (cb: (event: any) => void) => ipcRenderer.on('agora-event', (_, e) => cb(e)),
     offAgoraEvent: () => ipcRenderer.removeAllListeners('agora-event'),
 });

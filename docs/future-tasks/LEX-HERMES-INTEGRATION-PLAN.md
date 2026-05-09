@@ -672,8 +672,10 @@ escopo. Skills de Nivel 3 nao executam ato sensivel sem confirmacao.
 1. Manter `repo-wsl` como runtime padrao e `external-wsl` como rollback.
 2. Consolidar contratos compartilhados minimos entre Desktop e Engine.
 3. Reusar a atualizacao Nous/Hermes como motor: `delegate_task`, `todo`,
-   `cronjob`, approval callbacks, eventos `subagent.*`/`tool.*` e historico de
-   spawn. Nao reconstruir esse workflow do zero no Electron.
+   `cronjob`, approval callbacks, eventos `subagent.*`/`tool.*`, historico de
+   spawn e o Kanban oficial `v2026.5.7`/`v0.13.0`. Mapa detalhado:
+   [`NOUS-KANBAN-INTEGRATION-MAP.md`](NOUS-KANBAN-INTEGRATION-MAP.md). Nao
+   reconstruir esse workflow do zero no Electron.
 4. Evoluir a Agora como superficie visual/auditavel desses workflows Hermes.
 5. Fazer o roteamento decidir entre inline multiagente e Agora por durabilidade,
    volume, dependencias, risco e necessidade de retomada.

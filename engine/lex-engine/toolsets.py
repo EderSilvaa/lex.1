@@ -54,6 +54,10 @@ _HERMES_CORE_TOOLS = [
     "clarify",
     # Code execution + delegation
     "execute_code", "delegate_task",
+    # Official Hermes Kanban coordination. These are gated by kanban_tools.py
+    # so they only appear for workers or explicit kanban toolset sessions.
+    "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
+    "kanban_comment", "kanban_create", "kanban_link",
     # Lex Agora persistent Kanban
     "agora",
     # Cronjob management
@@ -192,6 +196,16 @@ TOOLSETS = {
     "delegation": {
         "description": "Spawn subagents with isolated context for complex subtasks",
         "tools": ["delegate_task"],
+        "includes": []
+    },
+
+    "kanban": {
+        "description": "Official Hermes Kanban coordination for durable multi-agent workflows",
+        "tools": [
+            "kanban_show", "kanban_complete", "kanban_block",
+            "kanban_heartbeat", "kanban_comment",
+            "kanban_create", "kanban_link",
+        ],
         "includes": []
     },
 

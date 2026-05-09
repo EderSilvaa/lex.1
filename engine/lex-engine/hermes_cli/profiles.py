@@ -156,6 +156,18 @@ def _get_wrapper_dir() -> Path:
 # Validation
 # ---------------------------------------------------------------------------
 
+def normalize_profile_name(name: str) -> str:
+    """Return the canonical profile id used on disk and in CLI -p argv."""
+    if not isinstance(name, str):
+        name = str(name)
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError("profile name cannot be empty")
+    if stripped.casefold() == "default":
+        return "default"
+    return stripped.lower()
+
+
 def validate_profile_name(name: str) -> None:
     """Raise ``ValueError`` if *name* is not a valid profile identifier."""
     if name == "default":

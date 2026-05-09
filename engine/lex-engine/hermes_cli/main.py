@@ -1107,9 +1107,23 @@ def _launch_tui(
     sys.exit(code)
 
 
+def _pin_kanban_board_env() -> None:
+    """Pin the active kanban board into HERMES_KANBAN_BOARD for this chat."""
+    if os.environ.get("HERMES_KANBAN_BOARD"):
+        return
+    try:
+        from hermes_cli.kanban_db import get_current_board
+
+        os.environ["HERMES_KANBAN_BOARD"] = get_current_board()
+    except Exception:
+        pass
+
+
 def cmd_chat(args):
     """Run interactive chat CLI."""
     use_tui = getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1"
+
+    _pin_kanban_board_env()
 
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
@@ -4869,6 +4883,13 @@ def cmd_slack(args):
     return 1
 
 
+def cmd_kanban(args):
+    """Multi-profile collaboration board."""
+    from hermes_cli.kanban import kanban_command
+
+    return kanban_command(args)
+
+
 def cmd_hooks(args):
     """Shell-hook inspection and management."""
     from hermes_cli.hooks import hooks_command
@@ -7169,6 +7190,7 @@ def _coalesce_session_name_args(argv: list) -> list:
         "plugins",
         "acp",
         "webhook",
+        "kanban",
         "memory",
         "dump",
         "debug",
@@ -8530,6 +8552,11 @@ For more help on a command:
     )
 
     webhook_parser.set_defaults(func=cmd_webhook)
+
+    from hermes_cli.kanban import build_parser as _build_kanban_parser
+
+    kanban_parser = _build_kanban_parser(subparsers)
+    kanban_parser.set_defaults(func=cmd_kanban)
 
     # =========================================================================
     # hooks command — shell-hook inspection and management

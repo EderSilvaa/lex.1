@@ -965,6 +965,14 @@ DEFAULT_CONFIG = {
         "max_parallel_jobs": None,
     },
 
+    # Kanban multi-agent coordination. The dispatcher can run in the gateway
+    # process and spawn workers for dependency-ready tasks.
+    "kanban": {
+        "dispatch_in_gateway": True,
+        "dispatch_interval_seconds": 60,
+        "failure_limit": 2,
+    },
+
     # execute_code settings — controls the tool used for programmatic tool calls.
     "code_execution": {
         # Execution mode:

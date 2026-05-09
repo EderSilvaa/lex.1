@@ -49,8 +49,12 @@ npm run type-check
 - Engine importado: `engine/lex-engine`.
 - Runtime padrao: `LEX_ENGINE_MODE=repo-wsl`.
 - Fallback preservado: `LEX_ENGINE_MODE=external-wsl`.
-- Board Agora compartilhado: `LEX_AGORA_BOARD_PATH`.
-- Tool Engine: `agora` (`list/show/create/update/move/comment/remove`).
+- Kanban oficial compartilhado: `HERMES_KANBAN_HOME` / `kanban.db`.
+- Ponte Agora: `electron/agora/kanban-bridge.ts` chama
+  `engine/lex-engine/hermes_cli/kanban_db.py`.
+- Dispatcher Agora: Electron chama `kanban_db.dispatch_once()`; spawn automatico
+  de workers exige `LEX_AGORA_ENABLE_WORKERS=1`.
+- Board JSON `LEX_AGORA_BOARD_PATH` e tool `agora` sao fallback transicional.
 - UI Agora: `src/renderer/js/agora.js` e `src/renderer/styles/agora.css`.
 
 ### Processos Electron
@@ -174,8 +178,8 @@ apenas em uma conversa inline.
 Fluxo mental:
 
 ```text
-pedido complexo -> Hermes cria/atualiza cards via tool agora ->
-Electron observa board compartilhado -> UI Ágora mostra progresso/checkpoints
+pedido complexo -> Hermes cria/atualiza cards no Kanban oficial ->
+Electron observa kanban.db compartilhado -> UI Ágora mostra progresso/checkpoints
 ```
 
 Use Ágora para:

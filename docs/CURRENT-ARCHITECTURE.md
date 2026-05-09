@@ -75,11 +75,18 @@ Use Agora quando o trabalho vira operacao duravel:
 Agora e o quadro de workflow duravel do Hermes/Lex Engine.
 
 Regra critica: nao reconstruir o sistema de multiagentes/workflow do zero. A
-base vem da atualizacao Nous/Hermes importada:
+base deve vir da atualizacao Nous/Hermes `v2026.5.7` / `v0.13.0`, que trouxe
+o Kanban multiagente oficial. O mapa de integracao esta em
+[`future-tasks/NOUS-KANBAN-INTEGRATION-MAP.md`](future-tasks/NOUS-KANBAN-INTEGRATION-MAP.md).
+
+A fundacao upstream a reaproveitar inclui:
 
 - `tools/delegate_tool.py` para subagentes, execucao paralela, arvore de spawn,
   limites de concorrencia, interrupcao e eventos de progresso;
 - `tools/todo_tool.py` para planejamento e estado de tarefas dentro da sessao;
+- `hermes_cli/kanban_db.py`, `hermes_cli/kanban.py`, `tools/kanban_tools.py`
+  e `plugins/kanban/dashboard/*` para workflow duravel em SQLite, dispatcher,
+  workers, eventos e dashboard;
 - `cron/` e `tools/cronjob_tools.py` para rotinas/agendamentos;
 - `tools/approval.py` e callbacks do gateway/TUI para aprovacoes e comandos
   sensiveis;
@@ -96,9 +103,19 @@ Estado atual:
 - UI dedicada em `src/renderer/js/agora.js` e `src/renderer/styles/agora.css`;
 - nav `nav-agora`;
 - IPC `window.agoraApi`;
-- board compartilhado via `LEX_AGORA_BOARD_PATH`;
-- tool Python `agora` no Engine para `list/show/create/update/move/comment/remove`;
-- watcher no Electron emite `agora-event` quando o board muda.
+- ponte Electron `electron/agora/kanban-bridge.ts` chama o Kanban oficial do
+  Engine (`hermes_cli/kanban_db.py`) e grava em `kanban.db`;
+- `HERMES_KANBAN_HOME` e compartilhado com o Console Lex para alinhar UI e
+  workers;
+- dispatcher leve no Electron chama `kanban_db.dispatch_once()` no startup e a
+  cada 60s; spawn de workers fica protegido por `LEX_AGORA_ENABLE_WORKERS=1`;
+- board JSON/tool `agora` seguem apenas como fallback transicional;
+- watcher no Electron emite `agora-event` quando o `kanban.db` muda.
+
+Esse estado e transicional. A proxima etapa e migrar a fonte de verdade da
+Agora completamente para o Kanban oficial da Nous/Hermes (`kanban.db`,
+`kanban_*`, dispatcher e eventos), removendo o fallback JSON/tool `agora` em
+uma limpeza dedicada.
 
 Decisao importante: Agora nao e mais uma skin sobre Lotes. A superficie antiga
 de Lotes saiu do renderer da Agora. O backend batch antigo pode permanecer como

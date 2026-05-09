@@ -1,7 +1,14 @@
 node_modules/
 .docling-venv/
 dist/
+!engine/lex-engine/plugins/kanban/dashboard/dist/
+!engine/lex-engine/plugins/kanban/dashboard/dist/index.js
+!engine/lex-engine/plugins/kanban/dashboard/dist/style.css
 dist-electron/
+!dist-electron/
+dist-electron/*
+!dist-electron/agora/
+!dist-electron/agora/*
 release/
 *.log
 .DS_Store

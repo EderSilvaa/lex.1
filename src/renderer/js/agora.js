@@ -6,6 +6,7 @@ let agoraInitialized = false;
 let agoraLocalCards = [];
 let agoraPersistedCards = [];
 let agoraSelectedCardId = 'agora-pje-consulta';
+let agoraCommentCardId = null;
 
 const agoraList = () => document.getElementById('agora-list');
 const agoraTitle = () => document.getElementById('agora-title');
@@ -15,6 +16,7 @@ const btnNewTask = () => document.getElementById('btn-new-agora-task');
 const agoraColumns = [
     { id: 'entrada', label: 'Entrada', tone: 'neutral' },
     { id: 'especificacao', label: 'Especificacao', tone: 'info' },
+    { id: 'pronto_execucao', label: 'Pronto p/ execucao', tone: 'info' },
     { id: 'execucao', label: 'Execucao', tone: 'active' },
     { id: 'revisao', label: 'Revisao', tone: 'warning' },
     { id: 'pronto', label: 'Pronto', tone: 'success' },
@@ -133,7 +135,8 @@ async function refreshAgoraBoard() {
         }
     }
 
-    const cards = dedupeAgoraCards([...agoraPersistedCards, ...agoraLocalCards, ...agoraSeedCards]);
+    const fallbackCards = agoraPersistedCards.length || agoraLocalCards.length ? [] : agoraSeedCards;
+    const cards = dedupeAgoraCards([...agoraPersistedCards, ...agoraLocalCards, ...fallbackCards]);
 
     if (!cards.some(card => card.id === agoraSelectedCardId)) {
         agoraSelectedCardId = cards[0] ? cards[0].id : null;
@@ -276,10 +279,56 @@ function renderAgoraInspector(card) {
                 ${events.length ? events.map(renderAgoraEvent).join('') : '<div class="agora-muted-row">Sem eventos</div>'}
             </div>
         </section>
+        <section class="agora-inspector-section">
+            <h4>Workers</h4>
+            <div class="agora-run-list" id="agora-run-list">
+                ${renderAgoraRuns(card)}
+            </div>
+        </section>
+        ${renderAgoraCommentComposer(card)}
         <div class="agora-inspector-footer">
             <button class="agora-secondary-btn" id="btn-agora-comment" data-card-id="${escapeHtml(card.id)}">Comentar</button>
             <button class="agora-secondary-btn" id="btn-agora-open-console" data-card-id="${escapeHtml(card.id)}">Abrir no Console</button>
         </div>
+    `;
+}
+
+function renderAgoraRuns(card) {
+    const runs = Array.isArray(card.runs) ? card.runs.slice(-4).reverse() : [];
+    const log = String(card.workerLog || '').trim();
+    if (!runs.length && !log) return '<div class="agora-muted-row">Sem workers ainda</div>';
+    const renderedRuns = runs.map((run) => {
+        const status = run.outcome || run.status || 'active';
+        const pid = run.worker_pid ? `pid ${run.worker_pid}` : 'sem pid';
+        const profile = run.profile || card.agent || '-';
+        const started = formatAgoraDate(run.started_at);
+        const detail = run.summary || run.error || '';
+        return `
+            <div class="agora-run">
+                <div>
+                    <strong>#${escapeHtml(run.id)} ${escapeHtml(status)}</strong>
+                    <span>@${escapeHtml(profile)} · ${escapeHtml(pid)} · ${escapeHtml(started)}</span>
+                </div>
+                ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+            </div>
+        `;
+    }).join('');
+    const renderedLog = log
+        ? `<pre class="agora-worker-log">${escapeHtml(log.slice(-4000))}</pre>`
+        : '';
+    return `${renderedRuns}${renderedLog}`;
+}
+
+function renderAgoraCommentComposer(card) {
+    if (!card || agoraCommentCardId !== card.id) return '';
+    return `
+        <section class="agora-comment-composer" data-comment-card="${escapeHtml(card.id)}">
+            <textarea id="agora-comment-input" rows="3" placeholder="Escreva um comentario para o Kanban"></textarea>
+            <div class="agora-comment-actions">
+                <button class="agora-secondary-btn" id="btn-agora-comment-cancel" type="button">Cancelar</button>
+                <button class="agora-secondary-btn agora-secondary-btn-primary" id="btn-agora-comment-send" type="button">Enviar</button>
+            </div>
+        </section>
     `;
 }
 
@@ -340,8 +389,32 @@ function bindAgoraBoard(cards) {
 
     const commentBtn = document.getElementById('btn-agora-comment');
     if (commentBtn) {
-        commentBtn.addEventListener('click', () => addAgoraComment(commentBtn.getAttribute('data-card-id')));
+        commentBtn.addEventListener('click', () => showAgoraCommentComposer(commentBtn.getAttribute('data-card-id'), cards));
     }
+
+    const commentCancel = document.getElementById('btn-agora-comment-cancel');
+    if (commentCancel) {
+        commentCancel.addEventListener('click', () => {
+            agoraCommentCardId = null;
+            container.innerHTML = renderAgoraBoard(cards);
+            bindAgoraBoard(cards);
+        });
+    }
+
+    const commentSend = document.getElementById('btn-agora-comment-send');
+    if (commentSend) {
+        commentSend.addEventListener('click', () => submitAgoraComment(commentSend));
+    }
+}
+
+function showAgoraCommentComposer(cardId, cards = []) {
+    if (!cardId) return;
+    agoraCommentCardId = cardId;
+    const container = agoraList();
+    if (!container) return;
+    container.innerHTML = renderAgoraBoard(cards);
+    bindAgoraBoard(cards);
+    setTimeout(() => document.getElementById('agora-comment-input')?.focus(), 50);
 }
 
 async function openAgoraCardInConsole(cardId, cards = []) {
@@ -382,59 +455,27 @@ function findAgoraCard(cardId, cards = []) {
 }
 
 function buildAgoraConsolePrompt(card) {
-    const comments = Array.isArray(card.comments) ? card.comments.slice(-3) : [];
-    const events = Array.isArray(card.events) ? card.events.slice(-5) : [];
-    const lines = [
-        'Assuma esta tarefa da Agora no Console Lex.',
-        'Trate a Agora como workflow duravel do Hermes, nao como chat inline.',
-        'Trabalhe de forma supervisionada, sem praticar ato juridico sensivel sem confirmacao humana.',
-        'Use a ferramenta agora para ler, comentar e mover o card quando houver progresso.',
-        '',
-        `card_id: ${card.id}`,
-        `titulo: ${card.title || ''}`,
-        `coluna: ${card.column || ''}`,
-        `tipo: ${card.type || ''}`,
-        `prioridade: ${card.priority || ''}`,
-        `agente sugerido: ${card.agent || ''}`,
-        `controle: ${card.guardrail || ''}`,
-        `progresso: ${Math.round(card.progress || 0)}%`,
-        `resumo: ${card.summary || ''}`,
-    ];
-
-    if (comments.length) {
-        lines.push('', 'comentarios recentes:');
-        comments.forEach((comment) => {
-            lines.push(`- ${comment.author || 'agent'}: ${comment.body || ''}`);
-        });
-    }
-
-    if (events.length) {
-        lines.push('', 'eventos recentes:');
-        events.forEach((event) => {
-            lines.push(`- ${event.kind || 'evento'} ${event.created_at || event.createdAt || ''}`);
-        });
-    }
-
-    lines.push(
-        '',
-        `Primeiro leia o card com a ferramenta agora usando action="show" e card_id="${card.id}", se disponivel.`,
-        'Depois proponha o proximo passo objetivo e registre um comentario curto no card.'
-    );
-
-    return lines.join('\n');
+    return `/kanban show ${card.id}`;
 }
 
-async function addAgoraComment(cardId) {
+async function submitAgoraComment(button) {
+    const composer = button?.closest?.('[data-comment-card]');
+    const cardId = composer?.getAttribute('data-comment-card');
     if (!cardId) return;
-    const body = window.prompt('Comentario para a tarefa');
+    const input = document.getElementById('agora-comment-input');
+    const body = input ? input.value : '';
     if (!body || !body.trim()) return;
 
+    button.disabled = true;
     if (window.agoraApi && window.agoraApi.commentCard) {
         try {
             await window.agoraApi.commentCard(cardId, body.trim(), 'Electron');
+            agoraCommentCardId = null;
             await refreshAgoraBoard();
         } catch (e) {
             console.warn('[Agora] commentCard failed:', e);
+        } finally {
+            button.disabled = false;
         }
     }
 }

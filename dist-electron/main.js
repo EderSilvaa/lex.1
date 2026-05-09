@@ -87,6 +87,8 @@ let trayModeActive = false;
 let store;
 let backendEventWiringReady = false;
 let agoraBoardWatchListener = null;
+let agoraDispatcherTimer = null;
+let agoraDispatcherBusy = false;
 const approvedWorkspaceSelections = new Set();
 const approvedFileSelections = new Set();
 const singleInstanceLock = electron_1.app.requestSingleInstanceLock();
@@ -1232,6 +1234,7 @@ electron_1.app.whenReady().then(async () => {
     (0, crawler_1.registerCrawlerHandlers)();
     (0, lex_desktop_bridge_1.startLexDesktopBridge)();
     startAgoraBoardWatcher();
+    startAgoraDispatcher();
     electron_1.ipcMain.handle('lex-engine-status', async () => {
         try {
             return { success: true, data: { ...(await (0, lex_engine_1.getLexEngineStatus)()), bridge: (0, lex_desktop_bridge_1.getLexDesktopBridgeState)() } };
@@ -1591,6 +1594,7 @@ electron_1.app.on('window-all-closed', async function () {
     // Encerra backend (flush + close browser + sessions)
     (0, lex_desktop_bridge_1.stopLexDesktopBridge)();
     stopAgoraBoardWatcher();
+    stopAgoraDispatcher();
     await (0, backend_client_1.stopBackend)();
     // Fallback local caso backend não estivesse rodando
     (0, route_memory_1.flush)();
@@ -2958,11 +2962,22 @@ function ensureEngineAgoraBoardFile() {
         console.warn('[Agora] Falha ao preparar board compartilhado:', err?.message || err);
     }
 }
+function getLexEngineKanbanDbPath() {
+    return path.join((0, lex_engine_1.getLexEngineKanbanHomePath)(), 'kanban.db');
+}
+function ensureEngineKanbanHome() {
+    try {
+        fs.mkdirSync((0, lex_engine_1.getLexEngineKanbanHomePath)(), { recursive: true });
+    }
+    catch (err) {
+        console.warn('[Agora] Falha ao preparar Kanban home:', err?.message || err);
+    }
+}
 function startAgoraBoardWatcher() {
     if (agoraBoardWatchListener)
         return;
-    ensureEngineAgoraBoardFile();
-    const boardPath = (0, lex_engine_1.getLexEngineAgoraBoardPath)();
+    ensureEngineKanbanHome();
+    const boardPath = getLexEngineKanbanDbPath();
     let lastEmitAt = 0;
     agoraBoardWatchListener = (curr, prev) => {
         if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size)
@@ -2982,8 +2997,57 @@ function startAgoraBoardWatcher() {
 function stopAgoraBoardWatcher() {
     if (!agoraBoardWatchListener)
         return;
-    fs.unwatchFile((0, lex_engine_1.getLexEngineAgoraBoardPath)(), agoraBoardWatchListener);
+    fs.unwatchFile(getLexEngineKanbanDbPath(), agoraBoardWatchListener);
     agoraBoardWatchListener = null;
+}
+async function runAgoraDispatcherTick(reason = 'timer') {
+    if (agoraDispatcherBusy)
+        return;
+    agoraDispatcherBusy = true;
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('dispatch', {
+            max_spawn: Number(process.env['LEX_AGORA_MAX_SPAWN'] || 1),
+            failure_limit: Number(process.env['LEX_AGORA_FAILURE_LIMIT'] || 2),
+        });
+        const dispatch = result.dispatch || {};
+        const hasActivity = dispatch.promoted
+            || dispatch.reclaimed
+            || dispatch.timed_out?.length
+            || dispatch.crashed?.length
+            || dispatch.auto_blocked?.length
+            || dispatch.spawned?.length;
+        if (hasActivity) {
+            emitAgoraEvent({
+                type: 'dispatcher_tick',
+                cardId: null,
+                timestamp: new Date().toISOString(),
+                reason,
+                dispatch,
+            });
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Dispatcher tick falhou:', err?.message || err);
+    }
+    finally {
+        agoraDispatcherBusy = false;
+    }
+}
+function startAgoraDispatcher() {
+    if (agoraDispatcherTimer || process.env['LEX_AGORA_DISPATCHER_DISABLED'] === '1')
+        return;
+    const interval = Math.max(10, Number(process.env['LEX_AGORA_DISPATCH_INTERVAL_SECONDS'] || 60)) * 1000;
+    runAgoraDispatcherTick('startup');
+    agoraDispatcherTimer = setInterval(() => {
+        runAgoraDispatcherTick('timer');
+    }, interval);
+}
+function stopAgoraDispatcher() {
+    if (!agoraDispatcherTimer)
+        return;
+    clearInterval(agoraDispatcherTimer);
+    agoraDispatcherTimer = null;
 }
 function readEngineAgoraCards() {
     try {
@@ -3005,7 +3069,7 @@ function readEngineAgoraCards() {
         return [];
     }
 }
-const AGORA_COLUMN_ORDER = ['entrada', 'especificacao', 'execucao', 'revisao', 'pronto'];
+const AGORA_COLUMN_ORDER = ['entrada', 'especificacao', 'pronto_execucao', 'execucao', 'revisao', 'pronto'];
 const AGORA_PRIORITIES = ['Alta', 'Media', 'Baixa'];
 function readEngineAgoraBoard() {
     const boardPath = (0, lex_engine_1.getLexEngineAgoraBoardPath)();
@@ -3204,6 +3268,15 @@ function commentEngineAgoraCard(id, body, author = 'Electron') {
     }
 }
 electron_1.ipcMain.handle('agora-list-cards', async () => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('list');
+        if (result.ok && Array.isArray(result.cards))
+            return result.cards;
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban oficial indisponivel, usando fallback JSON/local:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const localCards = await getAgoraStore().getAllCards();
     const engineCards = readEngineAgoraCards();
@@ -3214,17 +3287,48 @@ electron_1.ipcMain.handle('agora-list-cards', async () => {
     ];
 });
 electron_1.ipcMain.handle('agora-get-card', async (_event, id) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('get', { id });
+        if (result.ok && result.card)
+            return result.card;
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban get falhou, usando fallback:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const engineCard = readEngineAgoraCards().find((card) => card.id === id);
     return engineCard || getAgoraStore().getCard(id);
 });
 electron_1.ipcMain.handle('agora-create-card', async (_event, input) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('create', input || {});
+        if (result.ok && result.card) {
+            emitAgoraEvent({ type: 'card_created', cardId: result.card.id, card: result.card, timestamp: new Date().toISOString() });
+            return result.card;
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban create falhou, usando fallback:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const card = createEngineAgoraCard(input || {}) || await getAgoraStore().addCard(input || {});
     emitAgoraEvent({ type: 'card_created', cardId: card.id, card, timestamp: new Date().toISOString() });
     return card;
 });
 electron_1.ipcMain.handle('agora-update-card', async (_event, { id, updates }) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('update', { id, updates: updates || {} });
+        if (result.ok && result.card) {
+            emitAgoraEvent({ type: 'card_updated', cardId: result.card.id, card: result.card, timestamp: new Date().toISOString() });
+            return result.card;
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban update falhou, usando fallback:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const card = updateEngineAgoraCard(id, updates || {}) || await getAgoraStore().updateCard(id, updates || {});
     if (card)
@@ -3232,6 +3336,17 @@ electron_1.ipcMain.handle('agora-update-card', async (_event, { id, updates }) =
     return card;
 });
 electron_1.ipcMain.handle('agora-move-card', async (_event, { id, direction }) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('move', { id, direction: Number(direction || 0) });
+        if (result.ok && result.card) {
+            emitAgoraEvent({ type: 'card_moved', cardId: result.card.id, card: result.card, timestamp: new Date().toISOString() });
+            return result.card;
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban move falhou, usando fallback:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const card = moveEngineAgoraCard(id, Number(direction || 0)) || await getAgoraStore().moveCard(id, Number(direction || 0));
     if (card)
@@ -3239,6 +3354,17 @@ electron_1.ipcMain.handle('agora-move-card', async (_event, { id, direction }) =
     return card;
 });
 electron_1.ipcMain.handle('agora-remove-card', async (_event, id) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('remove', { id });
+        if (result.ok && result.removed) {
+            emitAgoraEvent({ type: 'card_removed', cardId: id, timestamp: new Date().toISOString() });
+            return true;
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban remove falhou, usando fallback:', err?.message || err);
+    }
     const { getAgoraStore } = await Promise.resolve().then(() => __importStar(require('./agora')));
     const removed = removeEngineAgoraCard(id) || await getAgoraStore().removeCard(id);
     if (removed)
@@ -3246,10 +3372,33 @@ electron_1.ipcMain.handle('agora-remove-card', async (_event, id) => {
     return removed;
 });
 electron_1.ipcMain.handle('agora-comment-card', async (_event, { id, body, author }) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('comment', { id, body, author: author || 'Electron' });
+        if (result.ok && result.card) {
+            emitAgoraEvent({ type: 'comment_added', cardId: id, card: result.card, timestamp: new Date().toISOString() });
+            return result.card;
+        }
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban comment falhou, usando fallback:', err?.message || err);
+    }
     const card = commentEngineAgoraCard(id, body, author || 'Electron');
     if (card)
         emitAgoraEvent({ type: 'comment_added', cardId: id, card, timestamp: new Date().toISOString() });
     return card;
+});
+electron_1.ipcMain.handle('agora-get-runs', async (_event, id) => {
+    try {
+        const { runKanbanBridge } = await Promise.resolve().then(() => __importStar(require('./agora/kanban-bridge')));
+        const result = await runKanbanBridge('runs', { id });
+        if (result.ok)
+            return { runs: result.runs || [], log: result.log || '' };
+    }
+    catch (err) {
+        console.warn('[Agora] Kanban runs falhou:', err?.message || err);
+    }
+    return { runs: [], log: '' };
 });
 electron_1.ipcMain.handle('batch-list-lotes', async () => {
     const { getLoteStore } = await Promise.resolve().then(() => __importStar(require('./batch')));

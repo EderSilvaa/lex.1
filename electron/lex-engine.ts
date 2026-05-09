@@ -83,7 +83,7 @@ function getDefaultWindowsEnginePath(): string {
     return process.env['LEX_ENGINE_WINDOWS_PATH'] || path.join(app.getPath('home'), 'lex_engine');
 }
 
-function getRepoEnginePath(): string {
+export function getLexEngineRepoPath(): string {
     return process.env['LEX_ENGINE_REPO_PATH'] || path.join(app.getAppPath(), 'engine', 'lex-engine');
 }
 
@@ -105,7 +105,7 @@ function getDefaultWslPythonPath(): string {
     return process.env['LEX_ENGINE_WSL_PYTHON'] || `${getDefaultWslProjectPath()}/venv/bin/python`;
 }
 
-function windowsPathToWslPath(windowsPath: string): string {
+export function windowsPathToWslPath(windowsPath: string): string {
     const normalized = path.resolve(windowsPath).replace(/\\/g, '/');
     const match = /^([A-Za-z]):\/(.*)$/.exec(normalized);
     if (!match) return normalized;
@@ -115,7 +115,7 @@ function windowsPathToWslPath(windowsPath: string): string {
 }
 
 function getRepoWslProjectPath(): string {
-    return process.env['LEX_ENGINE_REPO_WSL_PATH'] || windowsPathToWslPath(getRepoEnginePath());
+    return process.env['LEX_ENGINE_REPO_WSL_PATH'] || windowsPathToWslPath(getLexEngineRepoPath());
 }
 
 function getRepoWslPythonPath(): string {
@@ -126,13 +126,37 @@ export function getLexEngineAgoraBoardPath(): string {
     return process.env['LEX_AGORA_BOARD_PATH'] || path.join(app.getPath('userData'), 'agora', 'engine-board.json');
 }
 
+export function getLexEngineKanbanHomePath(): string {
+    return process.env['HERMES_KANBAN_HOME'] || process.env['LEX_KANBAN_HOME'] || path.join(app.getPath('userData'), 'agora-kanban');
+}
+
+export function getLexEngineKanbanBridgeEnv(): Record<string, string> {
+    const runtime = resolveLexEngineRuntime();
+    const env: Record<string, string> = {
+        HERMES_KANBAN_HOME: getLexEngineKanbanHomePath(),
+        LEX_KANBAN_ENABLE_WORKER_SPAWN: process.env['LEX_AGORA_ENABLE_WORKERS'] === '1' ? '1' : '0',
+    };
+
+    if (process.platform === 'win32' && (runtime.mode === 'repo-wsl' || runtime.mode === 'external-wsl')) {
+        env['LEX_KANBAN_SPAWN_MODE'] = 'wsl';
+        env['LEX_KANBAN_WSL_DISTRO'] = getDefaultWslDistro();
+        env['LEX_KANBAN_WSL_PROJECT_PATH'] = runtime.wslPath;
+        env['LEX_KANBAN_WSL_COMMAND'] = runtime.command;
+        env['LEX_KANBAN_WSL_HOME'] = windowsPathToWslPath(getLexEngineKanbanHomePath());
+    } else {
+        env['LEX_KANBAN_SPAWN_MODE'] = 'local';
+    }
+
+    return env;
+}
+
 function getWindowsMountedWslEnginePath(): string {
     return `/mnt/c/Users/${path.basename(app.getPath('home') || 'EDER')}/lex_engine`;
 }
 
 function resolveLexEngineRuntime(): LexEngineRuntime {
     const mode = getLexEngineMode();
-    const repoEnginePath = getRepoEnginePath();
+    const repoEnginePath = getLexEngineRepoPath();
     const externalWindowsPath = getDefaultWindowsEnginePath();
 
     if (mode === 'repo-wsl') {
@@ -178,7 +202,7 @@ function bashQuote(value: string): string {
 export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     const runtime = resolveLexEngineRuntime();
     const engineMode = runtime.mode;
-    const repoEnginePath = getRepoEnginePath();
+    const repoEnginePath = getLexEngineRepoPath();
     const repoEnginePathExists = fs.existsSync(repoEnginePath);
     const windowsPath = runtime.windowsPath;
     const windowsPathExists = fs.existsSync(windowsPath);
@@ -285,8 +309,10 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
     const projectPath = runtime.wslPath;
     const cwd = runtime.cwd;
     const agoraBoardPath = getLexEngineAgoraBoardPath();
+    const kanbanHomePath = getLexEngineKanbanHomePath();
     try {
         fs.mkdirSync(path.dirname(agoraBoardPath), { recursive: true });
+        fs.mkdirSync(kanbanHomePath, { recursive: true });
     } catch {
         // Best-effort; the engine tool also creates its parent directory.
     }
@@ -295,6 +321,7 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
         LEX_ENGINE_SESSION_ID: sessionId,
         LEX_ENGINE_MODE: engineMode,
         LEX_AGORA_BOARD_PATH: agoraBoardPath,
+        HERMES_KANBAN_HOME: kanbanHomePath,
         LEX_STATUS_BROWSER: 'verifique pelo indicador do Desktop',
         LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
         LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
@@ -307,9 +334,10 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
 
     if (process.platform === 'win32') {
         const wslAgoraBoardPath = windowsPathToWslPath(agoraBoardPath);
+        const wslKanbanHomePath = windowsPathToWslPath(kanbanHomePath);
         return {
             shell: 'wsl.exe',
-            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && LEX_AGORA_BOARD_PATH=${bashQuote(wslAgoraBoardPath)} ${runtime.command}`],
+            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && LEX_AGORA_BOARD_PATH=${bashQuote(wslAgoraBoardPath)} HERMES_KANBAN_HOME=${bashQuote(wslKanbanHomePath)} ${runtime.command}`],
             cwd,
             env,
         };
