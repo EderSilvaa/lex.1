@@ -220,8 +220,19 @@ function writeSingle(brain: BrainStore, obs: Observation): void {
     const selectors = extractSelectors(obs.input);
     if (selectors.length > 0 && obs.before?.tribunal && obs.before?.pjeContext && obs.success) {
         try {
+            const selectorEnvironment = {
+                tribunal: obs.before.tribunal,
+                pjeContext: obs.before.pjeContext,
+                canonicalContext: obs.before.canonicalContext,
+                profileKind: obs.before.profileKind,
+                authState: obs.before.authState,
+                surfaceKind: obs.before.surfaceKind,
+                screenFamily: obs.before.screenFamily,
+                areaLabel: obs.before.areaLabel,
+                canonicalEnvironmentKey: obs.before.canonicalEnvironmentKey,
+            };
             for (const selector of selectors.slice(0, 12)) {
-                brain.recordSelectorSuccess(obs.before.tribunal, obs.before.pjeContext, selector);
+                brain.recordSelectorSuccess(obs.before.tribunal, obs.before.pjeContext, selector, { environment: selectorEnvironment });
             }
         } catch {
             /* ignore — método pode não existir em versões antigas */

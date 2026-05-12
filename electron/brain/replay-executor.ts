@@ -170,14 +170,14 @@ export async function tryReplay(
                 stepError = undefined;
                 // Reforça selector ao suceder no alternate (aprende qual funciona).
                 if (sel && attempt > 0 && step.stateTribunal && step.stateContext) {
-                    try { brain.recordSelectorSuccess(step.stateTribunal, step.stateContext, sel); }
+                    try { brain.recordSelectorSuccess(step.stateTribunal, step.stateContext, sel, { environment: step.stateEnvironment }); }
                     catch { /* ok */ }
                 }
                 break;
             } catch (err: any) {
                 stepError = err?.message ? String(err.message) : String(err);
                 if (sel && step.stateTribunal && step.stateContext) {
-                    try { brain.recordSelectorFailure(step.stateTribunal, step.stateContext, sel); }
+                    try { brain.recordSelectorFailure(step.stateTribunal, step.stateContext, sel, { environment: step.stateEnvironment }); }
                     catch { /* ok */ }
                 }
                 // tenta próximo alternate

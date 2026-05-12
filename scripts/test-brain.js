@@ -308,6 +308,64 @@ async function testReplayPrefersMatchingEnvironment() {
     });
 }
 
+async function testBrainSelectorLookupPrefersMatchingEnvironment() {
+    await withBrain('selector-environment', async (brain) => {
+        brain.recordSelectorSuccess('TJPA', 'autos', '#legacy-autos');
+        brain.recordSelectorSuccess('TJPA', 'autos', '#servidor-autos', {
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'servidor',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'servidor_autos',
+                areaLabel: 'autos_do_servidor',
+                canonicalEnvironmentKey: 'TJPA|servidor|autos|logado|autos_do_servidor',
+            },
+        });
+        brain.recordSelectorSuccess('TJPA', 'autos', '#advogado-autos', {
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'advogado',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'advogado_autos',
+                areaLabel: 'autos_do_advogado',
+                canonicalEnvironmentKey: 'TJPA|advogado|autos|logado|autos_do_advogado',
+            },
+        });
+
+        const servidorSelectors = brain.lookupSelectors('TJPA', 'autos', {
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'servidor',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'servidor_autos',
+                areaLabel: 'autos_do_servidor',
+                canonicalEnvironmentKey: 'TJPA|servidor|autos|logado|autos_do_servidor',
+            },
+        });
+        assert.deepStrictEqual(servidorSelectors.slice(0, 2), ['#servidor-autos', '#legacy-autos']);
+
+        const advogadoSelectors = brain.lookupSelectors('TJPA', 'autos', {
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'advogado',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'advogado_autos',
+                areaLabel: 'autos_do_advogado',
+                canonicalEnvironmentKey: 'TJPA|advogado|autos|logado|autos_do_advogado',
+            },
+        });
+        assert.deepStrictEqual(advogadoSelectors.slice(0, 2), ['#advogado-autos', '#legacy-autos']);
+    });
+}
+
 async function testRiskAndExplainOnDreamReports() {
     await withBrain('risk-explain', async (brain) => {
         brain.addNode('page_state', 'TJPA:old', {
@@ -338,6 +396,7 @@ async function main() {
         testPolicyDisablesPhases,
         testMicroFlowAndReplayFeedback,
         testReplayPrefersMatchingEnvironment,
+        testBrainSelectorLookupPrefersMatchingEnvironment,
         testRiskAndExplainOnDreamReports,
     ];
 

@@ -8,11 +8,22 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { applySchema, runMigrations } from './schema';
+import { buildPjeEnvironmentLookupKey } from '../pje/environment-context';
 import type {
     BrainNode, BrainEdge, BrainNodeType, BrainEdgeRelation,
     BrainSearchResult, BrainGraphData, BrainContextResult,
     InteractionRow, SelectorAnalytics,
 } from './types';
+
+interface SelectorLookupOptions {
+    environment?: unknown;
+}
+
+function makeSelectorContextKey(context: string, opts: SelectorLookupOptions = {}): string {
+    const rawContext = String(context || '').trim();
+    const environmentKey = buildPjeEnvironmentLookupKey(opts.environment);
+    return environmentKey ? `${environmentKey}:${rawContext}` : rawContext;
+}
 
 export class BrainStore {
     readonly db: Database.Database;
@@ -446,16 +457,30 @@ export class BrainStore {
     // SELECTORS
     // ================================================================
 
-    lookupSelectors(tribunal: string, context: string): string[] {
+    lookupSelectors(tribunal: string, context: string, opts: SelectorLookupOptions = {}): string[] {
+        const wantedContext = makeSelectorContextKey(context, opts);
+        const legacyContext = makeSelectorContextKey(context);
         const rows = this.db.prepare(`
-            SELECT selector_css FROM selectors
-            WHERE tribunal = ? AND context = ?
-            ORDER BY success_count DESC, last_used DESC
-        `).all(tribunal, context) as any[];
-        return rows.map(r => r.selector_css);
+            SELECT selector_css, context, success_count, last_used FROM selectors
+            WHERE tribunal = ? AND context IN (?, ?)
+            ORDER BY
+                CASE WHEN context = ? THEN 0 ELSE 1 END,
+                success_count DESC,
+                last_used DESC
+        `).all(tribunal, wantedContext, legacyContext, wantedContext) as any[];
+        const selectors: string[] = [];
+        const seen = new Set<string>();
+        for (const row of rows) {
+            const selector = String(row.selector_css || '');
+            if (!selector || seen.has(selector)) continue;
+            seen.add(selector);
+            selectors.push(selector);
+        }
+        return selectors;
     }
 
-    recordSelectorSuccess(tribunal: string, context: string, selector: string): void {
+    recordSelectorSuccess(tribunal: string, context: string, selector: string, opts: SelectorLookupOptions = {}): void {
+        const contextKey = makeSelectorContextKey(context, opts);
         this.db.prepare(`
             INSERT INTO selectors (id, tribunal, context, selector_css, success_count, failure_count, last_used, last_successful)
             VALUES (?, ?, ?, ?, 1, 0, ?, ?)
@@ -463,17 +488,18 @@ export class BrainStore {
                 success_count = success_count + 1,
                 last_used = excluded.last_used,
                 last_successful = excluded.last_successful
-        `).run(randomUUID(), tribunal, context, selector, Date.now(), selector);
+        `).run(randomUUID(), tribunal, contextKey, selector, Date.now(), selector);
     }
 
-    recordSelectorFailure(tribunal: string, context: string, selector: string): void {
+    recordSelectorFailure(tribunal: string, context: string, selector: string, opts: SelectorLookupOptions = {}): void {
+        const contextKey = makeSelectorContextKey(context, opts);
         this.db.prepare(`
             INSERT INTO selectors (id, tribunal, context, selector_css, success_count, failure_count, last_used)
             VALUES (?, ?, ?, ?, 0, 1, ?)
             ON CONFLICT(tribunal, context, selector_css) DO UPDATE SET
                 failure_count = failure_count + 1,
                 last_used = excluded.last_used
-        `).run(randomUUID(), tribunal, context, selector, Date.now());
+        `).run(randomUUID(), tribunal, contextKey, selector, Date.now());
     }
 
     getSelectorStats(): SelectorAnalytics {

@@ -53,6 +53,7 @@ export interface ReplayStep {
     /** Tribunal + pjeContext do page_state de partida — usado pra lookup. */
     stateTribunal?: string;
     stateContext?: string;
+    stateEnvironment?: unknown;
 }
 
 export interface ReplayPlan {
@@ -211,13 +212,14 @@ function buildPlanFromFlow(
         const currentState = brain.getNode(currentStateId);
         const stateTribunal = String(currentState?.data?.['tribunal'] || '') || undefined;
         const stateContext = String(currentState?.data?.['pjeContext'] || '') || undefined;
+        const stateEnvironment = buildPageStateEnvironment(currentState?.data);
 
         // Alternatives: seletores conhecidos pro mesmo (tribunal, context),
         // exceto o primário. Rankeados por success_count (lookupSelectors).
         let alternateSelectors: string[] | undefined;
         if (primarySelector && stateTribunal && stateContext) {
             try {
-                const all = brain.lookupSelectors(stateTribunal, stateContext);
+                const all = brain.lookupSelectors(stateTribunal, stateContext, { environment: stateEnvironment });
                 alternateSelectors = all.filter(s => s !== primarySelector).slice(0, 5);
             } catch { /* ignore */ }
         }
@@ -245,6 +247,7 @@ function buildPlanFromFlow(
             adaptiveTimeoutMs: adaptiveTimeoutMs(history, { floorMs: 3000, ceilMs: 30000 }),
             stateTribunal,
             stateContext,
+            stateEnvironment,
         });
 
         if (!expectedNext || expectedNext.type !== 'page_state') break;
@@ -404,12 +407,35 @@ function reinforceReplayAction(brain: BrainStore, step: ReplayStep, success: boo
 
     if (step.primarySelector && step.stateTribunal && step.stateContext) {
         try {
-            if (success) brain.recordSelectorSuccess(step.stateTribunal, step.stateContext, step.primarySelector);
-            else brain.recordSelectorFailure(step.stateTribunal, step.stateContext, step.primarySelector);
+            if (success) brain.recordSelectorSuccess(step.stateTribunal, step.stateContext, step.primarySelector, { environment: step.stateEnvironment });
+            else brain.recordSelectorFailure(step.stateTribunal, step.stateContext, step.primarySelector, { environment: step.stateEnvironment });
         } catch {
             /* selector feedback is best-effort */
         }
     }
+}
+
+function buildPageStateEnvironment(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+    if (!data) return undefined;
+    const environment: Record<string, unknown> = {};
+    const fields = [
+        'tribunal',
+        'pjeContext',
+        'canonicalContext',
+        'profileKind',
+        'authState',
+        'surfaceKind',
+        'screenFamily',
+        'areaLabel',
+        'canonicalEnvironmentKey',
+    ] as const;
+    for (const field of fields) {
+        const value = data[field];
+        if (value !== undefined && value !== null && value !== '') {
+            environment[field] = value;
+        }
+    }
+    return Object.keys(environment).length > 0 ? environment : undefined;
 }
 
 // ── internals ────────────────────────────────────────────────────────────────
