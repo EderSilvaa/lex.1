@@ -9,6 +9,28 @@ import { getActivePage, ensureBrowser } from '../../browser-manager';
 import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveTribunalRoutes, resolveDestinationUrl } from '../../pje/tribunal-urls';
 import { lookupRoute, saveRoute } from '../../pje/route-memory';
+import { inferPjeEnvironmentContext } from '../../pje/environment-context';
+
+async function inferCurrentPjeEnvironment(tribunal?: string): Promise<unknown | undefined> {
+    const page = getActivePage();
+    if (!page) return undefined;
+    try {
+        const [url, title, textSample] = await Promise.all([
+            Promise.resolve(page.url()),
+            page.title().catch(() => ''),
+            page.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => ''),
+        ]);
+        const environment = inferPjeEnvironmentContext({
+            url,
+            title,
+            tribunal,
+            textSnippets: textSample ? [textSample] : [],
+        });
+        return Object.keys(environment).length > 0 ? environment : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 export const pjeNavegar: Skill = {
     nome: 'pje_navegar',
@@ -44,12 +66,13 @@ export const pjeNavegar: Skill = {
         }
 
         console.log(`[pje_navegar] Destino: "${destino}" ${tribunal ? `(${tribunal})` : ''}`);
+        const currentEnvironment = await inferCurrentPjeEnvironment(tribunal || undefined);
 
         // Resolve URL na ordem de prioridade:
         // 1. Route Memory (aprendido pelo uso — mais confiável)
         // 2. tribunal-urls.ts (estático)
         const routes = resolveTribunalRoutes(tribunal);
-        const urlDireta = lookupRoute(tribunal, destino) ?? resolveDestinationUrl(routes, destino);
+        const urlDireta = lookupRoute(tribunal, destino, { environment: currentEnvironment }) ?? resolveDestinationUrl(routes, destino);
 
         if (urlDireta) {
             console.log(`[pje_navegar] URL direta encontrada: ${urlDireta}`);
@@ -69,7 +92,7 @@ export const pjeNavegar: Skill = {
                             mensagem: `Você precisa fazer login no PJe antes de navegar para ${destino}.`
                         };
                     }
-                    saveRoute(tribunal, destino, finalUrl);
+                    saveRoute(tribunal, destino, finalUrl, { environment: currentEnvironment });
                     return {
                         sucesso: true,
                         dados: { destino, tribunal, url: finalUrl, modo: 'url_direta' },
@@ -112,7 +135,7 @@ Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto
                     };
                 }
                 if (finalUrl && !finalUrl.includes('login')) {
-                    saveRoute(tribunal, destino, finalUrl);
+                    saveRoute(tribunal, destino, finalUrl, { environment: currentEnvironment });
                 }
             } catch { /* best effort */ }
             return {

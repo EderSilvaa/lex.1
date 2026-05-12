@@ -518,7 +518,13 @@ async function getKnownFlowsForPage(page, limit = 3) {
       const sameTribunal = !state.tribunal || String(flow?.tribunal || '').toUpperCase() === state.tribunal;
       const contexts = [flow?.pjeContext, flow?.canonicalContext].map((value) => String(value || '')).filter(Boolean);
       const sameContext = !state.pjeContext || contexts.includes(state.pjeContext);
-      return sameTribunal && sameContext;
+      const sameProfile = !state.profileKind || !flow?.profileKind || String(flow.profileKind) === state.profileKind;
+      const sameSurface = !state.surfaceKind || !flow?.surfaceKind || String(flow.surfaceKind) === state.surfaceKind;
+      const sameScreenFamily = !state.screenFamily || !flow?.screenFamily || String(flow.screenFamily) === state.screenFamily;
+      const sameArea = !state.areaLabel || !flow?.areaLabel || String(flow.areaLabel) === state.areaLabel;
+      const sameEnvironment = !state.canonicalEnvironmentKey || !flow?.canonicalEnvironmentKey
+        || String(flow.canonicalEnvironmentKey) === state.canonicalEnvironmentKey;
+      return sameTribunal && sameContext && sameProfile && sameSurface && sameScreenFamily && sameArea && sameEnvironment;
     });
     if (flows.length === 0) return { count: 0, flows: [] };
     return {
@@ -528,6 +534,11 @@ async function getKnownFlowsForPage(page, limit = 3) {
         label: flow.label,
         tribunal: flow.tribunal,
         context: flow.canonicalContext || flow.pjeContext,
+        profileKind: flow.profileKind,
+        surfaceKind: flow.surfaceKind,
+        screenFamily: flow.screenFamily,
+        areaLabel: flow.areaLabel,
+        canonicalEnvironmentKey: flow.canonicalEnvironmentKey,
         tools: compactTextList(flow.tools, 8, 80),
         instances: flow.instances,
         confidence: flow.confidence,

@@ -27,6 +27,11 @@ import {
 } from './scoring';
 import { findSimilarIntent } from './intent-similarity';
 import { adaptiveTimeoutMs } from './percentiles';
+import {
+    buildPjeEnvironmentLookupKey,
+    getPjeEnvironmentSpecificity,
+    scorePjeEnvironmentCompatibility,
+} from '../pje/environment-context';
 
 export interface ReplayStep {
     actionId: string;
@@ -65,6 +70,7 @@ export interface ReplayPlan {
 export interface FindPlanOptions {
     tribunal?: string;
     pjeContext?: string;
+    environment?: unknown;
     /** Se true, exige TODAS as arestas acima de EXPLOIT_THRESHOLD. Default: true. */
     strict?: boolean;
     /** Score mínimo agregado do plano. Default: 0.7. */
@@ -88,41 +94,59 @@ export function findReplayPlan(
 ): ReplayPlan | null {
     const minConf = opts.minConfidence ?? EXPLOIT_THRESHOLD;
     const strict = opts.strict ?? true;
+    const wantedEnvironment = buildWantedEnvironment(opts);
 
     // 1. Busca flows compatíveis pelo label (tribunal:pjeContext:hash).
     const allFlows = brain.getNodesByType('flow', 200);
-    let flows = allFlows.filter(f => {
-        const tribunal = String(f.data?.['tribunal'] || '').toUpperCase();
+    let flows = allFlows.map(flow => {
+        const environmentScore = scorePjeEnvironmentCompatibility(wantedEnvironment, flow.data || {});
+        return { flow, environmentScore };
+    }).filter(({ flow, environmentScore }) => {
+        const tribunal = String(flow.data?.['tribunal'] || '').toUpperCase();
         const wantedTribunal = String(opts.tribunal || '').toUpperCase();
         const contexts = [
-            String(f.data?.['pjeContext'] || ''),
-            String(f.data?.['canonicalContext'] || ''),
+            String(flow.data?.['pjeContext'] || ''),
+            String(flow.data?.['canonicalContext'] || ''),
         ].filter(Boolean);
-        return (!wantedTribunal || tribunal === wantedTribunal)
-            && (!opts.pjeContext || contexts.includes(opts.pjeContext) || f.label.startsWith(`${opts.tribunal || 'unknown'}:${opts.pjeContext}`));
+        return environmentScore >= 0
+            && (!wantedTribunal || tribunal === wantedTribunal)
+            && (!opts.pjeContext || contexts.includes(opts.pjeContext) || flow.label.startsWith(`${opts.tribunal || 'unknown'}:${opts.pjeContext}`));
     });
 
     // 2. Fallback semântico: se não achou por label e temos o goal em texto,
     // tenta matching por similaridade contra goals historicamente atendidos
     // por flows (guardados em data.goalExamples ou label human-readable).
     if (flows.length === 0 && opts.goal) {
-        const candidates = allFlows.map(f => ({
-            goal: String(f.data?.['pjeContext'] || '') + ' ' + String(f.data?.['tribunal'] || ''),
-            flow: f,
+        const candidates = allFlows.map(flow => ({
+            goal: [
+                String(flow.data?.['pjeContext'] || ''),
+                String(flow.data?.['canonicalContext'] || ''),
+                String(flow.data?.['profileKind'] || ''),
+                String(flow.data?.['surfaceKind'] || ''),
+                String(flow.data?.['tribunal'] || ''),
+            ].join(' '),
+            flow,
         }));
         const hit = findSimilarIntent(opts.goal, candidates, opts.semanticThreshold ?? 0.4);
-        if (hit) flows = [hit.candidate.flow];
+        if (hit) {
+            const environmentScore = scorePjeEnvironmentCompatibility(wantedEnvironment, hit.candidate.flow.data || {});
+            if (environmentScore >= 0) flows = [{ flow: hit.candidate.flow, environmentScore }];
+        }
     }
 
     if (flows.length === 0) return null;
 
     // Ordena por confidence do flow e instances.
     const sorted = flows.sort((a, b) => {
-        const ai = Number(a.data?.['instances']) || 0;
-        const bi = Number(b.data?.['instances']) || 0;
+        if (b.environmentScore !== a.environmentScore) return b.environmentScore - a.environmentScore;
+        const aSpecificity = getPjeEnvironmentSpecificity(a.flow.data || {});
+        const bSpecificity = getPjeEnvironmentSpecificity(b.flow.data || {});
+        if (bSpecificity !== aSpecificity) return bSpecificity - aSpecificity;
+        const ai = Number(a.flow.data?.['instances']) || 0;
+        const bi = Number(b.flow.data?.['instances']) || 0;
         if (bi !== ai) return bi - ai;
-        return (b.confidence || 0) - (a.confidence || 0);
-    });
+        return (b.flow.confidence || 0) - (a.flow.confidence || 0);
+    }).map((item) => item.flow);
 
     for (const flow of sorted) {
         const plan = buildPlanFromFlow(brain, flow, { strict, minConfidence: minConf });
@@ -412,9 +436,21 @@ function extractSelector(input: Record<string, unknown>): string | undefined {
     return undefined;
 }
 
+function buildWantedEnvironment(opts: FindPlanOptions): Record<string, unknown> {
+    const raw = opts.environment && typeof opts.environment === 'object' && !Array.isArray(opts.environment)
+        ? opts.environment as Record<string, unknown>
+        : {};
+    return {
+        ...raw,
+        ...(opts.tribunal ? { tribunal: opts.tribunal } : {}),
+        ...(opts.pjeContext ? { pjeContext: opts.pjeContext, canonicalContext: opts.pjeContext } : {}),
+    };
+}
+
 function buildSummary(flow: BrainNode, steps: ReplayStep[]): string {
     const tribunal = flow.data?.['tribunal'] || 'unknown';
-    const ctx = flow.data?.['pjeContext'] || 'flow';
+    const ctx = buildPjeEnvironmentLookupKey(flow.data || {})
+        || String(flow.data?.['screenFamily'] || flow.data?.['surfaceKind'] || flow.data?.['pjeContext'] || 'flow');
     const tools = steps.map(s => s.tool).join(' → ');
     return `[${tribunal}/${ctx}] ${steps.length} steps: ${tools}`;
 }

@@ -27,6 +27,18 @@ export interface PjeEnvironmentContext {
     contextSummary?: string;
 }
 
+export interface PjeEnvironmentMatch {
+    tribunal?: string;
+    pjeContext?: string;
+    canonicalContext?: string;
+    profileKind?: PjeProfileKind;
+    authState?: PjeAuthState;
+    surfaceKind?: PjeSurfaceKind;
+    screenFamily?: string;
+    areaLabel?: string;
+    canonicalEnvironmentKey?: string;
+}
+
 interface InferPjeEnvironmentInput {
     url?: string;
     title?: string;
@@ -322,6 +334,96 @@ export function normalizePjeEnvironmentContext(value: unknown): PjeEnvironmentCo
         ...(cleanText(raw['contextSummary'], 220) ? { contextSummary: cleanText(raw['contextSummary'], 220) } : {}),
     };
     return normalized;
+}
+
+export function extractPjeEnvironmentMatch(value: unknown): PjeEnvironmentMatch | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const raw = value as Record<string, unknown>;
+    const environment = normalizePjeEnvironmentContext(raw['environment']) || normalizePjeEnvironmentContext(raw);
+    const tribunal = normalizeTribunal(raw['tribunal']) || environment?.tribunal;
+    const pjeContext = slugify(raw['pjeContext'], 120) || environment?.pjeContext;
+    const canonicalContext = slugify(raw['canonicalContext'], 120) || environment?.canonicalContext || pjeContext;
+    const canonicalEnvironmentKey = cleanText(raw['canonicalEnvironmentKey'], 220) || environment?.canonicalEnvironmentKey;
+    const match: PjeEnvironmentMatch = {
+        ...(tribunal ? { tribunal } : {}),
+        ...(pjeContext ? { pjeContext } : {}),
+        ...(canonicalContext ? { canonicalContext } : {}),
+        ...(environment?.profileKind ? { profileKind: environment.profileKind } : {}),
+        ...(environment?.authState ? { authState: environment.authState } : {}),
+        ...(environment?.surfaceKind ? { surfaceKind: environment.surfaceKind } : {}),
+        ...(environment?.screenFamily ? { screenFamily: environment.screenFamily } : {}),
+        ...(environment?.areaLabel ? { areaLabel: environment.areaLabel } : {}),
+        ...(canonicalEnvironmentKey ? { canonicalEnvironmentKey } : {}),
+    };
+    return Object.keys(match).length > 0 ? match : undefined;
+}
+
+export function buildPjeEnvironmentLookupKey(value: unknown): string | undefined {
+    const match = extractPjeEnvironmentMatch(value);
+    if (!match) return undefined;
+    const raw = match.canonicalEnvironmentKey
+        || [
+            match.profileKind,
+            match.surfaceKind,
+            match.screenFamily,
+            match.canonicalContext || match.pjeContext,
+            match.areaLabel,
+        ].filter(Boolean).join('|');
+    const normalized = slugify(raw, 160);
+    return normalized || undefined;
+}
+
+export function getPjeEnvironmentSpecificity(value: unknown): number {
+    const match = extractPjeEnvironmentMatch(value);
+    if (!match) return 0;
+    let score = 0;
+    if (match.canonicalEnvironmentKey) score += 5;
+    if (match.profileKind) score += 2;
+    if (match.surfaceKind) score += 3;
+    if (match.screenFamily) score += 2;
+    if (match.areaLabel) score += 2;
+    if (match.authState) score += 1;
+    if (match.canonicalContext || match.pjeContext) score += 2;
+    return score;
+}
+
+export function scorePjeEnvironmentCompatibility(expectedValue: unknown, candidateValue: unknown): number {
+    const expected = extractPjeEnvironmentMatch(expectedValue);
+    const candidate = extractPjeEnvironmentMatch(candidateValue);
+    if (!expected) return 0;
+    if (!candidate) return 0;
+
+    if (expected.canonicalEnvironmentKey && candidate.canonicalEnvironmentKey) {
+        return expected.canonicalEnvironmentKey === candidate.canonicalEnvironmentKey ? 1 : -1;
+    }
+
+    const expectedContext = expected.canonicalContext || expected.pjeContext;
+    const candidateContext = candidate.canonicalContext || candidate.pjeContext;
+    const fields: Array<{ expected?: string; candidate?: string; weight: number; hard: boolean }> = [
+        { expected: expectedContext, candidate: candidateContext, weight: 0.28, hard: true },
+        { expected: expected.profileKind, candidate: candidate.profileKind, weight: 0.22, hard: true },
+        { expected: expected.surfaceKind, candidate: candidate.surfaceKind, weight: 0.28, hard: true },
+        { expected: expected.screenFamily, candidate: candidate.screenFamily, weight: 0.18, hard: true },
+        { expected: expected.areaLabel, candidate: candidate.areaLabel, weight: 0.2, hard: true },
+        { expected: expected.authState, candidate: candidate.authState, weight: 0.08, hard: true },
+        { expected: expected.tribunal, candidate: candidate.tribunal, weight: 0.08, hard: false },
+    ];
+
+    let score = 0;
+    for (const field of fields) {
+        if (!field.expected) continue;
+        if (field.candidate && field.expected !== field.candidate) {
+            return field.hard ? -1 : score;
+        }
+        if (field.candidate && field.expected === field.candidate) {
+            score += field.weight;
+        }
+    }
+    return score;
+}
+
+export function arePjeEnvironmentsCompatible(expectedValue: unknown, candidateValue: unknown): boolean {
+    return scorePjeEnvironmentCompatibility(expectedValue, candidateValue) >= 0;
 }
 
 export function inferPjeEnvironmentContext(input: InferPjeEnvironmentInput): PjeEnvironmentContext {

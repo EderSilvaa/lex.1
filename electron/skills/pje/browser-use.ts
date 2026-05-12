@@ -16,7 +16,7 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { ensureBrowser } from '../../browser-manager';
+import { ensureBrowser, getActivePage } from '../../browser-manager';
 import { resolveTribunalRoutes } from '../../pje/tribunal-urls';
 import { getActiveConfig } from '../../provider-config';
 import { runAnthropicWithMcp, McpRunnerEvent } from '../../anthropic-mcp-runner';
@@ -26,6 +26,7 @@ import { tryReplay, type ReplayEvent } from '../../brain/replay-executor';
 import { browserEnricher } from '../../observer/enrichers/browser';
 import { withTrace } from '../../observer/trace-context';
 import { getBrainSafe } from '../../brain';
+import { inferPjeEnvironmentContext } from '../../pje/environment-context';
 
 /**
  * Infere o "pjeContext" a partir da task em português. Mesma heurística do
@@ -77,6 +78,27 @@ function summarizeInput(input: Record<string, unknown>): string {
         return json.length > 120 ? json.slice(0, 117) + '...' : json;
     } catch {
         return '[input não serializável]';
+    }
+}
+
+async function inferCurrentPjeEnvironment(tribunal?: string): Promise<unknown | undefined> {
+    const page = getActivePage();
+    if (!page) return undefined;
+    try {
+        const [url, title, textSample] = await Promise.all([
+            Promise.resolve(page.url()),
+            page.title().catch(() => ''),
+            page.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => ''),
+        ]);
+        const environment = inferPjeEnvironmentContext({
+            url,
+            title,
+            tribunal,
+            textSnippets: textSample ? [textSample] : [],
+        });
+        return Object.keys(environment).length > 0 ? environment : undefined;
+    } catch {
+        return undefined;
     }
 }
 
@@ -248,12 +270,14 @@ export const pjeBrowserUse: Skill = {
             if (shouldTryReplay) {
                 // Preview mode: confirmação é exigida pelas prefs E não foi já skipConfirm.
                 const wantsPreview = confirmBeforeExecute && !skipConfirm;
+                const currentEnvironment = await inferCurrentPjeEnvironment(tribunal || undefined);
 
                 const replayResult = await tryReplay(
                     getMcpManager(),
                     {
                         tribunal: tribunal || undefined,
                         pjeContext,
+                        environment: currentEnvironment,
                         goal: task,
                         dryRun: wantsPreview,
                         onEvent: (evt) => {

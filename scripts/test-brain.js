@@ -220,6 +220,94 @@ async function testMicroFlowAndReplayFeedback() {
     });
 }
 
+async function testReplayPrefersMatchingEnvironment() {
+    await withBrain('environment-replay', async (brain) => {
+        const advogadoState = brain.addNode('page_state', 'TJPA:adv:autos', {
+            tribunal: 'TJPA',
+            pjeContext: 'autos',
+            canonicalContext: 'autos',
+            canonicalStateKey: 'TJPA|autos|tjpa/autos/adv',
+            profileKind: 'advogado',
+            authState: 'logado',
+            surfaceKind: 'autos',
+            screenFamily: 'advogado_autos',
+            areaLabel: 'autos_do_advogado',
+            canonicalEnvironmentKey: 'TJPA|advogado|autos|logado|autos_do_advogado',
+        }, { confidence: 0.8, source: 'test' });
+        const servidorState = brain.addNode('page_state', 'TJPA:serv:autos', {
+            tribunal: 'TJPA',
+            pjeContext: 'autos',
+            canonicalContext: 'autos',
+            canonicalStateKey: 'TJPA|autos|tjpa/autos/serv',
+            profileKind: 'servidor',
+            authState: 'logado',
+            surfaceKind: 'autos',
+            screenFamily: 'servidor_autos',
+            areaLabel: 'autos_do_servidor',
+            canonicalEnvironmentKey: 'TJPA|servidor|autos|logado|autos_do_servidor',
+        }, { confidence: 0.8, source: 'test' });
+
+        const advogadoAction = brain.addNode('action', 'browser_click:adv', {
+            tool: 'browser_click',
+            input: { selector: '#aba-expedientes' },
+            successCount: 3,
+            failureCount: 0,
+        }, { confidence: 0.8, source: 'test' });
+        const servidorAction = brain.addNode('action', 'browser_click:serv', {
+            tool: 'browser_click',
+            input: { selector: '#aba-tarefas-internas' },
+            successCount: 3,
+            failureCount: 0,
+        }, { confidence: 0.8, source: 'test' });
+
+        brain.addEdge(advogadoState.id, advogadoAction.id, 'performs', {});
+        brain.boostEdge(advogadoState.id, advogadoAction.id, 'performs', 2);
+        brain.addEdge(servidorState.id, servidorAction.id, 'performs', {});
+        brain.boostEdge(servidorState.id, servidorAction.id, 'performs', 2);
+
+        const report = detectFlows(brain);
+        assert.strictEqual(report.flowsCreated, 2);
+
+        const servidorPlan = findReplayPlan(brain, {
+            tribunal: 'TJPA',
+            pjeContext: 'autos',
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'servidor',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'servidor_autos',
+                areaLabel: 'autos_do_servidor',
+                canonicalEnvironmentKey: 'TJPA|servidor|autos|logado|autos_do_servidor',
+            },
+            strict: false,
+            minConfidence: 0.1,
+        });
+        assert(servidorPlan);
+        assert.strictEqual(servidorPlan.steps[0].actionId, servidorAction.id);
+
+        const advogadoPlan = findReplayPlan(brain, {
+            tribunal: 'TJPA',
+            pjeContext: 'autos',
+            environment: {
+                tribunal: 'TJPA',
+                pjeContext: 'autos',
+                profileKind: 'advogado',
+                authState: 'logado',
+                surfaceKind: 'autos',
+                screenFamily: 'advogado_autos',
+                areaLabel: 'autos_do_advogado',
+                canonicalEnvironmentKey: 'TJPA|advogado|autos|logado|autos_do_advogado',
+            },
+            strict: false,
+            minConfidence: 0.1,
+        });
+        assert(advogadoPlan);
+        assert.strictEqual(advogadoPlan.steps[0].actionId, advogadoAction.id);
+    });
+}
+
 async function testRiskAndExplainOnDreamReports() {
     await withBrain('risk-explain', async (brain) => {
         brain.addNode('page_state', 'TJPA:old', {
@@ -249,6 +337,7 @@ async function main() {
         testSnapshotRestore,
         testPolicyDisablesPhases,
         testMicroFlowAndReplayFeedback,
+        testReplayPrefersMatchingEnvironment,
         testRiskAndExplainOnDreamReports,
     ];
 
@@ -264,4 +353,3 @@ main().catch((err) => {
     console.error(err);
     process.exit(1);
 });
-

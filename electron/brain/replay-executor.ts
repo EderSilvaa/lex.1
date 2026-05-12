@@ -25,6 +25,7 @@ import { fillFromGoal } from './slot-filler';
 export interface TryReplayArgs {
     tribunal?: string;
     pjeContext?: string;
+    environment?: unknown;
     /** Goal em linguagem natural — habilita fallback semântico no findReplayPlan. */
     goal?: string;
     /** Callback opcional para eventos de execução (UI). */
@@ -91,6 +92,7 @@ export async function tryReplay(
     const plan = findReplayPlan(brain, {
         tribunal: args.tribunal,
         pjeContext: args.pjeContext,
+        environment: args.environment,
         goal: args.goal,
         minConfidence: args.minConfidence ?? EXPLOIT_THRESHOLD,
     });

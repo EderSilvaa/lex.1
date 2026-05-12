@@ -27,6 +27,7 @@
 import type { BrainStore } from './brain-store';
 import type { BrainEdge, BrainNode } from './types';
 import { EXPLOIT_THRESHOLD, scoreEdge } from './scoring';
+import { buildPjeEnvironmentLookupKey } from '../pje/environment-context';
 
 export interface FlowDetectionOptions {
     /** Tamanho mínimo de uma sequência para virar flow. Default: 3 ações. */
@@ -118,6 +119,12 @@ export function detectFlows(
             pjeContext: best.startData.pjeContext,
             canonicalContext: best.startData.canonicalContext,
             canonicalStateKey: best.startData.canonicalStateKey,
+            profileKind: best.startData.profileKind,
+            authState: best.startData.authState,
+            surfaceKind: best.startData.surfaceKind,
+            screenFamily: best.startData.screenFamily,
+            areaLabel: best.startData.areaLabel,
+            canonicalEnvironmentKey: best.startData.canonicalEnvironmentKey,
             tools: best.actionTools,
             instances: observedInstances,
             flowKind: best.actionIds.length === 1 ? 'micro' : 'sequence',
@@ -172,6 +179,12 @@ interface WalkResult {
         pjeContext?: string;
         canonicalContext?: string;
         canonicalStateKey?: string;
+        profileKind?: string;
+        authState?: string;
+        surfaceKind?: string;
+        screenFamily?: string;
+        areaLabel?: string;
+        canonicalEnvironmentKey?: string;
     };
     actionIds: string[];
     actionTools: string[];
@@ -239,6 +252,12 @@ function greedyWalk(
             pjeContext: start.data?.['pjeContext'],
             canonicalContext: start.data?.['canonicalContext'],
             canonicalStateKey: start.data?.['canonicalStateKey'],
+            profileKind: start.data?.['profileKind'],
+            authState: start.data?.['authState'],
+            surfaceKind: start.data?.['surfaceKind'],
+            screenFamily: start.data?.['screenFamily'],
+            areaLabel: start.data?.['areaLabel'],
+            canonicalEnvironmentKey: start.data?.['canonicalEnvironmentKey'],
         },
         actionIds,
         actionTools,
@@ -268,6 +287,12 @@ function microWalks(
                 pjeContext: start.data?.['pjeContext'],
                 canonicalContext: start.data?.['canonicalContext'],
                 canonicalStateKey: start.data?.['canonicalStateKey'],
+                profileKind: start.data?.['profileKind'],
+                authState: start.data?.['authState'],
+                surfaceKind: start.data?.['surfaceKind'],
+                screenFamily: start.data?.['screenFamily'],
+                areaLabel: start.data?.['areaLabel'],
+                canonicalEnvironmentKey: start.data?.['canonicalEnvironmentKey'],
             },
             actionIds: [action.id],
             actionTools: [String(action.data?.['tool'] || action.label.split(':')[0] || '?')],
@@ -295,10 +320,22 @@ function pickBestEdge(
 
 function canonicalFlowKey(w: WalkResult): string {
     // Tribunal + context inicial + sequência de tools (sem input hash) = forma do flow.
+    const environmentKey = buildPjeEnvironmentLookupKey({
+        tribunal: w.startData.tribunal,
+        pjeContext: w.startData.pjeContext,
+        canonicalContext: w.startData.canonicalContext,
+        profileKind: w.startData.profileKind,
+        authState: w.startData.authState,
+        surfaceKind: w.startData.surfaceKind,
+        screenFamily: w.startData.screenFamily,
+        areaLabel: w.startData.areaLabel,
+        canonicalEnvironmentKey: w.startData.canonicalEnvironmentKey,
+    });
     return [
         w.startData.tribunal || '?',
         w.startData.canonicalContext || w.startData.pjeContext || '?',
         w.startData.canonicalStateKey || '?',
+        environmentKey || '?',
         ...w.actionTools,
     ].join('|');
 }

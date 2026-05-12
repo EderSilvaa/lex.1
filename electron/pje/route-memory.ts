@@ -1,19 +1,22 @@
 /**
- * Route Memory — aprende e persiste mapeamentos destino → URL que funcionaram.
+ * Route Memory - aprende e persiste mapeamentos destino -> URL que funcionaram.
  *
  * Persiste em: userData/pje-route-memory.json
- * Chave: "tribunal:destino_normalizado"  ex: "trt8:peticionamento"
+ * Chave legado: "tribunal:destino_normalizado"
+ * Chave contextual: "tribunal:contexto_normalizado:destino_normalizado"
  *
  * Prioridade de consulta em pje_navegar:
- *   1. Route Memory (aprendido, confirmado pelo uso)
- *   2. tribunal-urls.ts (estático)
- *   3. Browser agent (visual, Playwright CDP)
+ *   1. Route Memory contextual (aprendido para aquele ambiente)
+ *   2. Route Memory legado (compatibilidade)
+ *   3. tribunal-urls.ts (estatico)
+ *   4. Browser agent
  */
 
 import path from 'path'
 import fs from 'fs'
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage'
 import { normalizeForKey, normalizeId } from '../text-normalize'
+import { buildPjeEnvironmentLookupKey } from './environment-context'
 
 interface RouteEntry {
   url: string
@@ -26,17 +29,21 @@ interface RouteStore {
   routes: Record<string, RouteEntry>
 }
 
+interface RouteLookupOptions {
+  environment?: unknown
+}
+
 let storePath: string | null = null
 let store: RouteStore = { version: 1, routes: {} }
 let dirty = false
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
-/** Recebe userDataDir do main.ts ou backend — sem dependência do Electron */
+/** Recebe userDataDir do main.ts ou backend - sem dependencia do Electron */
 export function initRouteMemory(userDataDir?: string): void {
   if (userDataDir) {
     storePath = path.join(userDataDir, 'pje-route-memory.json')
   }
-  if (!storePath) throw new Error('[RouteMemory] Chame initRouteMemory(userDataDir) com o diretório')
+  if (!storePath) throw new Error('[RouteMemory] Chame initRouteMemory(userDataDir) com o diretorio')
   const parsed = loadEncrypted<RouteStore>(storePath, { version: 1, routes: {} })
   if (parsed?.version === 1 && parsed.routes) {
     store = parsed
@@ -45,21 +52,32 @@ export function initRouteMemory(userDataDir?: string): void {
   }
 }
 
-function makeKey(tribunal: string, destino: string): string {
+function makeKey(tribunal: string, destino: string, opts: RouteLookupOptions = {}): string {
   const t = normalizeId(tribunal || 'default')
-  return `${t}:${normalizeForKey(destino)}`
+  const envKey = buildPjeEnvironmentLookupKey(opts.environment)
+  const base = normalizeForKey(destino)
+  return envKey ? `${t}:${envKey}:${base}` : `${t}:${base}`
 }
 
-/** Consulta URL aprendida para um destino. Retorna null se não encontrado. */
-export function lookupRoute(tribunal: string, destino: string): string | null {
-  const key = makeKey(tribunal, destino)
+/** Consulta URL aprendida para um destino. Retorna null se nao encontrado. */
+export function lookupRoute(tribunal: string, destino: string, opts: RouteLookupOptions = {}): string | null {
+  const key = makeKey(tribunal, destino, opts)
   const entry = store.routes[key]
   if (entry) {
-    console.log(`[RouteMemory] Hit: "${key}" → ${entry.url} (usado ${entry.successCount}x)`)
+    console.log(`[RouteMemory] Hit: "${key}" -> ${entry.url} (usado ${entry.successCount}x)`)
     return entry.url
   }
 
-  // Busca parcial — se a chave contém o destino normalizado
+  const legacyKey = makeKey(tribunal, destino)
+  if (legacyKey !== key) {
+    const legacyEntry = store.routes[legacyKey]
+    if (legacyEntry) {
+      console.log(`[RouteMemory] Legacy hit: "${legacyKey}" para "${destino}"`)
+      return legacyEntry.url
+    }
+  }
+
+  // Busca parcial - se a chave contem o destino normalizado.
   const norm = normalizeForKey(destino)
   const t = normalizeId(tribunal || 'default')
   const prefix = `${t}:`
@@ -73,11 +91,11 @@ export function lookupRoute(tribunal: string, destino: string): string | null {
   return null
 }
 
-/** Salva uma rota bem-sucedida. Chama após navegação confirmada. */
-export function saveRoute(tribunal: string, destino: string, url: string): void {
-  if (!url || url.includes('login') || url.includes('Login')) return  // não salva redirecionamentos de login
+/** Salva uma rota bem-sucedida. Chama apos navegacao confirmada. */
+export function saveRoute(tribunal: string, destino: string, url: string, opts: RouteLookupOptions = {}): void {
+  if (!url || url.includes('login') || url.includes('Login')) return
 
-  const key = makeKey(tribunal, destino)
+  const key = makeKey(tribunal, destino, opts)
   const existing = store.routes[key]
   store.routes[key] = {
     url,
@@ -86,7 +104,7 @@ export function saveRoute(tribunal: string, destino: string, url: string): void 
   }
   dirty = true
   scheduleSave()
-  console.log(`[RouteMemory] Salvo: "${key}" → ${url}`)
+  console.log(`[RouteMemory] Salvo: "${key}" -> ${url}`)
 }
 
 /** Persiste debounced (evita I/O excessivo) */
