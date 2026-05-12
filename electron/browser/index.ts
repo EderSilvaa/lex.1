@@ -8,7 +8,7 @@ export { captureDOMSnapshot, computeValidation } from './validation';
 export type { DOMSnapshot, ValidationResult } from './validation';
 
 export { initSelectorMemory, lookupSelectors, recordSuccess, recordFailure, flush as flushSelectorMemory, getStats as getSelectorStats } from './selector-memory';
-export type { SelectorAnalytics } from './selector-memory';
+export type { SelectorAnalytics, SelectorLookupOptions } from './selector-memory';
 
 export { discoverSelector } from './selector-discovery';
 export type { DiscoveryCandidate } from './selector-discovery';

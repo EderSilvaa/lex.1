@@ -16,6 +16,7 @@ import { withExternalLock } from './browser-lock';
 import { lookupSelectors, recordSuccess } from './selector-memory';
 import { agentEmitter } from '../agent/loop';
 import { ensureBrowser, runBrowserTask } from '../browser-manager';
+import { inferCurrentPjeEnvironment } from '../pje/active-environment';
 
 const CDP_PORT = 19222;
 const DEFAULT_TIMEOUT = 600_000; // 10 min — browser-use tasks PJe são lentas
@@ -26,6 +27,7 @@ export interface BrowserUseOptions {
     task: string;
     tribunal?: string;
     context?: string;
+    environment?: unknown;
     maxSteps?: number;
     onStep?: (step: BrowserUseStep) => void;
     timeout?: number;
@@ -73,9 +75,9 @@ function mapModelForBrowserUse(): { provider: string; model: string; apiKey: str
 
 // ── Selector hints ───────────────────────────────────────────────────────────
 
-function buildTaskWithHints(task: string, tribunal?: string, context?: string): string {
+function buildTaskWithHints(task: string, tribunal?: string, context?: string, environment?: unknown): string {
     if (!tribunal || !context) return task;
-    const selectors = lookupSelectors(tribunal, context);
+    const selectors = lookupSelectors(tribunal, context, { environment });
     if (selectors.length === 0) return task;
     const hints = selectors.slice(0, 5).map(s => `  - ${s}`).join('\n');
     return `${task}\n\nSeletores CSS conhecidos nesta página (use de preferência):\n${hints}`;
@@ -116,6 +118,7 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
         task,
         tribunal,
         context: taskContext,
+        environment,
         maxSteps = 15,
         onStep,
         timeout = DEFAULT_TIMEOUT,
@@ -139,7 +142,8 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
         return runFallback(task, maxSteps, onStep);
     }
 
-    const enrichedTask = buildTaskWithHints(task, tribunal, taskContext);
+    const selectorEnvironment = environment ?? await inferCurrentPjeEnvironment(tribunal);
+    const enrichedTask = buildTaskWithHints(task, tribunal, taskContext, selectorEnvironment);
     const { provider, model, apiKey } = mapModelForBrowserUse();
     const steps: BrowserUseStep[] = [];
 
@@ -197,7 +201,7 @@ export async function runBrowserUseTask(options: BrowserUseOptions): Promise<Bro
                 if (!line.trim()) continue;
                 try {
                     const msg = JSON.parse(line);
-                    handleStdoutMessage(msg, steps, onStep, tribunal, taskContext);
+                    handleStdoutMessage(msg, steps, onStep, tribunal, taskContext, selectorEnvironment);
                     if (msg.result) lastResult = msg.result;
                     if (msg.captcha) captchaDetected = true;
                 } catch {
@@ -265,6 +269,7 @@ function handleStdoutMessage(
     onStep: BrowserUseOptions['onStep'],
     tribunal?: string,
     taskContext?: string,
+    environment?: unknown,
 ): void {
     if (msg.step || msg.step_number) {
         const step: BrowserUseStep = {
@@ -286,7 +291,7 @@ function handleStdoutMessage(
 
     if (msg.action === 'click' || msg.action === 'fill' || msg.action === 'type') {
         if (msg.selector && tribunal && taskContext) {
-            recordSuccess(tribunal, taskContext, msg.selector);
+            recordSuccess(tribunal, taskContext, msg.selector, false, { environment });
         }
     }
 }

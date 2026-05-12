@@ -9,28 +9,7 @@ import { getActivePage, ensureBrowser } from '../../browser-manager';
 import { runBrowserUseTask } from '../../browser/browser-use-executor';
 import { resolveTribunalRoutes, resolveDestinationUrl } from '../../pje/tribunal-urls';
 import { lookupRoute, saveRoute } from '../../pje/route-memory';
-import { inferPjeEnvironmentContext } from '../../pje/environment-context';
-
-async function inferCurrentPjeEnvironment(tribunal?: string): Promise<unknown | undefined> {
-    const page = getActivePage();
-    if (!page) return undefined;
-    try {
-        const [url, title, textSample] = await Promise.all([
-            Promise.resolve(page.url()),
-            page.title().catch(() => ''),
-            page.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => ''),
-        ]);
-        const environment = inferPjeEnvironmentContext({
-            url,
-            title,
-            tribunal,
-            textSnippets: textSample ? [textSample] : [],
-        });
-        return Object.keys(environment).length > 0 ? environment : undefined;
-    } catch {
-        return undefined;
-    }
-}
+import { inferCurrentPjeEnvironment } from '../../pje/active-environment';
 
 export const pjeNavegar: Skill = {
     nome: 'pje_navegar',
@@ -110,7 +89,13 @@ Navegue até "${destino}" o mais diretamente possível.
 Se a URL exata for conhecida, use-a. Caso contrário, clique no elemento correto sem explorar desnecessariamente.`;
 
         try {
-            const res = await runBrowserUseTask({ task: instrucao, maxSteps: 8 });
+            const res = await runBrowserUseTask({
+                task: instrucao,
+                tribunal,
+                context: 'pje_navegar',
+                environment: currentEnvironment,
+                maxSteps: 8,
+            });
             const resultado = res.result || '';
 
             if (!res.success) {

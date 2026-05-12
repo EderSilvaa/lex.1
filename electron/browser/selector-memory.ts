@@ -1,17 +1,16 @@
 /**
- * Selector Memory — aprende e persiste seletores CSS que funcionaram por tribunal.
+ * Selector Memory - aprende e persiste seletores CSS por tribunal/contexto,
+ * agora com fallback contextual por ambiente PJe.
  *
  * Persiste em: userData/pje-selector-memory.json (criptografado)
- * Chave: "tribunal:context"  ex: "tjpa:campo_numero_processo"
- *
- * Pattern clonado de electron/pje/route-memory.ts
+ * Chave legacy: "tribunal:context"
+ * Chave contextual: "tribunal:environment:context"
  */
 
 import path from 'path';
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 import { normalizeForKey } from '../text-normalize';
-
-// ── Types ──────────────────────────────────────────────────────────
+import { buildPjeEnvironmentLookupKey } from '../pje/environment-context';
 
 interface SelectorEntry {
     selectors: string[];
@@ -30,14 +29,14 @@ interface SelectorStats {
     lookups: number;
     hits: number;
     misses: number;
-    promotions: number;   // discovered → learned
+    promotions: number;
     byTribunal: Record<string, { lookups: number; hits: number; misses: number }>;
 }
 
 export interface SelectorAnalytics {
     totalEntries: number;
     totalLookups: number;
-    hitRate: number;          // 0-1
+    hitRate: number;
     totalPromotions: number;
     byTribunal: Array<{
         tribunal: string;
@@ -50,16 +49,15 @@ export interface SelectorAnalytics {
     topContexts: Array<{ context: string; successCount: number; selectorCount: number }>;
 }
 
-// ── State ──────────────────────────────────────────────────────────
+export interface SelectorLookupOptions {
+    environment?: unknown;
+}
 
 let storePath: string | null = null;
 let store: SelectorStore = { version: 1, entries: {} };
 let dirty = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-// ── Init / Persist ─────────────────────────────────────────────────
-
-/** Inicializa a memória de seletores. Recebe userDataDir do main.ts. */
 export function initSelectorMemory(userDataDir: string): void {
     storePath = path.join(userDataDir, 'pje-selector-memory.json');
     const parsed = loadEncrypted<SelectorStore>(storePath, { version: 1, entries: {} });
@@ -85,49 +83,84 @@ export function flush(): void {
     }
 }
 
-// ── Normalization ──────────────────────────────────────────────────
-
-function makeKey(tribunal: string, context: string): string {
-    const t = normalizeForKey(tribunal || 'default');
-    const c = normalizeForKey(context);
-    return `${t}:${c}`;
+function makeKey(tribunal: string, context: string, opts: SelectorLookupOptions = {}): string {
+    const tribunalKey = normalizeForKey(tribunal || 'default');
+    const contextKey = normalizeForKey(context);
+    const environmentKey = buildPjeEnvironmentLookupKey(opts.environment);
+    return environmentKey
+        ? `${tribunalKey}:${environmentKey}:${contextKey}`
+        : `${tribunalKey}:${contextKey}`;
 }
 
-// ── Lookup ─────────────────────────────────────────────────────────
+function ensureStats(): SelectorStats {
+    if (!store.stats) {
+        store.stats = { lookups: 0, hits: 0, misses: 0, promotions: 0, byTribunal: {} };
+    }
+    return store.stats;
+}
 
-/** Retorna seletores aprendidos ordenados por sucesso. Retorna [] se nada aprendido. */
-export function lookupSelectors(tribunal: string, context: string): string[] {
-    const key = makeKey(tribunal, context);
-    const entry = store.entries[key];
+function lookupEntrySet(tribunal: string, context: string, opts: SelectorLookupOptions = {}): {
+    key: string;
+    entry?: SelectorEntry;
+    legacyKey: string;
+    legacyEntry?: SelectorEntry;
+} {
+    const key = makeKey(tribunal, context, opts);
+    const legacyKey = makeKey(tribunal, context);
+    return {
+        key,
+        entry: store.entries[key],
+        legacyKey,
+        legacyEntry: legacyKey !== key ? store.entries[legacyKey] : undefined,
+    };
+}
 
-    // Analytics: track lookup
+export function lookupSelectors(tribunal: string, context: string, opts: SelectorLookupOptions = {}): string[] {
+    const { key, entry, legacyKey, legacyEntry } = lookupEntrySet(tribunal, context, opts);
     const stats = ensureStats();
-    stats.lookups++;
-    const t = normalizeForKey(tribunal || 'default');
-    if (!stats.byTribunal[t]) stats.byTribunal[t] = { lookups: 0, hits: 0, misses: 0 };
-    stats.byTribunal[t].lookups++;
+    const tribunalKey = normalizeForKey(tribunal || 'default');
+    if (!stats.byTribunal[tribunalKey]) stats.byTribunal[tribunalKey] = { lookups: 0, hits: 0, misses: 0 };
 
-    if (!entry || entry.selectors.length === 0) {
+    stats.lookups++;
+    stats.byTribunal[tribunalKey].lookups++;
+
+    const selectors = Array.from(new Set([
+        ...(entry?.selectors || []),
+        ...(legacyEntry?.selectors || []),
+    ]));
+
+    if (selectors.length === 0) {
         stats.misses++;
-        stats.byTribunal[t].misses++;
+        stats.byTribunal[tribunalKey].misses++;
         dirty = true;
         scheduleSave();
         return [];
     }
 
     stats.hits++;
-    stats.byTribunal[t].hits++;
+    stats.byTribunal[tribunalKey].hits++;
     dirty = true;
     scheduleSave();
-    console.log(`[SelectorMemory] Hit: "${key}" → ${entry.selectors.length} seletor(es), último: ${entry.lastSuccessful}`);
-    return [...entry.selectors];
+
+    if (entry && legacyEntry) {
+        console.log(`[SelectorMemory] Hit contextual + legacy: "${key}" (${entry.selectors.length}) + "${legacyKey}" (${legacyEntry.selectors.length})`);
+    } else if (entry) {
+        console.log(`[SelectorMemory] Hit: "${key}" -> ${entry.selectors.length} seletor(es), ultimo: ${entry.lastSuccessful}`);
+    } else if (legacyEntry) {
+        console.log(`[SelectorMemory] Legacy hit: "${legacyKey}" para "${context}"`);
+    }
+
+    return selectors;
 }
 
-// ── Record ─────────────────────────────────────────────────────────
-
-/** Registra um seletor que funcionou. Incrementa count, reordena, salva. */
-export function recordSuccess(tribunal: string, context: string, selector: string, isPromotion = false): void {
-    const key = makeKey(tribunal, context);
+export function recordSuccess(
+    tribunal: string,
+    context: string,
+    selector: string,
+    isPromotion = false,
+    opts: SelectorLookupOptions = {},
+): void {
+    const key = makeKey(tribunal, context, opts);
     let entry = store.entries[key];
 
     if (!entry) {
@@ -139,50 +172,32 @@ export function recordSuccess(tribunal: string, context: string, selector: strin
     entry.lastSuccessful = selector;
     entry.lastUsed = Date.now();
 
-    // Garante que o seletor está na lista
     if (!entry.selectors.includes(selector)) {
         entry.selectors.push(selector);
     }
 
-    // Reordena por successCount desc
-    entry.selectors.sort((a, b) => (entry.successCount[b] || 0) - (entry.successCount[a] || 0));
+    entry.selectors.sort((a, b) => (entry!.successCount[b] || 0) - (entry!.successCount[a] || 0));
 
-    // Analytics: track promotion (discovered → learned)
     if (isPromotion) {
         ensureStats().promotions++;
     }
 
     dirty = true;
     scheduleSave();
-    console.log(`[SelectorMemory] Success: "${key}" → ${selector} (${entry.successCount[selector]}x)${isPromotion ? ' [promoted]' : ''}`);
+    console.log(`[SelectorMemory] Success: "${key}" -> ${selector} (${entry.successCount[selector]}x)${isPromotion ? ' [promoted]' : ''}`);
 }
 
-// ── Stats ─────────────────────────────────────────────────────────
-
-function ensureStats(): SelectorStats {
-    if (!store.stats) {
-        store.stats = { lookups: 0, hits: 0, misses: 0, promotions: 0, byTribunal: {} };
-    }
-    return store.stats;
-}
-
-/** Retorna analytics agregadas da selector memory */
 export function getStats(): SelectorAnalytics {
     const stats = ensureStats();
     const totalEntries = Object.keys(store.entries).length;
-
-    // By tribunal: merge entry data + stats
     const tribunalMap = new Map<string, { lookups: number; hits: number; misses: number; selectors: number }>();
 
-    // From stats tracking
-    for (const [t, s] of Object.entries(stats.byTribunal)) {
-        tribunalMap.set(t, { ...s, selectors: 0 });
+    for (const [tribunal, values] of Object.entries(stats.byTribunal)) {
+        tribunalMap.set(tribunal, { ...values, selectors: 0 });
     }
 
-    // Count learned selectors per tribunal from entries
-    for (const key of Object.keys(store.entries)) {
+    for (const [key, entry] of Object.entries(store.entries)) {
         const tribunal = key.split(':')[0] || 'default';
-        const entry = store.entries[key]!;
         const existing = tribunalMap.get(tribunal) || { lookups: 0, hits: 0, misses: 0, selectors: 0 };
         existing.selectors += entry.selectors.length;
         tribunalMap.set(tribunal, existing);
@@ -199,12 +214,12 @@ export function getStats(): SelectorAnalytics {
         }))
         .sort((a, b) => b.lookups - a.lookups);
 
-    // Top contexts by total success count
     const topContexts = Object.entries(store.entries)
-        .map(([key, entry]) => {
-            const totalSuccess = Object.values(entry.successCount).reduce((a, b) => a + b, 0);
-            return { context: key, successCount: totalSuccess, selectorCount: entry.selectors.length };
-        })
+        .map(([key, entry]) => ({
+            context: key,
+            successCount: Object.values(entry.successCount).reduce((acc, count) => acc + count, 0),
+            selectorCount: entry.selectors.length,
+        }))
         .sort((a, b) => b.successCount - a.successCount)
         .slice(0, 10);
 
@@ -218,21 +233,24 @@ export function getStats(): SelectorAnalytics {
     };
 }
 
-/** Registra falha de um seletor. Decrementa count, remove se zerou. */
-export function recordFailure(tribunal: string, context: string, selector: string): void {
-    const key = makeKey(tribunal, context);
+export function recordFailure(
+    tribunal: string,
+    context: string,
+    selector: string,
+    opts: SelectorLookupOptions = {},
+): void {
+    const key = makeKey(tribunal, context, opts);
     const entry = store.entries[key];
     if (!entry) return;
 
     const current = entry.successCount[selector] || 0;
     if (current <= 1) {
         delete entry.successCount[selector];
-        entry.selectors = entry.selectors.filter((s) => s !== selector);
+        entry.selectors = entry.selectors.filter((item) => item !== selector);
     } else {
         entry.successCount[selector] = current - 1;
     }
 
-    // Remove a entrada inteira se ficou vazia
     if (entry.selectors.length === 0) {
         delete store.entries[key];
     }
