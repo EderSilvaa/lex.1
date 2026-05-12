@@ -494,6 +494,25 @@ async function inspectPage(input: {
   };
 }
 
+async function inspectActivePageOnly(input: {
+  activePage: Page;
+  activeIndex: number;
+  maxElementsPerFrame: number;
+  maxTextSnippetsPerFrame: number;
+  includeScreenshot: boolean;
+  fullPageScreenshot: boolean;
+}): Promise<any> {
+  return inspectPage({
+    page: input.activePage,
+    pageIndex: input.activeIndex >= 0 ? input.activeIndex : 0,
+    active: true,
+    maxElementsPerFrame: input.maxElementsPerFrame,
+    maxTextSnippetsPerFrame: input.maxTextSnippetsPerFrame,
+    includeScreenshot: input.includeScreenshot,
+    fullPageScreenshot: input.fullPageScreenshot,
+  });
+}
+
 function detectTribunalFromUrl(url: string): string | null {
   const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
   return match?.[1] ? match[1].toUpperCase() : null;
@@ -607,6 +626,83 @@ export async function inspectPjeContext(params: unknown = {}): Promise<any> {
         ? 'acao_consulta_identificada'
         : 'acao_consulta_nao_identificada',
       activeInspectedPage?.surfaceKind ? `surface_detected:${activeInspectedPage.surfaceKind}` : 'surface_detected:desconhecido',
+      'usar_refs_retornadas_apenas_apos_confirmacao_ou_em_ferramenta_especifica',
+    ],
+  };
+}
+
+export async function inspectActivePjePageContext(params: unknown = {}): Promise<any> {
+  const input = asRecord(params);
+  const activePage = getActivePage();
+  if (!activePage) {
+    return {
+      ok: false,
+      error: 'no_active_page',
+      mode: 'read_only_inspection',
+      message: 'Browser controlado ainda nao esta aberto ou nao possui aba ativa.',
+    };
+  }
+
+  const waitMs = boundedNumber(input['waitMs'], 0, 0, 5000);
+  if (waitMs > 0) {
+    await activePage.waitForTimeout(waitMs).catch(() => undefined);
+  }
+
+  const activeIndex = getActivePageIndex();
+  const maxElementsPerFrame = boundedNumber(input['maxElementsPerFrame'], 40, 1, 150);
+  const maxTextSnippetsPerFrame = boundedNumber(input['maxTextSnippetsPerFrame'], 12, 0, 60);
+  const includeScreenshot = input['includeScreenshot'] === true;
+  const fullPageScreenshot = input['fullPageScreenshot'] === true;
+
+  const page = await inspectActivePageOnly({
+    activePage,
+    activeIndex,
+    maxElementsPerFrame,
+    maxTextSnippetsPerFrame,
+    includeScreenshot,
+    fullPageScreenshot,
+  });
+
+  const allElements = page.frames.flatMap((frame: FrameSnapshot) => frame.elements) as InspectElement[];
+  const processNumberFields = allElements
+    .filter((el) => el.candidateKinds.includes('process_number_field'))
+    .slice(0, 20)
+    .map(toCandidateSummary);
+  const searchActions = allElements
+    .filter((el) => el.candidateKinds.includes('search_or_consult_action'))
+    .slice(0, 20)
+    .map(toCandidateSummary);
+  const certificateOrSigner = allElements
+    .filter((el) => el.candidateKinds.includes('certificate_or_signer'))
+    .slice(0, 20)
+    .map(toCandidateSummary);
+  const loginActions = allElements
+    .filter((el) => el.candidateKinds.includes('login_action'))
+    .slice(0, 20)
+    .map(toCandidateSummary);
+
+  return {
+    ok: true,
+    mode: 'read_only_inspection',
+    browserAutomationExecuted: false,
+    inspectedAt: new Date().toISOString(),
+    environment: page.environment || null,
+    contextSummary: page.contextSummary || null,
+    page,
+    candidates: {
+      processNumberFields,
+      searchActions,
+      certificateOrSigner,
+      loginActions,
+    },
+    nextActions: [
+      processNumberFields.length > 0
+        ? 'campo_numero_processo_identificado'
+        : 'campo_numero_processo_nao_identificado',
+      searchActions.length > 0
+        ? 'acao_consulta_identificada'
+        : 'acao_consulta_nao_identificada',
+      page?.surfaceKind ? `surface_detected:${page.surfaceKind}` : 'surface_detected:desconhecido',
       'usar_refs_retornadas_apenas_apos_confirmacao_ou_em_ferramenta_especifica',
     ],
   };
