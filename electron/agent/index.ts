@@ -88,8 +88,8 @@ export async function initializeAgent(): Promise<void> {
 
     // C1: Carregar skills reais (substituem mocks de mesmo nome)
     // Obs: skills/pje já são registradas explicitamente por registerPJeSkills()
-    // com roteamento MCP vs legacy — não varrer o diretório aqui para não burlar
-    // o roteamento.
+    // com separação entre camada de orquestração local MCP e fallback legado. Não varrer o
+    // diretório aqui para não burlar esse isolamento.
 
     try {
         await loadSkillsFromDir('skills/os');

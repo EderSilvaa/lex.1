@@ -8,6 +8,7 @@ import { AgentConfig, AgentState, CriticDecision } from './types';
 import { normalizeTribunalCode } from '../pje/tribunal-urls';
 import { mask } from '../privacy/pii-vault';
 import { suggestOsPlannerAction } from './os-intent-router';
+import { listSkills } from './executor';
 
 interface PlannedSkillAction {
     skill: string;
@@ -62,6 +63,50 @@ const LOCAL_CONFIRMATION_SKILLS = new Set([
     'pc_agir'
 ]);
 
+function hasActiveSkill(skillName: string): boolean {
+    return listSkills().includes(skillName);
+}
+
+function buildCanonicalPjeAction(
+    task: string,
+    tribunalHint?: string | null,
+): { skill: string; parametros: Record<string, any> } {
+    if (hasActiveSkill('pje_browser_use')) {
+        return {
+            skill: 'pje_browser_use',
+            parametros: {
+                task,
+                ...(tribunalHint ? { tribunal: tribunalHint } : {}),
+            },
+        };
+    }
+
+    if (hasActiveSkill('pje_agir')) {
+        return {
+            skill: 'pje_agir',
+            parametros: {
+                objetivo: task,
+                ...(tribunalHint ? { tribunal: tribunalHint } : {}),
+            },
+        };
+    }
+
+    if (hasActiveSkill('pje_abrir')) {
+        return {
+            skill: 'pje_abrir',
+            parametros: tribunalHint ? { tribunal: tribunalHint } : {},
+        };
+    }
+
+    return {
+        skill: 'pje_browser_use',
+        parametros: {
+            task,
+            ...(tribunalHint ? { tribunal: tribunalHint } : {}),
+        },
+    };
+}
+
 /**
  * Avalia a ação planejada antes da execução.
  */
@@ -104,6 +149,7 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     const paramsJson = JSON.stringify(action.parametros || {}).toLowerCase();
     const highRisk = isHighRiskAction(skillLower, paramsJson, state.objetivo);
     const missingProcessReference = !hasProcessReference(state, action.parametros);
+    const corrected = buildCanonicalPjeAction(state.objetivo);
 
     if (skillLower === 'terminal_executar') {
         const osHint = suggestOsPlannerAction(state.objetivo, {
@@ -137,30 +183,29 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
     // o critic corrige para a skill apropriada sem bloquear a execucao.
     if (skillLower === 'pje_consultar' && missingProcessReference && isLoginOnlyObjective(state.objetivo)) {
         const tribunalHint = normalizeTribunalCode(state.objetivo);
+        const corrected = buildCanonicalPjeAction(
+            'Abrir o PJe e parar na tela inicial ou de login, sem consultar processo.',
+            tribunalHint
+        );
         return {
             approved: true,
             riskLevel: 'low',
-            reason: 'Objetivo indica apenas abrir/login no PJe; ajustado para skill de abertura.',
-            correctedDecision: {
-                skill: 'pje_abrir',
-                parametros: tribunalHint ? { tribunal: tribunalHint } : {}
-            }
+            reason: 'Objetivo indica apenas abrir/login no PJe; ajustado para a skill PJe canonica ativa.',
+            correctedDecision: corrected
         };
     }
 
     if (skillLower === 'pje_consultar' && missingProcessReference && isNavigationObjective(state.objetivo)) {
         const tribunalHint = normalizeTribunalCode(state.objetivo);
+        const corrected = buildCanonicalPjeAction(
+            extractNavigationTarget(state.objetivo),
+            tribunalHint
+        );
         return {
             approved: true,
             riskLevel: 'low',
-            reason: 'Objetivo indica navegacao interna no PJe; ajustado para pje_agir.',
-            correctedDecision: {
-                skill: 'pje_agir',
-                parametros: {
-                    objetivo: extractNavigationTarget(state.objetivo),
-                    ...(tribunalHint ? { tribunal: tribunalHint } : {})
-                }
-            }
+            reason: 'Objetivo indica navegacao interna no PJe; ajustado para a skill PJe canonica ativa.',
+            correctedDecision: corrected
         };
     }
 
@@ -175,16 +220,13 @@ function runHeuristics(state: AgentState, action: PlannedSkillAction): CriticDec
                 suggestedQuestion: 'Qual o número do processo que devo usar antes de executar esta ação?'
             };
         }
-        // O objetivo não parece pedir consulta de processo — corrige para pje_agir
-        // (skill genérica que se adapta a qualquer tela) em vez de bloquear
+        // O objetivo não parece pedir consulta de processo. Corrige para a
+        // skill PJe canônica ativa em vez de bloquear.
         return {
             approved: true,
             riskLevel: 'low',
-            reason: 'Objetivo não requer número de processo; ajustado para pje_agir.',
-            correctedDecision: {
-                skill: 'pje_agir',
-                parametros: { objetivo: state.objetivo }
-            }
+            reason: 'Objetivo não requer número de processo; ajustado para a skill PJe canônica ativa.',
+            correctedDecision: corrected
         };
     }
 

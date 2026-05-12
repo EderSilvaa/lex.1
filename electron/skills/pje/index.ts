@@ -1,11 +1,13 @@
 /**
  * Skills PJe - Exports & Registration
  *
- * Roteamento automático:
- *   - Provider Anthropic + MCP com server "browser" → registra `pje_browser_use` (canônica)
- *   - Qualquer outro cenário → registra skills Playwright legadas (fallback)
+ * Estrutura intencional:
+ *   - Camada de orquestração local atual: `pje_browser_use`
+ *   - Camada utilitária: token-check / pedir-codigo
+ *   - Camada de compatibilidade: skills Playwright legadas
  *
- * Skills utilitárias (token-check, pedir-codigo) são registradas sempre.
+ * Importante: as skills legadas existem apenas como fallback de compatibilidade.
+ * O caminho padrão do produto é MCP/browser-use.
  */
 
 import { pjeAbrir } from './abrir';
@@ -34,8 +36,17 @@ export { pedirCodigoTotp } from './pedir-codigo';
 export { pjeBulkColetar } from './bulk-coletar';
 export { pjeBrowserUse } from './browser-use';
 
-// Skills Playwright legadas (deprecated quando MCP browser-use está ativo)
-const LEGACY_PJE_SKILLS = [
+const ALWAYS_ON_PJE_UTILS = [
+    pjeVerificarToken,
+    pedirCodigoTotp,
+] as const;
+
+const INTERNAL_PJE_ORCHESTRATION_SKILLS = [
+    pjeBrowserUse,
+] as const;
+
+// Fallback de compatibilidade. Não expandir esta trilha no MVP.
+const LEGACY_PJE_FALLBACK_SKILLS = [
     pjeAbrir,
     pjeAgir,
     pjeConsultar,
@@ -44,7 +55,13 @@ const LEGACY_PJE_SKILLS = [
     pjeNavegar,
     pjePreencher,
     pjeBulkColetar,
-];
+] as const;
+
+function markLegacyPjeFallbackAsDeprecated(): void {
+    for (const skill of LEGACY_PJE_FALLBACK_SKILLS) {
+        skill.deprecated = true;
+    }
+}
 
 /**
  * Detecta se MCP browser-use está disponível:
@@ -64,37 +81,47 @@ function hasMcpBrowser(): boolean {
     }
 }
 
+function registerAlwaysOnPJeUtils(): void {
+    for (const skill of ALWAYS_ON_PJE_UTILS) {
+        registerSkill(skill);
+    }
+}
+
+function registerInternalPJeOrchestrationSkills(): void {
+    for (const skill of INTERNAL_PJE_ORCHESTRATION_SKILLS) {
+        registerSkill(skill);
+    }
+}
+
+function registerLegacyPJeFallbackSkills(): void {
+    for (const skill of LEGACY_PJE_FALLBACK_SKILLS) {
+        skill.deprecated = false;
+        registerSkill(skill);
+    }
+}
+
 /**
  * Registra skills PJe com roteamento automático.
  */
 export function registerPJeSkills(): void {
-    // Skills utilitárias — sempre disponíveis (não dependem de browser)
-    registerSkill(pjeVerificarToken);
-    registerSkill(pedirCodigoTotp);
+    registerAlwaysOnPJeUtils();
+    markLegacyPjeFallbackAsDeprecated();
 
     if (hasMcpBrowser()) {
-        // MCP browser-use disponível → skill canônica
-        registerSkill(pjeBrowserUse);
-
-        // Marca as legadas como deprecated (disponíveis via import, mas não registradas)
-        for (const skill of LEGACY_PJE_SKILLS) {
-            skill.deprecated = true;
-        }
+        registerInternalPJeOrchestrationSkills();
 
         console.log(
             '[Skills:PJe] Modo MCP browser-use ativo. ' +
-            'Skill canônica: pje_browser_use | ' +
-            `${LEGACY_PJE_SKILLS.length} skills legadas marcadas deprecated (não registradas).`,
+            'Skill interna de orquestracao/replay: pje_browser_use | ' +
+            `${LEGACY_PJE_FALLBACK_SKILLS.length} skills legadas isoladas como fallback de compatibilidade (não registradas).`,
         );
     } else {
-        // Sem MCP browser → registra skills Playwright legadas
-        for (const skill of LEGACY_PJE_SKILLS) {
-            registerSkill(skill);
-        }
+        registerLegacyPJeFallbackSkills();
 
         console.log(
-            `[Skills:PJe] Modo Playwright ativo. ` +
-            `${LEGACY_PJE_SKILLS.length} skills legadas + 2 utilitárias registradas.`,
+            '[Skills:PJe] ATENCAO: modo de compatibilidade legado ativo. ' +
+            `Fallback Playwright registrado com ${LEGACY_PJE_FALLBACK_SKILLS.length} skills legadas; ` +
+            'o caminho canonico continua sendo MCP/browser-use.',
         );
     }
 }

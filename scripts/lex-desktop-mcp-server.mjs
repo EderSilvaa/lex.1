@@ -37,6 +37,27 @@ const observationStateSchema = z.object({
   canonicalUrl: z.string().optional(),
   canonicalContext: z.string().optional(),
   canonicalStateKey: z.string().optional(),
+  profileKind: z.string().optional(),
+  authState: z.string().optional(),
+  surfaceKind: z.string().optional(),
+  screenFamily: z.string().optional(),
+  areaLabel: z.string().optional(),
+  affordances: z.array(z.string()).optional(),
+  canonicalEnvironmentKey: z.string().optional(),
+  environment: z.object({
+    isPje: z.boolean().optional(),
+    tribunal: z.string().optional(),
+    pjeContext: z.string().optional(),
+    canonicalContext: z.string().optional(),
+    profileKind: z.string().optional(),
+    authState: z.string().optional(),
+    surfaceKind: z.string().optional(),
+    screenFamily: z.string().optional(),
+    areaLabel: z.string().optional(),
+    affordances: z.array(z.string()).optional(),
+    canonicalEnvironmentKey: z.string().optional(),
+    contextSummary: z.string().optional(),
+  }).passthrough().optional(),
 }).passthrough();
 
 function asInputRecord(value) {
@@ -82,17 +103,42 @@ function compactTextList(values, limit = 5, max = 120) {
 
 function compactPageSummary(page) {
   if (!page || typeof page !== 'object') return null;
+  const environment = compactEnvironment(page.environment || page);
   return {
     pageId: page.pageId,
     pageIndex: page.pageIndex,
     active: page.active,
     isPje: page.isPje,
     tribunal: page.tribunal || null,
+    pjeContext: page.pjeContext || page.canonicalContext || null,
     url: truncateText(page.url, 180),
     title: truncateText(page.title, 140),
     frameCount: page.frameCount,
     interactiveElementCount: page.interactiveElementCount,
+    contextSummary: truncateText(page.contextSummary || environment?.contextSummary, 160) || null,
+    environment,
   };
+}
+
+function compactEnvironment(value) {
+  if (!value || typeof value !== 'object') return null;
+  const environment = {
+    isPje: value.isPje === true,
+    tribunal: truncateText(value.tribunal, 40) || undefined,
+    pjeContext: truncateText(value.pjeContext || value.canonicalContext, 120) || undefined,
+    canonicalContext: truncateText(value.canonicalContext, 120) || undefined,
+    profileKind: truncateText(value.profileKind, 40) || undefined,
+    authState: truncateText(value.authState, 40) || undefined,
+    surfaceKind: truncateText(value.surfaceKind, 80) || undefined,
+    screenFamily: truncateText(value.screenFamily, 80) || undefined,
+    areaLabel: truncateText(value.areaLabel, 120) || undefined,
+    affordances: uniqueStrings(value.affordances || []).slice(0, 8),
+    canonicalEnvironmentKey: truncateText(value.canonicalEnvironmentKey, 220) || undefined,
+    contextSummary: truncateText(value.contextSummary, 180) || undefined,
+  };
+  return Object.values(environment).some((entry) => entry !== undefined && entry !== false && !(Array.isArray(entry) && entry.length === 0))
+    ? environment
+    : null;
 }
 
 function compactCandidate(candidate) {
@@ -296,13 +342,23 @@ function observationStateFromPage(page) {
   const title = truncateText(page.title, 300);
   if (!url && !title) return null;
   const tribunal = truncateText(page.tribunal, 40) || inferTribunalFromUrl(url);
-  const pjeContext = truncateText(page.pjeContext || page.canonicalContext, 120) || inferPjeContextFromPage({ url, title });
+  const environment = compactEnvironment(page.environment || page);
+  const pjeContext = truncateText(page.pjeContext || page.canonicalContext || environment?.pjeContext, 120)
+    || inferPjeContextFromPage({ url, title });
   return {
     url,
     title,
     tribunal: tribunal || undefined,
     pjeContext: pjeContext || undefined,
     canonicalContext: pjeContext || undefined,
+    ...(environment?.profileKind ? { profileKind: environment.profileKind } : {}),
+    ...(environment?.authState ? { authState: environment.authState } : {}),
+    ...(environment?.surfaceKind ? { surfaceKind: environment.surfaceKind } : {}),
+    ...(environment?.screenFamily ? { screenFamily: environment.screenFamily } : {}),
+    ...(environment?.areaLabel ? { areaLabel: environment.areaLabel } : {}),
+    ...(environment?.affordances?.length ? { affordances: environment.affordances } : {}),
+    ...(environment?.canonicalEnvironmentKey ? { canonicalEnvironmentKey: environment.canonicalEnvironmentKey } : {}),
+    ...(environment ? { environment } : {}),
   };
 }
 
@@ -778,6 +834,7 @@ function compactPjeInspection(result, input) {
       inspectedPageCount: result?.inspectedPageCount,
       activePageIndex: result?.activePageIndex,
       activePage: activeSummary,
+      environment: compactEnvironment(result?.environment || activePage?.environment || activePage),
       candidateCounts: {
         processNumberFields: asArray(candidates.processNumberFields).length,
         searchActions: asArray(candidates.searchActions).length,
@@ -786,8 +843,9 @@ function compactPjeInspection(result, input) {
       },
       browserAutomationExecuted: false,
     },
-    resumo: `Aba ativa ${activeSummary?.tribunal || (activeSummary?.isPje ? 'PJe' : 'nao PJe')}: ${activeSummary?.title || activeSummary?.url || 'sem titulo'}. Campos de numero: ${processNumberFields.length}; acoes de consulta: ${searchActions.length}.`,
+    resumo: `Aba ativa ${activeSummary?.tribunal || (activeSummary?.isPje ? 'PJe' : 'nao PJe')}: ${activeSummary?.title || activeSummary?.url || 'sem titulo'}. Contexto: ${truncateText(result?.contextSummary || activeSummary?.contextSummary || 'desconhecido', 120)}. Campos de numero: ${processNumberFields.length}; acoes de consulta: ${searchActions.length}.`,
     pages: pages.slice(0, 4).map(compactPageSummary).filter(Boolean),
+    environment: compactEnvironment(result?.environment || activePage?.environment || activePage),
     candidates: {
       processNumberFields,
       searchActions,

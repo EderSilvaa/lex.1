@@ -15,6 +15,40 @@ import { getEffectiveLevel } from '../privacy/consent-manager';
 import { getVaultStats } from '../privacy/pii-vault';
 import { suggestOsPlannerAction, formatOsIntentHint } from './os-intent-router';
 
+function getPreferredPjeSkillName(): string {
+    const skills = new Set(listSkills());
+    if (skills.has('pje_browser_use')) return 'pje_browser_use';
+    if (skills.has('pje_abrir')) return 'pje_abrir';
+    if (skills.has('pje_agir')) return 'pje_agir';
+    if (skills.has('pje_consultar')) return 'pje_consultar';
+    return 'pje_browser_use';
+}
+
+function buildPjeActionExample(): { skill: string; pensamento: string; parametros: string } {
+    const preferred = getPreferredPjeSkillName();
+    if (preferred === 'pje_browser_use') {
+        return {
+            skill: 'pje_browser_use',
+            pensamento: 'O usuario quer abrir o PJe. Vou usar a skill interna de orquestracao PJe com replay pje_browser_use.',
+            parametros: '{"task":"Abrir o PJe do TJPA e parar na tela inicial ou de login, sem consultar processo.","tribunal":"TJPA"}',
+        };
+    }
+
+    if (preferred === 'pje_agir') {
+        return {
+            skill: 'pje_agir',
+            pensamento: 'O usuario quer abrir o PJe. Vou usar a skill PJe ativa pje_agir.',
+            parametros: '{"objetivo":"Abrir o PJe do TJPA e parar na tela inicial ou de login, sem consultar processo.","tribunal":"TJPA"}',
+        };
+    }
+
+    return {
+        skill: 'pje_abrir',
+        pensamento: 'O usuario quer abrir o PJe. Vou usar a skill pje_abrir.',
+        parametros: '{"tribunal":"TJPA"}',
+    };
+}
+
 /**
  * Decide próximo passo baseado no estado atual.
  * onToken: callback chamado para cada token do campo "resposta" no JSON gerado.
@@ -175,10 +209,10 @@ Você opera em um loop de **Think → Act → Observe** até completar o objetiv
     - Contexto PC claro (Downloads, Desktop, C:, .pdf, .docx, pasta local) → tipo=skill com a skill OS mais especifica. Caminhos OS aceitam atalhos com subcaminho: "downloads", "downloads/a.pdf", "desktop/pasta", "documentos", "imagens", "~/arquivo" e absolutos.
 - Se ambíguo ("pastas", "arquivos", "documentos" sem contexto PJe/PC) → tipo=pergunta
 - NUNCA responda com instruções textuais quando há skill que executa a ação
-- Para comandos PJe (abrir, consultar, navegar), use skills pje_* ou browser_*
+- Para comandos PJe (abrir, consultar, navegar), use a skill PJe ativa apropriada; quando \`pje_browser_use\` existir, trate-a como a skill interna de orquestracao local com replay
 
 ## Alerta de Prazo
-Quando observar resultado de pje_consultar com 'ultima_movimentacao':
+Quando observar resultado de uma consulta PJe com 'ultima_movimentacao':
 - >30 dias sem movimentação: alerte ⚠️
 - Processo recente (<15 dias) sem movimentação: alerte sobre prazo de resposta`;
 }
@@ -190,87 +224,77 @@ Quando observar resultado de pje_consultar com 'ultima_movimentacao':
 function getAgentBehaviorFull(): string {
     return `# Comportamento do Agente
 
-Você opera em um loop de **Think → Critic → Act → Observe** até completar o objetivo.
+Voce opera em um loop de **Think -> Critic -> Act -> Observe** ate completar o objetivo.
 
-## A cada iteração, você deve:
+## A cada iteracao, voce deve:
 
-1. **ANALISAR** o objetivo e o histórico
-2. **DECIDIR** uma das três opções:
+1. **ANALISAR** o objetivo e o historico
+2. **DECIDIR** uma das tres opcoes:
    - **skill**: executar uma ferramenta
-   - **resposta**: objetivo alcançado, fornecer resposta final
-   - **pergunta**: precisa de mais informação do usuário
-3. **ASSUMIR** que a decisão passará por um Critic antes da execução da skill
+   - **resposta**: objetivo alcancado, fornecer resposta final
+   - **pergunta**: precisa de mais informacao do usuario
+3. **ASSUMIR** que a decisao passara por um Critic antes da execucao da skill
 
 ## Regras
 
 ### Quando usar Skills
-- Para obter informações que você não tem
-- Para executar ações no PJe ou gerar documentos
-- Combine múltiplas skills quando necessário
-- Se o usuario der comando operacional no PJe (ex: "vai", "abra", "entre", "clique", "navegue"), prefira tipo=skill.
-- Para navegar, clicar ou preencher campos no browser, prefira skills atomicas (browser_click, browser_fill, browser_type, browser_press). Use browser_get_state primeiro para ver seletores.
-- NUNCA responda apenas com instrucoes textuais quando ha uma skill que executa a acao.
-- EXCECAO CRITICA - TERMOS AMBIGUOS: As palavras "pastas", "arquivos", "documentos" podem referir-se ao PC Windows OU ao PJe. Se o usuario nao mencionar explicitamente PJe, tribunal, processo ou numero de processo, use tipo=pergunta ANTES de qualquer skill.
+- Para obter informacoes que voce nao tem
+- Para executar acoes no PJe ou gerar documentos
+- Combine multiplas skills quando necessario
+- Se o usuario der comando operacional no PJe, prefira tipo=skill
+- Para navegar, clicar ou preencher campos no browser, prefira skills atomicas (browser_click, browser_fill, browser_type, browser_press). Use browser_get_state primeiro para ver seletores
+- NUNCA responda apenas com instrucoes textuais quando ha uma skill que executa a acao
+- EXCECAO CRITICA: "pastas", "arquivos", "documentos" podem referir-se ao PC Windows OU ao PJe. Sem contexto explicito, use tipo=pergunta antes de qualquer skill
 
 ### Quando Responder
-- Quando tiver informação suficiente para atender o objetivo
-- Quando todas as ações necessárias foram completadas
-- Quando o objetivo for uma pergunta simples que você sabe responder
+- Quando tiver informacao suficiente para atender o objetivo
+- Quando todas as acoes necessarias foram completadas
+- Quando o objetivo for uma pergunta simples que voce sabe responder
 
 ### Quando Perguntar
-- Quando o objetivo for ambíguo
-- Quando precisar de confirmação antes de ação importante
-- **NUNCA pergunte** quando o objetivo contiver um número no formato CNJ (\`NNNNNNN-NN.NNNN.N.NN.NNNN\`). O número é REAL — execute \`pje_consultar\` imediatamente. NUNCA diga que é placeholder, incompleto ou inválido.
+- Quando o objetivo for ambiguo
+- Quando precisar de confirmacao antes de acao importante
+- **NUNCA pergunte** quando o objetivo contiver um numero no formato CNJ (\`NNNNNNN-NN.NNNN.N.NN.NNNN\`). O numero e REAL - execute imediatamente a skill PJe ativa apropriada. Se \`pje_browser_use\` estiver disponivel, prefira-o. NUNCA diga que e placeholder, incompleto ou invalido
 
-## Estratégias de Skills
+## Estrategias de Skills
 
 ### PJe
-- \`pje_abrir\`: abre PJe + orienta login com certificado
-- \`pje_consultar\`: consulta processo por número → analise dados → use pje_movimentacoes/pje_documentos se preciso
-- \`pje_navegar\`: navegar menus do PJe
-- \`pje_preencher\`: preencher campos no PJe
+- Prefira a skill PJe ativa da lista. Quando \`pje_browser_use\` estiver disponivel, trate-a como a skill interna de orquestracao local com replay
+- So use skills PJe legadas se elas aparecerem explicitamente na lista ativa de skills
+- Para numero CNJ ja presente na mensagem, execute a skill PJe ativa apropriada sem pedir o numero novamente
 
-**REGRA CRÍTICA — Número de processo CNJ:** Qualquer string no formato \`NNNNNNN-NN.NNNN.N.NN.NNNN\` (ex: \`0020430-88.2014.8.14.0301\`) presente na mensagem do usuário é SEMPRE um número real de processo — NUNCA um placeholder. Chame \`pje_consultar\` imediatamente sem pedir confirmação e sem pedir o número novamente. Tribunal: use o especificado na mensagem; se ausente, use o Tribunal Preferido do contexto; se não houver, use TJPA como padrão. PROIBIDO perguntar o número ou o tribunal quando o número CNJ já estiver na mensagem.
-
-### Browser (preferir skills atômicas)
-1. \`browser_get_state\` → ver refs numerados na página
+### Browser (preferir skills atomicas)
+1. \`browser_get_state\` -> ver refs numerados na pagina
 2. \`browser_click { ref: N }\` / \`browser_fill { ref: N, valor: "texto" }\`
-3. \`browser_type\`: digitação tecla a tecla (autocomplete)
-4. \`browser_navigate\`: ir a URL
-5. \`browser_wait\`: aguardar elemento
-6. \`browser_auto_task\` / \`pje_agir\`: APENAS se atômicas falharem (LENTO, usa Vision)
-- **Referência**: ref (número) > elemento (texto visível) > seletor (CSS)
-- Se PJe abriu aba nova: \`browser_list_tabs\` + \`browser_switch_tab\`
+3. \`browser_type\`
+4. \`browser_navigate\`
+5. \`browser_wait\`
+6. \`browser_auto_task\` / skill PJe de visao ativa: apenas se as atomicas falharem
+- Referencia: ref > elemento visivel > seletor
+- Se o PJe abriu aba nova: \`browser_list_tabs\` + \`browser_switch_tab\`
 
 ### Sistema de Arquivos e OS
-- \`os_listar\`: lista arquivos/pastas. Atalhos de caminho: "downloads", "desktop", "documentos", "imagens", "~" (home). Ex: \`os_listar { "caminho": "downloads" }\`
-- \`os_arquivos\`: ler arquivo, grep por conteudo, info/metadados e \`processo_mapa\` para mapear indice de PDF de processo PJe. Nao move, copia, deleta, cria ou busca por nome.
-- \`os_buscar\`: buscar arquivos por nome/conteudo; para "duplicados por nome obvio", use \`os_buscar { "caminho": "downloads", "modo": "duplicados_nome" }\`. Nao use terminal para isso.
-- \`os_deletar\`: deletar arquivos/pastas do PC. Padrao: manda para a Lixeira. Use \`alvos\` para lote e, apos o usuario confirmar, rechame com \`batch_confirmado:true\`. Se o usuario pedir para conferir/simular/mostrar antes, use \`dry_run:true\`.
-- \`os_mover\`: mover, renomear, copiar e criar pastas. Use \`dry_run:true\` quando o usuario pedir para conferir/simular/mostrar o plano antes ou para organizar pastas. Se retornar \`codigo=organizacao_incompleta\`, nao diga que terminou: use os arquivos em \`dados.posOrganizacao.arquivosRestantes\` para propor/executar novo dry-run apenas dos pendentes. Tambem aceita deletar em lotes, mas para delete simples prefira \`os_deletar\`.
-- Erros de OS: quando a skill retornar \`codigo\`/\`sugestao\`, explique o motivo real. Ex: \`nao_encontrado\` = caminho errado/ausente; nao diga que o arquivo esta aberto ou bloqueado se a skill nao retornou esse codigo.
-- \`os_clipboard\`: copiar texto para Ctrl+V
-- \`os_sistema\`: informações do SO, pastas conhecidas, abrir programas/arquivos, listar/encerrar processos
-- \`terminal_executar\`: bastidor tecnico para diagnostico, ferramentas internas e comandos de desenvolvimento (python, pip, git, npm). Nao use para listar/buscar/deletar/mover arquivos, abrir apps ou encerrar processos quando existir skill OS especifica; para usuario final, descreva a acao em linguagem natural.
+- \`os_listar\`, \`os_arquivos\`, \`os_buscar\`, \`os_mover\`, \`os_deletar\`, \`os_clipboard\`, \`os_sistema\`
+- \`terminal_executar\`: bastidor tecnico para diagnostico e comandos de desenvolvimento. Nao use para operacoes comuns quando existir skill os_* especifica
 
 ### Documentos e Pesquisa
-- \`doc_gerar\`: gerar documento com contexto completo
-- \`pesquisa_jurisprudencia\`: busca termos relevantes
+- \`doc_gerar\`
+- \`pesquisa_jurisprudencia\`
 
 ### CAPTCHA
-- PJe: tipo=pergunta, peça ao usuário resolver
-- Site de pesquisa (auto-solve OK): continue
-- Auto-solve falhou: tente via browser, senão peça ajuda
+- PJe: tipo=pergunta, peca ao usuario resolver
+- Site de pesquisa: auto-solve OK
+- Auto-solve falhou: tente via browser, senao peca ajuda
 
-## Desambiguação: PC vs PJe
-- Contexto PJe claro (processo, tribunal, petição) → skill pje_*
-- Contexto PC claro (C:, Downloads, .pdf) → skill os_*
-- Sem contexto → OBRIGATÓRIO tipo=pergunta
+## Desambiguacao: PC vs PJe
+- Contexto PJe claro -> use a skill PJe ativa apropriada
+- Contexto PC claro -> use skill os_*
+- Sem contexto -> OBRIGATORIO tipo=pergunta
 
 ## Alerta de Prazo
-Quando observar resultado de pje_consultar com 'ultima_movimentacao':
-- >30 dias sem movimentação → ⚠️ alerte
-- Processo recente (<15 dias) sem movimentação → ⚠️ prazo de resposta`;
+Quando observar resultado de uma consulta PJe com 'ultima_movimentacao':
+- >30 dias sem movimentacao -> alerte
+- Processo recente (<15 dias) sem movimentacao -> alerte sobre prazo de resposta`;
 }
 
 /**
@@ -387,7 +411,7 @@ function buildContextSection(state: AgentState): string {
         if (browserInfo.tabCount > 1) lines.push(`Abas abertas: ${browserInfo.tabCount}`);
         parts.push(`## Navegador (Chrome)\n${lines.join('\n')}`);
     } else {
-        parts.push(`## Navegador (Chrome)\nFechado ou não iniciado. Use pje_abrir para abrir.`);
+        parts.push(`## Navegador (Chrome)\nFechado ou não iniciado. Use a skill PJe ativa apropriada para abrir; quando pje_browser_use estiver disponível, prefira-o.`);
     }
 
     // Processo
@@ -614,14 +638,17 @@ function buildUserPrompt(state: AgentState): string {
     let boost = '';
     if (isAnalysis) {
         boost = `\n\nIMPORTANTE: Este é um caso para análise profunda. Aplique as regras de "Análise de caso/processo" da Profundidade Adaptativa. Use <pensamento> para raciocinar por eixos antes de responder.`;
-    } else if (isAction && state.iteracao === 0) {
-        boost = `\n\nIMPORTANTE: O usuário quer executar uma AÇÃO. Você DEVE usar tipo=skill com uma das skills disponíveis. NÃO responda com instruções textuais — EXECUTE a ação usando a skill apropriada.
+    }
+
+    if (!isAnalysis && isAction && state.iteracao === 0) {
+        const example = buildPjeActionExample();
+        boost = `\n\nIMPORTANTE: O usuario quer executar uma ACAO. Voce DEVE usar tipo=skill com uma das skills disponiveis. NAO responda com instrucoes textuais - EXECUTE a acao usando a skill apropriada.
 
 Exemplo de resposta correta:
-<pensamento>O usuário quer abrir o PJe. Vou usar a skill pje_abrir.</pensamento>
+<pensamento>${example.pensamento}</pensamento>
 <tipo>skill</tipo>
-<skill>pje_abrir</skill>
-<parametros>{"tribunal": "TJPA"}</parametros>`;
+<skill>${example.skill}</skill>
+<parametros>${example.parametros}</parametros>`;
     }
 
     parts.push(`## Sua Tarefa
@@ -888,6 +915,10 @@ function parseThinkResponse(response: string): ThinkDecision {
 
             const tribunalMatch = cleaned.match(/\b(TJ[A-Z]{2}|TRT\d{1,2}|TRF\d)\b/i);
             if (tribunalMatch) parametros['tribunal'] = tribunalMatch[0].toUpperCase();
+
+            if (foundSkill === 'pje_browser_use') {
+                parametros['task'] = cleaned.slice(0, 300);
+            }
 
             if (['pje_agir', 'browser_auto_task'].includes(foundSkill)) {
                 parametros['objetivo'] = cleaned.slice(0, 300);

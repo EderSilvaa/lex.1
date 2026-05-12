@@ -8,6 +8,11 @@
 
 import { createHash } from 'crypto';
 import type { BrainStore } from './brain-store';
+import {
+    inferPjeEnvironmentContext,
+    normalizePjeEnvironmentContext,
+    type PjeEnvironmentContext,
+} from '../pje/environment-context';
 
 export interface NormalizedPageState {
     tribunal?: string;
@@ -15,6 +20,14 @@ export interface NormalizedPageState {
     canonicalContext?: string;
     canonicalRoute?: string;
     canonicalStateKey?: string;
+    profileKind?: string;
+    authState?: string;
+    surfaceKind?: string;
+    screenFamily?: string;
+    areaLabel?: string;
+    affordances?: string[];
+    canonicalEnvironmentKey?: string;
+    environment?: PjeEnvironmentContext;
 }
 
 export interface NormalizeReport {
@@ -27,6 +40,27 @@ export interface NormalizeReport {
 }
 
 const DYNAMIC_SEGMENT = ':id';
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+function hasMeaningfulEnvironment(environment: PjeEnvironmentContext | undefined): boolean {
+    if (!environment) return false;
+    return environment.isPje
+        || !!environment.tribunal
+        || !!environment.pjeContext
+        || !!environment.profileKind
+        || !!environment.surfaceKind
+        || !!environment.authState
+        || !!environment.screenFamily
+        || !!environment.areaLabel
+        || !!environment.canonicalEnvironmentKey
+        || !!environment.contextSummary
+        || !!environment.affordances?.length;
+}
 
 export function normalizeActionInput(tool: string, input: Record<string, unknown>): Record<string, unknown> {
     const normalized: Record<string, unknown> = { ...input };
@@ -63,9 +97,15 @@ export function normalizePageStateData(data: Record<string, any>): Record<string
         title: data['title'],
         tribunal: data['tribunal'],
         pjeContext: data['pjeContext'],
+        profileKind: data['profileKind'],
+        authState: data['authState'],
+        surfaceKind: data['surfaceKind'],
+        screenFamily: data['screenFamily'],
+        areaLabel: data['areaLabel'],
+        affordances: data['affordances'],
+        environment: asRecord(data['environment']),
     });
-
-    return {
+    const nextData: Record<string, any> = {
         ...data,
         ...(data['domHash'] ? { rawDomHash: data['domHash'] } : {}),
         ...(normalized.tribunal ? { tribunal: normalized.tribunal } : {}),
@@ -73,7 +113,21 @@ export function normalizePageStateData(data: Record<string, any>): Record<string
         ...(normalized.canonicalContext ? { canonicalContext: normalized.canonicalContext } : {}),
         ...(normalized.canonicalRoute ? { canonicalRoute: normalized.canonicalRoute } : {}),
         ...(normalized.canonicalStateKey ? { canonicalStateKey: normalized.canonicalStateKey } : {}),
+        ...(normalized.profileKind ? { profileKind: normalized.profileKind } : {}),
+        ...(normalized.authState ? { authState: normalized.authState } : {}),
+        ...(normalized.surfaceKind ? { surfaceKind: normalized.surfaceKind } : {}),
+        ...(normalized.screenFamily ? { screenFamily: normalized.screenFamily } : {}),
+        ...(normalized.areaLabel ? { areaLabel: normalized.areaLabel } : {}),
+        ...(normalized.affordances?.length ? { affordances: normalized.affordances } : {}),
+        ...(normalized.canonicalEnvironmentKey ? { canonicalEnvironmentKey: normalized.canonicalEnvironmentKey } : {}),
+        ...(hasMeaningfulEnvironment(normalized.environment) ? { environment: normalized.environment } : {}),
     };
+
+    if (!hasMeaningfulEnvironment(normalized.environment) && 'environment' in nextData) {
+        delete nextData['environment'];
+    }
+
+    return nextData;
 }
 
 export function normalizePageState(input: {
@@ -81,10 +135,34 @@ export function normalizePageState(input: {
     title?: string;
     tribunal?: string;
     pjeContext?: string;
+    profileKind?: string;
+    authState?: string;
+    surfaceKind?: string;
+    screenFamily?: string;
+    areaLabel?: string;
+    affordances?: unknown;
+    environment?: unknown;
 }): NormalizedPageState {
     const canonicalUrl = canonicalizeUrl(input.url);
     const tribunal = normalizeTribunal(input.tribunal) || inferTribunal(input.url) || inferTribunal(canonicalUrl);
-    const canonicalContext = inferCanonicalContext(input.url, input.title, input.pjeContext);
+    const existingEnvironment = normalizePjeEnvironmentContext(input.environment);
+    const environment = inferPjeEnvironmentContext({
+        url: input.url,
+        title: input.title,
+        tribunal,
+        pjeContext: input.pjeContext,
+        candidateKinds: [],
+        environment: {
+            ...(existingEnvironment || {}),
+            ...(input.profileKind ? { profileKind: String(input.profileKind) as any } : {}),
+            ...(input.authState ? { authState: String(input.authState) as any } : {}),
+            ...(input.surfaceKind ? { surfaceKind: String(input.surfaceKind) as any } : {}),
+            ...(input.screenFamily ? { screenFamily: String(input.screenFamily) } : {}),
+            ...(input.areaLabel ? { areaLabel: String(input.areaLabel) } : {}),
+            ...(Array.isArray(input.affordances) ? { affordances: input.affordances } : {}),
+        },
+    });
+    const canonicalContext = environment.canonicalContext || inferCanonicalContext(input.url, input.title, input.pjeContext);
     const canonicalRoute = canonicalizeRoute(input.url, tribunal, canonicalContext);
     const keyParts = [
         tribunal || 'unknown',
@@ -98,6 +176,14 @@ export function normalizePageState(input: {
         canonicalContext,
         canonicalRoute,
         canonicalStateKey: keyParts.join('|'),
+        ...(environment.profileKind ? { profileKind: environment.profileKind } : {}),
+        ...(environment.authState ? { authState: environment.authState } : {}),
+        ...(environment.surfaceKind ? { surfaceKind: environment.surfaceKind } : {}),
+        ...(environment.screenFamily ? { screenFamily: environment.screenFamily } : {}),
+        ...(environment.areaLabel ? { areaLabel: environment.areaLabel } : {}),
+        ...(environment.affordances?.length ? { affordances: environment.affordances } : {}),
+        ...(environment.canonicalEnvironmentKey ? { canonicalEnvironmentKey: environment.canonicalEnvironmentKey } : {}),
+        ...(hasMeaningfulEnvironment(environment) ? { environment } : {}),
     };
 }
 

@@ -150,6 +150,14 @@ function writeSingle(brain: BrainStore, obs: Observation): void {
             canonicalUrl: obs.before.canonicalUrl,
             canonicalContext: obs.before.canonicalContext,
             canonicalStateKey: obs.before.canonicalStateKey,
+            profileKind: obs.before.profileKind,
+            authState: obs.before.authState,
+            surfaceKind: obs.before.surfaceKind,
+            screenFamily: obs.before.screenFamily,
+            areaLabel: obs.before.areaLabel,
+            affordances: obs.before.affordances,
+            canonicalEnvironmentKey: obs.before.canonicalEnvironmentKey,
+            environment: obs.before.environment,
         });
         const label = pageStateLabel(obs.before.tribunal, obs.before.domHash, stateData);
         if (label) {
@@ -174,6 +182,14 @@ function writeSingle(brain: BrainStore, obs: Observation): void {
             canonicalUrl: obs.after.canonicalUrl,
             canonicalContext: obs.after.canonicalContext,
             canonicalStateKey: obs.after.canonicalStateKey,
+            profileKind: obs.after.profileKind || obs.before?.profileKind,
+            authState: obs.after.authState || obs.before?.authState,
+            surfaceKind: obs.after.surfaceKind || obs.before?.surfaceKind,
+            screenFamily: obs.after.screenFamily || obs.before?.screenFamily,
+            areaLabel: obs.after.areaLabel || obs.before?.areaLabel,
+            affordances: obs.after.affordances || obs.before?.affordances,
+            canonicalEnvironmentKey: obs.after.canonicalEnvironmentKey || obs.before?.canonicalEnvironmentKey,
+            environment: obs.after.environment || obs.before?.environment,
             newTabs: obs.after.newTabs,
         });
         const label = pageStateLabel(tribunal, obs.after.domHash, stateData);

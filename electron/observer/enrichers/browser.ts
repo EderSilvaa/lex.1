@@ -14,6 +14,7 @@ import { createHash } from 'crypto';
 import type { Page } from 'playwright';
 import { getActivePage } from '../../browser-manager';
 import { normalizePageState } from '../../brain/normalizer';
+import { inferPjeEnvironmentContext } from '../../pje/environment-context';
 import type { Enricher, ObservationBefore, ObservationAfter } from '../types';
 
 /**
@@ -68,11 +69,13 @@ async function snapshot(page: Page): Promise<{
     url: string;
     title: string;
     domHash: string;
+    textSample: string;
 }> {
-    const [url, title, domStruct] = await Promise.all([
+    const [url, title, domStruct, textSample] = await Promise.all([
         Promise.resolve(page.url()),
         page.title().catch(() => ''),
         page.evaluate(DOM_STRUCTURE_SCRIPT).catch(() => ''),
+        page.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => ''),
     ]);
     return {
         url,
@@ -80,6 +83,7 @@ async function snapshot(page: Page): Promise<{
         domHash: typeof domStruct === 'string' && domStruct.length > 0
             ? sha256(domStruct).slice(0, 32)
             : '',
+        textSample: typeof textSample === 'string' ? textSample : '',
     };
 }
 
@@ -111,8 +115,22 @@ export const browserEnricher: Enricher = {
         try {
             const snap = await snapshot(page);
             const tribunal = tribunalFromUrl(snap.url);
-            const pjeContext = inferPjeContext(snap.url, ctx.tool);
-            const normalized = normalizePageState({ url: snap.url, title: snap.title, tribunal, pjeContext });
+            const inferredToolContext = inferPjeContext(snap.url, ctx.tool);
+            const environment = inferPjeEnvironmentContext({
+                url: snap.url,
+                title: snap.title,
+                tribunal,
+                pjeContext: inferredToolContext,
+                textSnippets: snap.textSample ? [snap.textSample] : [],
+            });
+            const pjeContext = environment.pjeContext || inferredToolContext;
+            const normalized = normalizePageState({
+                url: snap.url,
+                title: snap.title,
+                tribunal,
+                pjeContext,
+                environment,
+            });
             return {
                 url: snap.url,
                 title: snap.title,
@@ -122,6 +140,14 @@ export const browserEnricher: Enricher = {
                 ...(normalized.canonicalUrl ? { canonicalUrl: normalized.canonicalUrl } : {}),
                 ...(normalized.canonicalContext ? { canonicalContext: normalized.canonicalContext } : {}),
                 ...(normalized.canonicalStateKey ? { canonicalStateKey: normalized.canonicalStateKey } : {}),
+                ...(normalized.profileKind ? { profileKind: normalized.profileKind } : {}),
+                ...(normalized.authState ? { authState: normalized.authState } : {}),
+                ...(normalized.surfaceKind ? { surfaceKind: normalized.surfaceKind } : {}),
+                ...(normalized.screenFamily ? { screenFamily: normalized.screenFamily } : {}),
+                ...(normalized.areaLabel ? { areaLabel: normalized.areaLabel } : {}),
+                ...(normalized.affordances?.length ? { affordances: normalized.affordances } : {}),
+                ...(normalized.canonicalEnvironmentKey ? { canonicalEnvironmentKey: normalized.canonicalEnvironmentKey } : {}),
+                ...(normalized.environment ? { environment: normalized.environment } : {}),
             };
         } catch (err: any) {
             console.warn('[Observer/browser] before falhou:', err?.message);
@@ -136,8 +162,22 @@ export const browserEnricher: Enricher = {
         try {
             const snap = await snapshot(page);
             const tribunal = tribunalFromUrl(snap.url);
-            const pjeContext = inferPjeContext(snap.url, ctx.tool);
-            const normalized = normalizePageState({ url: snap.url, title: snap.title, tribunal, pjeContext });
+            const inferredToolContext = inferPjeContext(snap.url, ctx.tool);
+            const environment = inferPjeEnvironmentContext({
+                url: snap.url,
+                title: snap.title,
+                tribunal,
+                pjeContext: inferredToolContext,
+                textSnippets: snap.textSample ? [snap.textSample] : [],
+            });
+            const pjeContext = environment.pjeContext || inferredToolContext;
+            const normalized = normalizePageState({
+                url: snap.url,
+                title: snap.title,
+                tribunal,
+                pjeContext,
+                environment,
+            });
             return {
                 url: snap.url,
                 title: snap.title,
@@ -147,6 +187,14 @@ export const browserEnricher: Enricher = {
                 ...(normalized.canonicalUrl ? { canonicalUrl: normalized.canonicalUrl } : {}),
                 ...(normalized.canonicalContext ? { canonicalContext: normalized.canonicalContext } : {}),
                 ...(normalized.canonicalStateKey ? { canonicalStateKey: normalized.canonicalStateKey } : {}),
+                ...(normalized.profileKind ? { profileKind: normalized.profileKind } : {}),
+                ...(normalized.authState ? { authState: normalized.authState } : {}),
+                ...(normalized.surfaceKind ? { surfaceKind: normalized.surfaceKind } : {}),
+                ...(normalized.screenFamily ? { screenFamily: normalized.screenFamily } : {}),
+                ...(normalized.areaLabel ? { areaLabel: normalized.areaLabel } : {}),
+                ...(normalized.affordances?.length ? { affordances: normalized.affordances } : {}),
+                ...(normalized.canonicalEnvironmentKey ? { canonicalEnvironmentKey: normalized.canonicalEnvironmentKey } : {}),
+                ...(normalized.environment ? { environment: normalized.environment } : {}),
                 newTabs: tabsSnapshot(page),
             };
         } catch (err: any) {

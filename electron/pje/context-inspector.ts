@@ -1,5 +1,6 @@
 import type { Frame, Page } from 'playwright-core';
 import { getActivePage, getActivePageIndex, getBrowserContext } from '../browser-manager';
+import { inferPjeEnvironmentContext, summarizePjeEnvironmentContext } from './environment-context';
 
 type RawInspectInput = Record<string, unknown>;
 
@@ -96,6 +97,19 @@ function normalizeText(value: unknown): string {
 
 function includesAny(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
+}
+
+function uniqueStrings(values: string[], maxItems = 12): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const key = String(value || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+    if (out.length >= maxItems) break;
+  }
+  return out;
 }
 
 function classifyKind(el: RawElementSnapshot): InspectElement['kind'] {
@@ -440,16 +454,39 @@ async function inspectPage(input: {
   }
 
   const allElements = inspectedFrames.flatMap((frame) => frame.elements);
+  const url = input.page.url();
+  const tribunal = detectTribunalFromUrl(url);
+  const candidateKinds = uniqueStrings(allElements.flatMap((el) => el.candidateKinds), 16);
+  const textSnippets = inspectedFrames.flatMap((frame) => frame.textSnippets).slice(0, 24);
+  const environment = inferPjeEnvironmentContext({
+    url,
+    title,
+    tribunal: tribunal || undefined,
+    textSnippets,
+    candidateKinds,
+  });
+  const contextSummary = summarizePjeEnvironmentContext(environment);
 
   return {
     pageId,
     pageIndex: input.pageIndex,
     active: input.active,
     hasOpener: !!opener,
-    url: input.page.url(),
+    url,
     title,
-    isPje: input.page.url().includes('pje.'),
-    tribunal: detectTribunalFromUrl(input.page.url()),
+    isPje: environment.isPje,
+    tribunal,
+    pjeContext: environment.pjeContext || null,
+    canonicalContext: environment.canonicalContext || null,
+    profileKind: environment.profileKind || null,
+    authState: environment.authState || null,
+    surfaceKind: environment.surfaceKind || null,
+    screenFamily: environment.screenFamily || null,
+    areaLabel: environment.areaLabel || null,
+    affordances: environment.affordances || [],
+    canonicalEnvironmentKey: environment.canonicalEnvironmentKey || null,
+    contextSummary: contextSummary || null,
+    environment,
     frameCount: frames.length,
     interactiveElementCount: allElements.length,
     frames: inspectedFrames,
@@ -543,6 +580,7 @@ export async function inspectPjeContext(params: unknown = {}): Promise<any> {
     .filter((el) => el.candidateKinds.includes('login_action'))
     .slice(0, 20)
     .map(toCandidateSummary);
+  const activeInspectedPage = pages.find((page) => page.active) || pages[0] || null;
 
   return {
     ok: true,
@@ -552,6 +590,8 @@ export async function inspectPjeContext(params: unknown = {}): Promise<any> {
     inspectedPageCount: pages.length,
     activePageIndex: activeIndex,
     inspectedAt: new Date().toISOString(),
+    environment: activeInspectedPage?.environment || null,
+    contextSummary: activeInspectedPage?.contextSummary || null,
     pages,
     candidates: {
       processNumberFields,
@@ -566,6 +606,7 @@ export async function inspectPjeContext(params: unknown = {}): Promise<any> {
       searchActions.length > 0
         ? 'acao_consulta_identificada'
         : 'acao_consulta_nao_identificada',
+      activeInspectedPage?.surfaceKind ? `surface_detected:${activeInspectedPage.surfaceKind}` : 'surface_detected:desconhecido',
       'usar_refs_retornadas_apenas_apos_confirmacao_ou_em_ferramenta_especifica',
     ],
   };

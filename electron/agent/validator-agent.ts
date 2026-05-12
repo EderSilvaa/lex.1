@@ -50,6 +50,7 @@ const HIGH_RISK_SKILLS = new Set([
     'pje_assinar',
     'pje_peticionar',
     'pje_juntar_documento',
+    'pje_browser_use',      // skill interna de orquestracao/replay pode executar acoes sensiveis
     'pje_agir',             // pje_agir pode fazer ações irreversíveis
 ]);
 

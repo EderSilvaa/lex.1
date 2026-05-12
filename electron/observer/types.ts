@@ -1,13 +1,15 @@
 /**
- * Observer — Types
+ * Observer - Types
  *
  * Shape dos eventos observados e dos enrichers que agregam contexto.
  */
 
+import type { PjeEnvironmentContext } from '../pje/environment-context';
+
 export interface ObservationBefore {
     /** URL normalizada antes da tool. Ex: "https://pje.tjpa.jus.br/busca". */
     url?: string;
-    /** Título da aba antes da tool. */
+    /** Titulo da aba antes da tool. */
     title?: string;
     /** Hash estrutural do DOM antes. */
     domHash?: string;
@@ -18,6 +20,14 @@ export interface ObservationBefore {
     canonicalUrl?: string;
     canonicalContext?: string;
     canonicalStateKey?: string;
+    profileKind?: string;
+    authState?: string;
+    surfaceKind?: string;
+    screenFamily?: string;
+    areaLabel?: string;
+    affordances?: string[];
+    canonicalEnvironmentKey?: string;
+    environment?: PjeEnvironmentContext;
 }
 
 export interface ObservationAfter {
@@ -29,7 +39,15 @@ export interface ObservationAfter {
     canonicalUrl?: string;
     canonicalContext?: string;
     canonicalStateKey?: string;
-    /** Novas abas abertas durante a tool (pós-ação). */
+    profileKind?: string;
+    authState?: string;
+    surfaceKind?: string;
+    screenFamily?: string;
+    areaLabel?: string;
+    affordances?: string[];
+    canonicalEnvironmentKey?: string;
+    environment?: PjeEnvironmentContext;
+    /** Novas abas abertas durante a tool (pos-acao). */
     newTabs?: Array<{ id: string; url: string }>;
 }
 
@@ -37,8 +55,8 @@ export interface Observation {
     ts: number;
     server: string;         // id do server MCP (ex: "browser", "filesystem")
     tool: string;           // nome prefixado (ex: "browser__navigate")
-    input: Record<string, unknown>;     // já sanitizado (PII mascarada)
-    outputPreview: string;  // primeiros 500 chars da saída
+    input: Record<string, unknown>;     // ja sanitizado (PII mascarada)
+    outputPreview: string;  // primeiros 500 chars da saida
     outputHash: string;     // sha256 do output completo
     outputSize: number;     // bytes
     durationMs: number;
@@ -47,10 +65,10 @@ export interface Observation {
     before: ObservationBefore | null;
     after: ObservationAfter | null;
     /**
-     * Identificador da "trace" lógica que engloba todas as ações executadas
-     * para um mesmo objetivo do usuário. Permite reconstruir a sequência
+     * Identificador da "trace" logica que engloba todas as acoes executadas
+     * para um mesmo objetivo do usuario. Permite reconstruir a sequencia
      * completa depois (ex: "quais 15 tool calls fizeram parte do goal X?").
-     * Opcional — observações isoladas têm traceId=null.
+     * Opcional - observacoes isoladas tem traceId=null.
      */
     traceId: string | null;
 }
@@ -76,9 +94,9 @@ export type ObserverMode = 'full' | 'sample' | 'off';
 export interface ObserverConfig {
     mode: ObserverMode;     // default 'full' (em dev) / 'sample' (prod)
     sampleRate: number;     // 0..1, usado quando mode='sample'
-    queueCap: number;       // tamanho máximo da fila em memória
+    queueCap: number;       // tamanho maximo da fila em memoria
     flushIntervalMs: number; // intervalo entre flushes
-    flushBatchSize: number;  // máximo de eventos por transação SQLite
+    flushBatchSize: number;  // maximo de eventos por transacao SQLite
 }
 
 export const DEFAULT_CONFIG: ObserverConfig = {

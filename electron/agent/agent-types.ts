@@ -18,9 +18,9 @@ const AGENT_TYPES: Record<AgentTypeId, AgentSpec> = {
         allowedSkillCategories: ['pje', 'browser'],
         systemPromptExtra: `Voce e um agente especializado em automacao do PJe (Processo Judicial Eletronico).
 Use browser_get_state antes de interagir para ver seletores disponiveis.
-Prefira browser_click, browser_fill, browser_type (atomicos e rapidos) a pje_agir (lento, usa visao).
-Use pje_agir APENAS quando os seletores nao sao claros ou a tela e desconhecida.
-Use pje_abrir para garantir que o Chrome esta no PJe.`,
+Prefira a skill PJe ativa da lista. Quando pje_browser_use estiver disponivel, trate-a como a skill interna de orquestracao local com replay.
+So use skills PJe legadas se elas estiverem explicitamente ativas na lista atual.
+Use browser_click, browser_fill e browser_type quando o fluxo atomico estiver disponivel e for mais seguro.`,
         configOverrides: { enableCritic: true, timeoutMs: 5 * 60 * 1000 },
         maxConcurrent: 1,
         requiresBrowser: true,

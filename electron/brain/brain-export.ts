@@ -62,7 +62,20 @@ export interface ExportResult {
  * pjeContext, tool, outputHash, durationMs, success).
  */
 const PATTERN_DATA_ALLOW: Record<string, ReadonlySet<string>> = {
-    page_state: new Set(['domHash', 'tribunal', 'pjeContext']),
+    page_state: new Set([
+        'domHash',
+        'tribunal',
+        'pjeContext',
+        'canonicalContext',
+        'profileKind',
+        'authState',
+        'surfaceKind',
+        'screenFamily',
+        'areaLabel',
+        'affordances',
+        'canonicalEnvironmentKey',
+        'environment',
+    ]),
     action: new Set(['tool', 'server', 'outputHash', 'outputSize', 'durationMs', 'success']),
     flow: new Set(['name', 'description']),
     selector: new Set(['tribunal', 'context', 'selector', 'successCount', 'failureCount']),

@@ -15,6 +15,7 @@ import { setUserDataDir, getActivePage, ensureBrowser, attemptPassiveBrowserReco
 import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
 import { inspectPjeContext } from '../pje/context-inspector';
+import { inferPjeEnvironmentContext, normalizePjeEnvironmentContext, summarizePjeEnvironmentContext } from '../pje/environment-context';
 import { fillPjeProcessNumber } from '../pje/process-number-filler';
 import { clickPjeSearch } from '../pje/search-clicker';
 import { readPjeSearchResults } from '../pje/search-results-reader';
@@ -409,6 +410,8 @@ async function buildPjeStatus(): Promise<{
     url: string | null;
     tribunalAtivo: string | null;
     tribunalPreferido: string | null;
+    contextSummary?: string | null;
+    environment?: import('../pje/environment-context').PjeEnvironmentContext | null;
 }> {
     try {
         if (!getActivePage()) {
@@ -418,14 +421,40 @@ async function buildPjeStatus(): Promise<{
         const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
         const tribunalAtivo = isPje ? detectTribunalFromUrl(url) : null;
+        const [title, textSample] = await Promise.all([
+            page?.title().catch(() => '') ?? Promise.resolve(''),
+            page?.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => '') ?? Promise.resolve(''),
+        ]);
 
         const mem = getMemory();
         const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
         const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
+        const environment = inferPjeEnvironmentContext({
+            url: url || undefined,
+            title,
+            tribunal: tribunalAtivo || undefined,
+            textSnippets: textSample ? [textSample] : [],
+        });
 
-        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+        return {
+            connected: !!url,
+            isPje,
+            url,
+            tribunalAtivo,
+            tribunalPreferido: pref,
+            contextSummary: summarizePjeEnvironmentContext(environment) || null,
+            environment,
+        };
     } catch {
-        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+        return {
+            connected: false,
+            isPje: false,
+            url: null,
+            tribunalAtivo: null,
+            tribunalPreferido: null,
+            contextSummary: null,
+            environment: null,
+        };
     }
 }
 
@@ -636,6 +665,32 @@ function normalizeObservationState(value: unknown): ObservationBefore | Observat
     const canonicalUrl = limitText(raw['canonicalUrl'], 800);
     const canonicalContext = limitText(raw['canonicalContext'], 120);
     const canonicalStateKey = limitText(raw['canonicalStateKey'], 600);
+    const profileKind = limitText(raw['profileKind'], 40);
+    const authState = limitText(raw['authState'], 40);
+    const surfaceKind = limitText(raw['surfaceKind'], 80);
+    const screenFamily = limitText(raw['screenFamily'], 80);
+    const areaLabel = limitText(raw['areaLabel'], 120);
+    const canonicalEnvironmentKey = limitText(raw['canonicalEnvironmentKey'], 220);
+    const affordances = Array.isArray(raw['affordances'])
+        ? raw['affordances'].map((item) => limitText(item, 80)).filter(Boolean).slice(0, 8)
+        : [];
+    const existingEnvironment = normalizePjeEnvironmentContext(raw['environment']);
+    const environment = inferPjeEnvironmentContext({
+        url,
+        title,
+        tribunal: tribunal || undefined,
+        pjeContext: pjeContext || undefined,
+        environment: {
+            ...(existingEnvironment || {}),
+            ...(profileKind ? { profileKind } : {}),
+            ...(authState ? { authState } : {}),
+            ...(surfaceKind ? { surfaceKind } : {}),
+            ...(screenFamily ? { screenFamily } : {}),
+            ...(areaLabel ? { areaLabel } : {}),
+            ...(canonicalEnvironmentKey ? { canonicalEnvironmentKey } : {}),
+            ...(affordances.length ? { affordances } : {}),
+        },
+    });
 
     if (url) state.url = url;
     if (title) state.title = title;
@@ -645,6 +700,25 @@ function normalizeObservationState(value: unknown): ObservationBefore | Observat
     if (canonicalUrl) state.canonicalUrl = canonicalUrl;
     if (canonicalContext) state.canonicalContext = canonicalContext;
     if (canonicalStateKey) state.canonicalStateKey = canonicalStateKey;
+    const hasMeaningfulEnvironment = environment.isPje
+        || !!environment.tribunal
+        || !!environment.pjeContext
+        || !!environment.profileKind
+        || !!environment.surfaceKind
+        || !!environment.authState
+        || !!environment.screenFamily
+        || !!environment.areaLabel
+        || !!environment.canonicalEnvironmentKey
+        || !!environment.contextSummary
+        || !!environment.affordances?.length;
+    if (environment.profileKind) state.profileKind = environment.profileKind;
+    if (environment.authState) state.authState = environment.authState;
+    if (environment.surfaceKind) state.surfaceKind = environment.surfaceKind;
+    if (environment.screenFamily) state.screenFamily = environment.screenFamily;
+    if (environment.areaLabel) state.areaLabel = environment.areaLabel;
+    if (environment.affordances?.length) state.affordances = environment.affordances;
+    if (environment.canonicalEnvironmentKey) state.canonicalEnvironmentKey = environment.canonicalEnvironmentKey;
+    if (hasMeaningfulEnvironment) state.environment = environment as any;
 
     if (Array.isArray(raw['newTabs'])) {
         state.newTabs = raw['newTabs']

@@ -2,6 +2,13 @@
 
 Atualizado em 2026-05-09.
 
+Nota de escopo de lancamento em 2026-05-12: a direcao de arquitetura continua
+reconhecendo a Agora como superficie de workflow duravel, mas a feature foi
+postergada para depois do lancamento. Para o MVP, o foco ativo passa a ser
+Console Lex + bridge local + PJe/TJ + analise assistida. Em paralelo, a
+superficie MCP da Lex passa a ser tratada como parte importante da estrategia
+de distribuicao do MVP.
+
 Este documento e a fonte rapida de verdade para a arquitetura atual. Os planos em
 `docs/future-tasks/` preservam historico de decisao, mas devem ser lidos a partir
 deste estado.
@@ -52,6 +59,11 @@ importado. Isso evita reinstalar dependencias durante esta etapa.
 A diferenca nao e "simples vs multiagente". O chat inline tambem pode usar
 planner, subagentes, pesquisa, PJe, documentos e ferramentas em paralelo.
 
+Para o escopo de lancamento, a regra pratica agora e:
+
+- chat/Console e o caminho principal do MVP;
+- Agora sai do caminho critico e volta apenas no pos-lancamento.
+
 Use chat inline quando o trabalho cabe numa execucao conversacional:
 
 - analisar um processo;
@@ -73,6 +85,10 @@ Use Agora quando o trabalho vira operacao duravel:
 ## Agora
 
 Agora e o quadro de workflow duravel do Hermes/Lex Engine.
+
+Importante para produto: embora a direcao arquitetural continue valida, a Agora
+nao faz parte do escopo ativo do MVP de lancamento neste momento. O objetivo
+imediato e nao abrir nova frente antes de fechar o fluxo principal de PJe/TJ.
 
 Regra critica: nao reconstruir o sistema de multiagentes/workflow do zero. A
 base deve vir da atualizacao Nous/Hermes `v2026.5.7` / `v0.13.0`, que trouxe
@@ -137,6 +153,28 @@ Regras:
   Desktop.
 - Acoes sensiveis exigem confirmacao visual no Desktop.
 - Brain registra observacoes, sucesso/falha, seletores e know-how operacional.
+
+## MCP Como Superficie de Produto
+
+Para o MVP, MCP nao deve ser tratado apenas como detalhe interno do Engine. Ele
+tambem pode ser parte da oferta comercial da Lex.
+
+Leitura pratica:
+
+- `lex-desktop` ja e um servidor MCP local util para clientes que querem usar a
+  capacidade da Lex a partir de outro agente compatível;
+- isso reduz friccao comercial porque nem todo cliente precisa migrar de chat ou
+  interface no primeiro contato;
+- ao mesmo tempo, `MCP local` e `produto app completo` nao sao a mesma coisa e
+  precisam de onboarding e promessa diferentes.
+
+Decisao de MVP:
+
+- tratar Claude + MCP local como trilha mais proxima;
+- tratar ChatGPT como trilha que pode exigir superficie remota, auth e setup
+  dedicado;
+- nao vender "qualquer cliente MCP funciona igual" antes de validar isso de
+  ponta a ponta.
 
 ## O Que E Legado
 

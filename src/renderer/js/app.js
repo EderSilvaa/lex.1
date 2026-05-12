@@ -1308,12 +1308,12 @@ navItems.forEach(item => {
     });
 });
 
-function showTerminalView() {
+function showTerminalView(opts = {}) {
     Object.values(views).forEach(v => { if (v) v.classList.add('hidden'); });
     if (views['nav-terminal']) views['nav-terminal'].classList.remove('hidden');
     navItems.forEach(n => n.classList.remove('active'));
     document.getElementById('nav-terminal')?.classList.add('active');
-    if (typeof initTerminalView === 'function') initTerminalView();
+    if (typeof initTerminalView === 'function') initTerminalView(opts);
     setTimeout(() => {
         if (typeof fitActiveTerminal === 'function') fitActiveTerminal();
     }, 80);
@@ -1512,6 +1512,7 @@ async function updatePjeStatus() {
         const label = pill.querySelector('.pje-label');
         // Guarda tribunal preferido no pill para uso no click handler
         if (status.tribunalPreferido) pill.dataset.tribunalPreferido = status.tribunalPreferido;
+        pill.title = status.contextSummary || '';
         if (status.isPje) {
             pill.className = 'pje-status-pill connected';
             const nome = status.tribunalAtivo || 'PJe';
@@ -2739,7 +2740,7 @@ async function switchConversation(id) {
         await window.lexApi.seedSession(conv.id, convMessages);
     }
 
-    showTerminalView();
+    showTerminalView({ autoCreate: false });
     await waitForTerminalLayout();
     if (typeof createTerminalSession === 'function') {
         await createTerminalSession({
@@ -2776,7 +2777,7 @@ async function newConversation() {
 }
 
 async function handleNewConversationClick() {
-    showTerminalView();
+    showTerminalView({ autoCreate: false });
     await waitForTerminalLayout();
     if (typeof createTerminalSession === 'function') {
         await createTerminalSession({ mode: 'lex' });

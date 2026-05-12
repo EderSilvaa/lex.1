@@ -1,7 +1,7 @@
 /**
- * Skill: pje_browser_use (canônica)
+ * Skill: pje_browser_use (orquestração interna PJe com replay)
  *
- * Dispara um sub-loop agêntico MCP que usa as tools `browser__*` do server
+ * Ponte local entre Brain replay e as tools `browser__*` do server
  * browser-use (configurado em ~/.lex/mcp.json) para navegar no PJe.
  *
  * Fluxo:
@@ -45,27 +45,27 @@ function inferPjeContextFromTask(task: string): string | undefined {
 function describeReplayEvent(evt: ReplayEvent): string | null {
     switch (evt.type) {
         case 'plan_found':
-            return `[Replay] plano encontrado: ${evt.plan.summary} (confidence ${evt.plan.confidence.toFixed(2)})`;
+            return `[PJe Replay] fluxo conhecido encontrado: ${evt.plan.summary} (confianca ${evt.plan.confidence.toFixed(2)})`;
         case 'plan_missing':
-            return `[Replay] sem plano confiável — caindo em vision`;
+            return `[PJe Replay] sem fluxo confiavel aprendido; iniciando exploracao assistida`;
         case 'step_start':
-            return `[Replay] step ${evt.index + 1} → ${evt.step.tool}`;
+            return `[PJe Replay] passo ${evt.index + 1}: ${evt.step.tool}`;
         case 'step_waitfor':
-            return `[Replay] step ${evt.index + 1} aguarda ${evt.selector} (${evt.timeoutMs}ms)`;
+            return `[PJe Replay] passo ${evt.index + 1}: aguardando elemento ${evt.selector} (${evt.timeoutMs}ms)`;
         case 'step_retry':
-            return `[Replay] step ${evt.index + 1} tentando alternate: ${evt.selector}`;
+            return `[PJe Replay] passo ${evt.index + 1}: tentando rota alternativa ${evt.selector}`;
         case 'slots_unresolved':
-            return `[Replay] step ${evt.index + 1} ⚠ slots sem valor: ${evt.labels.join(', ')}`;
+            return `[PJe Replay] passo ${evt.index + 1}: faltam valores para ${evt.labels.join(', ')}`;
         case 'step_end':
-            return `[Replay] step ${evt.index + 1} ✓ ${evt.durationMs}ms`;
+            return `[PJe Replay] passo ${evt.index + 1} concluido em ${evt.durationMs}ms`;
         case 'step_mismatch':
-            return `[Replay] step ${evt.index + 1} ✗ domHash esperado ${evt.expected} != ${evt.actual} (layout mudou?)`;
+            return `[PJe Replay] passo ${evt.index + 1}: a tela mudou do esperado (${evt.expected} != ${evt.actual})`;
         case 'step_error':
-            return `[Replay] step ${evt.index + 1} ✗ ${evt.error}`;
+            return `[PJe Replay] passo ${evt.index + 1}: falha ${evt.error}`;
         case 'screenshot':
-            return `[Replay] screenshot de falha: ${evt.filePath}`;
+            return `[PJe Replay] captura de falha salva em ${evt.filePath}`;
         case 'done':
-            return `[Replay] ${evt.success ? 'SUCESSO' : 'FALHOU'}: ${evt.summary}`;
+            return `[PJe Replay] ${evt.success ? 'sucesso' : 'falhou'}: ${evt.summary}`;
         default:
             return null;
     }
@@ -83,17 +83,17 @@ function summarizeInput(input: Record<string, unknown>): string {
 function describeEvent(evt: McpRunnerEvent): string | null {
     switch (evt.type) {
         case 'step_start':
-            return `[MCP] step ${evt.step} iniciado`;
+            return `[PJe Exploracao] passo ${evt.step} iniciado`;
         case 'tool_start':
-            return `[MCP] step ${evt.step} → ${evt.tool}(${summarizeInput(evt.input)})`;
+            return `[PJe Exploracao] passo ${evt.step}: ${evt.tool}(${summarizeInput(evt.input)})`;
         case 'tool_end':
-            return `[MCP] step ${evt.step} ← ${evt.tool} (${evt.durationMs}ms)`;
+            return `[PJe Exploracao] passo ${evt.step}: ${evt.tool} concluido (${evt.durationMs}ms)`;
         case 'tool_error':
-            return `[MCP] step ${evt.step} ✗ ${evt.tool} FALHOU: ${evt.error}`;
+            return `[PJe Exploracao] passo ${evt.step}: ${evt.tool} falhou: ${evt.error}`;
         case 'text':
-            return evt.text.trim() ? `[MCP] ${evt.text.slice(0, 200)}` : null;
+            return evt.text.trim() ? `[PJe Exploracao] ${evt.text.slice(0, 200)}` : null;
         case 'done':
-            return `[MCP] concluído em ${evt.durationMs}ms (${evt.reason}, ${evt.steps} passos máx)`;
+            return `[PJe Exploracao] concluido em ${evt.durationMs}ms (${evt.reason}, max ${evt.steps} passos)`;
         default:
             return null;
     }
@@ -124,11 +124,11 @@ function extractFromXmlWrapper(text: string): string {
 export const pjeBrowserUse: Skill = {
     nome: 'pje_browser_use',
     descricao:
-        'Navega no PJe via agente autônomo com tools MCP browser-use. ' +
-        'Recebe uma descrição em linguagem natural da task (consultar processo, ' +
-        'baixar documentos, ler movimentações, etc) e executa no Chrome. ' +
-        'USE ESTA SKILL para QUALQUER operação no PJe: consulta, navegação, ' +
-        'preenchimento, extração de dados.',
+        'Skill interna de orquestracao do PJe com Brain replay + MCP browser-use. ' +
+        'Recebe uma task ampla em linguagem natural, tenta replay de flow conhecido ' +
+        'e cai para exploracao MCP no Chrome quando necessario. ' +
+        'Use quando a operacao PJe ainda nao estiver coberta por tools segmentadas ' +
+        'ou quando o replay aprendido for a melhor rota.',
     categoria: 'pje',
 
     parametros: {
@@ -308,14 +308,14 @@ export const pjeBrowserUse: Skill = {
             } else if (forceVision) {
                 agentEmitter.emit('agent-event', {
                     type: 'thinking',
-                    pensamento: `[pje_browser_use] forceVision=true — pulando replay`,
+                    pensamento: `[PJe Replay] replay ignorado porque forceVision=true`,
                 });
             }
 
             // Replay falhou ou inexistente → fallback para vision.
             agentEmitter.emit('agent-event', {
                 type: 'thinking',
-                pensamento: `[pje_browser_use] Iniciando sub-loop MCP (max ${maxSteps} passos, tool timeout ${toolTimeoutMs}ms, total ${totalTimeoutMs}ms)`,
+                pensamento: `[PJe Exploracao] iniciando exploracao assistida no browser (max ${maxSteps} passos, timeout por tool ${toolTimeoutMs}ms, total ${totalTimeoutMs}ms)`,
             });
 
             let iter = 0;

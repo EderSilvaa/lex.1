@@ -70,7 +70,7 @@
         }
 
         if (!data || data.nodes.length === 0) {
-            _showEmpty(container, 'Brain vazio. Use o agente (pje_browser_use) para popular com observações reais.');
+            _showEmpty(container, 'Brain vazio. Use a orquestracao PJe com replay para popular com observacoes reais.');
             return;
         }
 

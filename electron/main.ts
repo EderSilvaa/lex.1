@@ -1385,7 +1385,14 @@ app.whenReady().then(async () => {
         // Sessão especial: roda o LEX CLI dentro do PTY
         ipcMain.handle('terminal-create-engine', async (_, opts) => {
             try {
-                const spawn = getLexEngineConsoleSpawn(opts.sessionId);
+                const prefs = (store?.get('userPreferences', {}) || {}) as Record<string, any>;
+                const desktopUserName = String(prefs['displayName'] || prefs['fullName'] || '').trim();
+                const desktopUserRole = String(prefs['role'] || '').trim();
+                const desktopEnv = {
+                    ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
+                    ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
+                };
+                const spawn = getLexEngineConsoleSpawn(opts.sessionId, desktopEnv);
                 await ptyMgr.createSession(opts.sessionId, {
                     shell: spawn.shell,
                     args: spawn.args,
@@ -1409,6 +1416,9 @@ app.whenReady().then(async () => {
                 const path = await import('path');
                 const cliEntry = path.join(app.getAppPath(), 'bin', 'lex.js');
                 const shell = process.platform === 'win32' ? 'node.exe' : 'node';
+                const prefs = (store?.get('userPreferences', {}) || {}) as Record<string, any>;
+                const desktopUserName = String(prefs['displayName'] || prefs['fullName'] || '').trim();
+                const desktopUserRole = String(prefs['role'] || '').trim();
                 await ptyMgr.createSession(opts.sessionId, {
                     shell,
                     args: [cliEntry, '--in-electron'],
@@ -1417,6 +1427,10 @@ app.whenReady().then(async () => {
                     rows: opts.rows,
                     mode: 'lex',
                     env: {
+                        LEX_DESKTOP: '1',
+                        LEX_ENGINE_SESSION_ID: opts.sessionId,
+                        ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
+                        ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
                         LEX_IN_ELECTRON: '1',
                         LEX_CONVERSATION_ID: opts.sessionId,
                         NODE_OPTIONS: '--max-old-space-size=4096',
@@ -1972,9 +1986,25 @@ ipcMain.handle('check-pje', async () => {
         const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
         const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
 
-        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+        return {
+            connected: !!url,
+            isPje,
+            url,
+            tribunalAtivo,
+            tribunalPreferido: pref,
+            contextSummary: null,
+            environment: null,
+        };
     } catch {
-        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+        return {
+            connected: false,
+            isPje: false,
+            url: null,
+            tribunalAtivo: null,
+            tribunalPreferido: null,
+            contextSummary: null,
+            environment: null,
+        };
     }
 });
 
@@ -2012,7 +2042,15 @@ ipcMain.handle('browser-focus', async () => {
             const mem = getMemory();
             const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
             const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
-            return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+            return {
+                connected: !!url,
+                isPje,
+                url,
+                tribunalAtivo,
+                tribunalPreferido: pref,
+                contextSummary: null,
+                environment: null,
+            };
         })();
         return { ok: !!page, status };
     } catch (err: any) {
@@ -2103,13 +2141,13 @@ function injectDisambiguationIfNeeded(objetivo: string): string {
     // File/folder/document ambiguity: could be PC or PJe
     const fileAmbiguous = ['pasta', 'pastas', 'arquivo', 'arquivos', 'documento', 'documentos'];
     if (fileAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
-        return `[INSTRUCAO OBRIGATORIA: Este pedido contem termo ambiguo. Use tipo=pergunta perguntando ao usuario se quer acessar o PC (computador local, usando os_listar ou os_arquivos) ou o PJe (sistema judicial, usando pje_agir). NAO execute nenhuma skill antes de perguntar.] ${objetivo}`;
+        return `[INSTRUCAO OBRIGATORIA: Este pedido contem termo ambiguo. Use tipo=pergunta perguntando ao usuario se quer acessar o PC (computador local, usando os_listar ou os_arquivos) ou o PJe (sistema judicial, usando a skill PJe ativa apropriada, preferindo pje_browser_use quando disponivel). NAO execute nenhuma skill antes de perguntar.] ${objetivo}`;
     }
 
     // Screen/tela ambiguity: could be PC screen or PJe screen
     const screenAmbiguous = ['minha tela', 'minha area', 'o que ta na tela', 'o que esta na tela', 'ver a tela', 'ver tela', 'capturar tela'];
     if (screenAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
-        return `[INSTRUCAO OBRIGATORIA: Use tipo=pergunta perguntando se o usuario quer ver a tela do computador (pc_agir) ou algo no PJe (pje_agir).] ${objetivo}`;
+        return `[INSTRUCAO OBRIGATORIA: Use tipo=pergunta perguntando se o usuario quer ver a tela do computador (pc_agir) ou algo no PJe (usando a skill PJe ativa apropriada, preferindo pje_browser_use quando disponivel).] ${objetivo}`;
     }
 
     return objetivo;
