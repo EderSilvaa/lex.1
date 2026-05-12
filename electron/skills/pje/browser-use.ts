@@ -27,6 +27,7 @@ import { browserEnricher } from '../../observer/enrichers/browser';
 import { withTrace } from '../../observer/trace-context';
 import { getBrainSafe } from '../../brain';
 import { inferCurrentPjeEnvironment } from '../../pje/active-environment';
+import { buildPjeActionGuidance } from '../../pje/action-guidance';
 
 /**
  * Infere o "pjeContext" a partir da task em português. Mesma heurística do
@@ -213,9 +214,6 @@ export const pjeBrowserUse: Skill = {
         }
 
         const routes = resolveTribunalRoutes(tribunal);
-        const enrichedTask = tribunal
-            ? `${task}\n\nURL inicial do tribunal ${tribunal}: ${routes.loginUrl}`
-            : task;
 
         try {
             await ensureBrowser();
@@ -241,6 +239,12 @@ export const pjeBrowserUse: Skill = {
             // ── Tentativa de replay determinístico (exploit) ────────────────
             // Antes de pagar o custo do sub-loop agêntico, consulta o grafo.
             // Se há flow confiável para (tribunal, pjeContext), executa direto.
+            const guidance = await buildPjeActionGuidance(task);
+            const currentEnvironment = guidance.environment || await inferCurrentPjeEnvironment(tribunal || undefined);
+            const enrichedTaskBase = guidance.guidanceText || task;
+            const enrichedTask = tribunal
+                ? `${enrichedTaskBase}\n\nURL inicial do tribunal ${tribunal}: ${routes.loginUrl}`
+                : enrichedTaskBase;
             const pjeContext = inferPjeContextFromTask(task);
 
             // Se user desligou replay OU forçou vision → pula direto pro vision.
@@ -249,8 +253,6 @@ export const pjeBrowserUse: Skill = {
             if (shouldTryReplay) {
                 // Preview mode: confirmação é exigida pelas prefs E não foi já skipConfirm.
                 const wantsPreview = confirmBeforeExecute && !skipConfirm;
-                const currentEnvironment = await inferCurrentPjeEnvironment(tribunal || undefined);
-
                 const replayResult = await tryReplay(
                     getMcpManager(),
                     {
