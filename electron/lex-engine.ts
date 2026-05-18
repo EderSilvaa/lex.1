@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ProviderId } from './provider-config';
 
 interface ExecResult {
     stdout: string;
@@ -50,8 +51,21 @@ export interface LexEngineConsoleSpawn {
     env: Record<string, string>;
 }
 
+export interface LexEngineProviderSnapshot {
+    available: boolean;
+    desktopProviderId?: ProviderId;
+    hermesProviderId?: string;
+    agentModel?: string;
+    visionModel?: string;
+    configPath?: string;
+    envPath?: string;
+    source?: string;
+    error?: string;
+}
+
 const STATUS_TIMEOUT_MS = 5000;
 const ASK_TIMEOUT_MS = 180000;
+const PROVIDER_SYNC_TIMEOUT_MS = 30000;
 
 function execFileSafe(file: string, args: string[], timeoutMs = STATUS_TIMEOUT_MS): Promise<ExecResult> {
     return new Promise((resolve, reject) => {
@@ -120,6 +134,12 @@ function getRepoWslProjectPath(): string {
 
 function getRepoWslPythonPath(): string {
     return process.env['LEX_ENGINE_REPO_PYTHON'] || getDefaultWslPythonPath();
+}
+
+function getRuntimePythonPath(runtime: LexEngineRuntime): string {
+    if (runtime.mode === 'repo-wsl') return getRepoWslPythonPath();
+    if (runtime.mode === 'external-wsl') return getDefaultWslPythonPath();
+    return 'python';
 }
 
 export function getLexEngineAgoraBoardPath(): string {
@@ -199,6 +219,164 @@ function bashQuote(value: string): string {
     return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`')}"`;
 }
 
+async function execLexEngineCommand(command: string, timeoutMs = STATUS_TIMEOUT_MS): Promise<ExecResult> {
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        throw new Error(runtime.unsupportedReason || 'Modo de Engine nao suportado.');
+    }
+
+    if (process.platform === 'win32') {
+        const distro = getDefaultWslDistro();
+        const fullCommand = `cd ${bashQuote(runtime.wslPath)} && ${command}`;
+        return execFileSafe('wsl.exe', ['-d', distro, '--', 'bash', '-lc', fullCommand], timeoutMs);
+    }
+
+    const fullCommand = `cd ${bashQuote(runtime.wslPath)} && ${command}`;
+    return execFileSafe('bash', ['-lc', fullCommand], timeoutMs);
+}
+
+function mapDesktopProviderToHermesProvider(providerId: ProviderId): string {
+    switch (providerId) {
+        case 'google':
+            return 'gemini';
+        case 'ollama':
+            return 'custom';
+        default:
+            return providerId;
+    }
+}
+
+function mapHermesProviderToDesktopProvider(providerId: string, baseUrl = ''): ProviderId | undefined {
+    const normalized = String(providerId || '').trim().toLowerCase();
+    const normalizedBaseUrl = String(baseUrl || '').trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (normalized === 'gemini') return 'google';
+    if (normalized === 'custom' && (normalizedBaseUrl.includes('11434') || normalizedBaseUrl.includes('ollama'))) {
+        return 'ollama';
+    }
+    if (normalized === 'anthropic' || normalized === 'openai' || normalized === 'openrouter' || normalized === 'groq') {
+        return normalized;
+    }
+    return undefined;
+}
+
+function getHermesEnvVarForProvider(providerId: ProviderId): string | null {
+    switch (providerId) {
+        case 'anthropic':
+            return 'ANTHROPIC_API_KEY';
+        case 'openai':
+        case 'ollama':
+            return 'OPENAI_API_KEY';
+        case 'openrouter':
+            return 'OPENROUTER_API_KEY';
+        case 'google':
+            return 'GOOGLE_API_KEY';
+        case 'groq':
+            return 'GROQ_API_KEY';
+        default:
+            return null;
+    }
+}
+
+export async function syncLexEngineProviderConfig(config: {
+    providerId: ProviderId;
+    apiKey: string;
+    agentModel: string;
+    visionModel: string;
+}): Promise<void> {
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        throw new Error(runtime.unsupportedReason || 'Modo de Engine nao suportado.');
+    }
+
+    const hermesProvider = mapDesktopProviderToHermesProvider(config.providerId);
+    const commands = [
+        `${runtime.command} config set model.provider ${bashQuote(hermesProvider)}`,
+        `${runtime.command} config set model.default ${bashQuote(config.agentModel)}`,
+        `${runtime.command} config set auxiliary.vision.provider ${bashQuote(hermesProvider)}`,
+        `${runtime.command} config set auxiliary.vision.model ${bashQuote(config.visionModel)}`,
+    ];
+
+    if (config.providerId === 'ollama') {
+        const ollamaBaseUrl = 'http://localhost:11434/v1';
+        commands.push(`${runtime.command} config set model.base_url ${bashQuote(ollamaBaseUrl)}`);
+        commands.push(`${runtime.command} config set auxiliary.vision.base_url ${bashQuote(ollamaBaseUrl)}`);
+    } else {
+        // Clear stale endpoint overrides when moving back to built-in providers.
+        // Without this, Hermes can keep an old OpenRouter/custom base_url while
+        // the provider was switched to Anthropic/OpenAI/etc., causing hybrid
+        // routing such as provider=anthropic -> endpoint=openrouter.ai.
+        commands.push(`${runtime.command} config set model.base_url ${bashQuote('')}`);
+        commands.push(`${runtime.command} config set auxiliary.vision.base_url ${bashQuote('')}`);
+    }
+
+    const envVar = getHermesEnvVarForProvider(config.providerId);
+    const envValue = (config.apiKey || (config.providerId === 'ollama' ? 'ollama' : '')).trim();
+    if (envVar && envValue) {
+        commands.push(`${runtime.command} config set ${envVar} ${bashQuote(envValue)}`);
+    }
+
+    await execLexEngineCommand(commands.join(' && '), PROVIDER_SYNC_TIMEOUT_MS);
+}
+
+export async function getLexEngineProviderSnapshot(): Promise<LexEngineProviderSnapshot> {
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        return {
+            available: false,
+            source: runtime.source,
+            error: runtime.unsupportedReason || 'Modo de Engine nao suportado.',
+        };
+    }
+
+    const pythonPath = getRuntimePythonPath(runtime);
+    const pythonCode = [
+        'import json',
+        'from hermes_cli.config import load_config, get_config_path, get_env_path, get_env_value',
+        'cfg = load_config() or {}',
+        'model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}',
+        'aux_cfg = cfg.get("auxiliary") if isinstance(cfg.get("auxiliary"), dict) else {}',
+        'vision_cfg = aux_cfg.get("vision") if isinstance(aux_cfg.get("vision"), dict) else {}',
+        'provider = str(model_cfg.get("provider") or "").strip()',
+        'agent_model = str(model_cfg.get("default") or model_cfg.get("model") or "").strip()',
+        'base_url = str(model_cfg.get("base_url") or "").strip()',
+        'vision_model = str(vision_cfg.get("model") or get_env_value("AUXILIARY_VISION_MODEL") or "").strip()',
+        'payload = {',
+        '    "provider": provider,',
+        '    "agent_model": agent_model,',
+        '    "vision_model": vision_model,',
+        '    "base_url": base_url,',
+        '    "config_path": str(get_config_path()),',
+        '    "env_path": str(get_env_path()),',
+        '}',
+        'print(json.dumps(payload))',
+    ].join('\n');
+
+    try {
+        const result = await execLexEngineCommand(
+            `${bashQuote(pythonPath)} -c ${bashQuote(pythonCode)}`,
+            PROVIDER_SYNC_TIMEOUT_MS,
+        );
+        const payload = JSON.parse(String(result.stdout || '').trim() || '{}') as Record<string, string>;
+        return {
+            available: true,
+            source: runtime.source,
+            hermesProviderId: payload['provider'] || '',
+            desktopProviderId: mapHermesProviderToDesktopProvider(payload['provider'] || '', payload['base_url'] || ''),
+            agentModel: payload['agent_model'] || '',
+            visionModel: payload['vision_model'] || '',
+            configPath: payload['config_path'] || '',
+            envPath: payload['env_path'] || '',
+        };
+    } catch (error: any) {
+        return {
+            available: false,
+            source: runtime.source,
+            error: error?.message || String(error),
+        };
+    }
+}
+
 export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     const runtime = resolveLexEngineRuntime();
     const engineMode = runtime.mode;
@@ -221,11 +399,17 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     if (process.platform === 'win32') {
         const quickStatus = process.env['LEX_ENGINE_DEEP_STATUS'] !== '1';
         if (quickStatus) {
-            available = true;
-            projectPathExists = windowsPathExists;
             resolvedProjectPath = projectPath;
-            hermesAvailable = runtime.supported && windowsPathExists;
-            hermesPath = windowsPathExists ? 'hermes' : undefined;
+            try {
+                const result = await execFileSafe('wsl.exe', ['-d', distro, '--', 'echo', 'WSL_OK']);
+                available = result.stdout.includes('WSL_OK');
+            } catch (err: any) {
+                available = false;
+                error = err?.message || String(err);
+            }
+            projectPathExists = available && windowsPathExists;
+            hermesAvailable = runtime.supported && available && windowsPathExists;
+            hermesPath = hermesAvailable ? 'hermes' : undefined;
         } else {
             const projectCandidates = Array.from(new Set([projectPath, mountedProjectPath]));
             const wslArgs = ['-d', distro, '--'];

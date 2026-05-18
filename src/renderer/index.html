@@ -806,6 +806,9 @@
                 </svg>
                 Entrar com Google
             </button>
+            <button id="auth-google-safe-btn" class="lex-card-btn-secondary" style="display:none;margin-top:8px">
+                Usar janela da Lex
+            </button>
         </div>
     </div>
 
@@ -882,6 +885,12 @@
         cursor: pointer; width: 100%; transition: border-color 0.15s, background 0.15s;
     }
     .lex-card-btn-google:hover { border-color: var(--accent-color); background: var(--bg-secondary); }
+    .lex-card-btn-secondary {
+        background: transparent; border: 1px solid var(--border-color); border-radius: 8px;
+        color: var(--text-secondary); padding: 10px; font-size: 13px; font-weight: 600;
+        cursor: pointer; width: 100%; transition: border-color 0.15s, color 0.15s;
+    }
+    .lex-card-btn-secondary:hover { border-color: var(--accent-color); color: var(--text-primary); }
     .lex-paywall-features { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .lex-paywall-feat {
         background: var(--bg-canvas); border-left: 3px solid var(--success-color); border-radius: 0 6px 6px 0;

@@ -17,7 +17,7 @@ import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
 import { getLexDesktopBridgeState, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
-import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConsoleSpawn, getLexEngineKanbanHomePath, getLexEngineStatus } from './lex-engine';
+import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConsoleSpawn, getLexEngineKanbanHomePath, getLexEngineProviderSnapshot, getLexEngineStatus, syncLexEngineProviderConfig } from './lex-engine';
 import { autoUpdater } from 'electron-updater';
 import {
     initConsentManager, initAuditLog, flushAuditLog,
@@ -431,6 +431,56 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
 
     // Sincroniza config com o backend (se conectado)
     syncConfigToBackend(config);
+
+    try {
+        await syncLexEngineProviderConfig(config);
+    } catch (error: any) {
+        console.warn('[Provider] Falha ao sincronizar com Hermes:', error?.message || error);
+    }
+}
+
+function normalizeProviderSelection(
+    providerId: ProviderId,
+    agentModel?: string,
+    visionModel?: string,
+): { providerId: ProviderId; agentModel: string; visionModel: string } {
+    const preset = PROVIDER_PRESETS[providerId];
+    return {
+        providerId,
+        agentModel: (agentModel || '').trim() || preset.defaultAgentModel,
+        visionModel: (visionModel || '').trim() || preset.defaultVisionModel,
+    };
+}
+
+async function resolveCanonicalProviderSelectionFromHermes(
+    fallback: { providerId: ProviderId; agentModel?: string; visionModel?: string },
+): Promise<{ providerId: ProviderId; agentModel: string; visionModel: string; source: 'hermes' | 'fallback' }> {
+    const normalizedFallback = normalizeProviderSelection(
+        fallback.providerId,
+        fallback.agentModel,
+        fallback.visionModel,
+    );
+
+    try {
+        const snapshot = await getLexEngineProviderSnapshot();
+        if (snapshot?.available && snapshot.desktopProviderId) {
+            return {
+                ...normalizeProviderSelection(
+                    snapshot.desktopProviderId,
+                    snapshot.agentModel,
+                    snapshot.visionModel,
+                ),
+                source: 'hermes',
+            };
+        }
+    } catch (error: any) {
+        console.warn('[Provider] Nao foi possivel ler snapshot canonico do Hermes no boot:', error?.message || error);
+    }
+
+    return {
+        ...normalizedFallback,
+        source: 'fallback',
+    };
 }
 
 /**
@@ -559,9 +609,8 @@ async function initStore() {
         visionModel: string;
     } | null;
 
-    const providerId: ProviderId = savedProvider?.providerId ?? 'anthropic';
-    const apiKey = loadApiKey(providerId);
-    const preset = PROVIDER_PRESETS[providerId];
+    const savedProviderId: ProviderId = savedProvider?.providerId ?? 'anthropic';
+    const preset = PROVIDER_PRESETS[savedProviderId];
 
     // Migra modelos removidos/legacy para defaults atuais
     const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
@@ -577,7 +626,7 @@ async function initStore() {
     const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
     const savedAgent = savedProvider?.agentModel ?? preset.defaultAgentModel;
 
-    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
+    const visionModel = (savedProviderId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
         ? preset.defaultVisionModel
         : REMOVED_OPENROUTER_MODELS.includes(savedVision)
             ? preset.defaultVisionModel
@@ -591,7 +640,18 @@ async function initStore() {
         console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
     }
 
-    await syncProvider(providerId, apiKey, agentModel, visionModel);
+    const canonical = await resolveCanonicalProviderSelectionFromHermes({
+        providerId: savedProviderId,
+        agentModel,
+        visionModel,
+    });
+    const apiKey = loadApiKey(canonical.providerId);
+    store.set('aiProvider', {
+        providerId: canonical.providerId,
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
+    await syncProvider(canonical.providerId, apiKey, canonical.agentModel, canonical.visionModel);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -601,17 +661,38 @@ async function initStore() {
 /** Define provider ativo + modelos. Re-inicia browser no backend quando disponível. */
 ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderId; agentModel: string; visionModel: string }) => {
     if (!store) return { error: 'Store not initialized' };
-    store.set('aiProvider', cfg);
-    const apiKey = loadApiKey(cfg.providerId);
-    console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0,8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
-    await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
+    const desired = normalizeProviderSelection(cfg.providerId, cfg.agentModel, cfg.visionModel);
+    store.set('aiProvider', desired);
+    const apiKey = loadApiKey(desired.providerId);
+    console.log(`[Provider] setProvider: ${desired.providerId}, key=${apiKey ? apiKey.slice(0,8) + '...' : 'EMPTY'}, agent=${desired.agentModel}, vision=${desired.visionModel}`);
+    await syncProvider(desired.providerId, apiKey, desired.agentModel, desired.visionModel);
+    const canonical = await resolveCanonicalProviderSelectionFromHermes(desired);
+    store.set('aiProvider', {
+        providerId: canonical.providerId,
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
     await refreshBrowserRuntime('troca de provider');
-    return { success: true };
+    return { success: true, provider: canonical };
 });
 
 /** Retorna provider ativo + status da chave. A apiKey nunca é enviada ao renderer. */
 ipcMain.handle('store-get-provider', async () => {
-    const cfg = getActiveConfig();
+    const current = getActiveConfig();
+    const canonical = await resolveCanonicalProviderSelectionFromHermes({
+        providerId: current.providerId,
+        agentModel: current.agentModel,
+        visionModel: current.visionModel,
+    });
+    const cfg = canonical.source === 'hermes'
+        ? {
+            ...current,
+            providerId: canonical.providerId,
+            agentModel: canonical.agentModel,
+            visionModel: canonical.visionModel,
+            apiKey: loadApiKey(canonical.providerId),
+        }
+        : current;
     const hasKey = cfg.apiKey.length > 0;
     const { apiKey: _omit, ...safe } = cfg;
     return { ...safe, hasKey };
@@ -645,6 +726,10 @@ ipcMain.handle('store-get-api-key-status', async (_event, providerId: ProviderId
 /** Retorna catálogo de providers/modelos para a UI de configurações. */
 ipcMain.handle('store-get-provider-presets', () => {
     return PROVIDER_PRESETS;
+});
+
+ipcMain.handle('lex-engine-provider-snapshot', async () => {
+    return await getLexEngineProviderSnapshot();
 });
 
 // ── Privacy / Consent ──────────────────────────────────────────────────────
@@ -3989,9 +4074,11 @@ ipcMain.handle('auth-sign-out', async () => {
     return { ok: true };
 });
 
-ipcMain.handle('auth-google', async () => {
+ipcMain.handle('auth-google', async (_event, opts?: { mode?: 'system' | 'embedded' }) => {
     try {
         const http = await import('http');
+        const mode = opts?.mode === 'embedded' ? 'embedded' : 'system';
+        let authWindow: BrowserWindow | null = null;
 
         // Cria servidor local para capturar o callback
         const { port, tokenPromise, server } = await new Promise<{ port: number; tokenPromise: Promise<string | null>; server: import('http').Server }>((resolve, reject) => {
@@ -4006,10 +4093,15 @@ ipcMain.handle('auth-google', async () => {
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                     res.end(`<html><body><script>
                         const hash = window.location.hash.substring(1);
+                        const callbackBase = 'http://127.0.0.1:${port}';
                         if (hash) {
-                            fetch('/auth/tokens?' + hash).then(() => {
-                                document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
-                            });
+                            fetch(callbackBase + '/auth/tokens?' + hash)
+                                .then(() => {
+                                    document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
+                                })
+                                .catch((err) => {
+                                    document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Falha ao finalizar login localmente.</h2><pre style="white-space:pre-wrap;max-width:720px;margin:20px auto;color:#444">' + String(err && err.message || err || 'fetch failed') + '</pre>';
+                                });
                         } else {
                             document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Erro no login. Tente novamente.</h2>';
                         }
@@ -4038,7 +4130,7 @@ ipcMain.handle('auth-google', async () => {
             server.on('error', reject);
         });
 
-        const redirectTo = `http://localhost:${port}/auth/callback`;
+        const redirectTo = `http://127.0.0.1:${port}/auth/callback`;
 
         // Gera URL OAuth via Supabase com redirect para nosso server local
         const { getSupabase } = await import('./auth/supabase-client');
@@ -4048,6 +4140,7 @@ ipcMain.handle('auth-google', async () => {
             options: {
                 redirectTo,
                 skipBrowserRedirect: true,
+                ...(mode === 'embedded' ? { queryParams: { prompt: 'select_account' } } : {}),
             },
         });
 
@@ -4057,13 +4150,40 @@ ipcMain.handle('auth-google', async () => {
         }
 
         // Abre no navegador do sistema (Chrome, Edge, etc.) onde o usuário já está logado
-        shell.openExternal(data.url);
+        if (mode === 'embedded') {
+            authWindow = new BrowserWindow({
+                width: 540,
+                height: 760,
+                minWidth: 480,
+                minHeight: 640,
+                show: false,
+                autoHideMenuBar: true,
+                title: 'Entrar na Lex',
+                parent: mainWindow || undefined,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    partition: 'persist:lex-auth',
+                },
+            });
+            authWindow.once('ready-to-show', () => authWindow?.show());
+            authWindow.on('closed', () => {
+                authWindow = null;
+            });
+            await authWindow.loadURL(data.url);
+        } else {
+            await shell.openExternal(data.url);
+        }
 
         // Timeout de 5 minutos
-        const timeout = setTimeout(() => { server.close(); }, 5 * 60 * 1000);
+        const timeout = setTimeout(() => {
+            try { authWindow?.close(); } catch {}
+            server.close();
+        }, 5 * 60 * 1000);
 
         const tokenString = await tokenPromise;
         clearTimeout(timeout);
+        try { authWindow?.close(); } catch {}
         server.close();
 
         if (!tokenString) {
@@ -4084,13 +4204,23 @@ ipcMain.handle('auth-google', async () => {
             return { ok: false, error: sessionError.message };
         }
 
-        // Garante perfil no banco
-        const { data: { user } } = await sb.auth.getUser();
-        if (user) {
-            await sb.from('profiles').upsert(
-                { id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' },
-                { onConflict: 'id', ignoreDuplicates: true }
-            );
+        // Garante perfil no banco, mas nao invalida um login ja concluido
+        // por uma chamada secundaria de rede no bootstrap do perfil.
+        try {
+            const { data: { user }, error: userError } = await sb.auth.getUser();
+            if (userError) {
+                console.warn('[Auth] Google OAuth: sessao criada, mas getUser falhou:', userError.message);
+            } else if (user) {
+                const { error: profileError } = await sb.from('profiles').upsert(
+                    { id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' },
+                    { onConflict: 'id', ignoreDuplicates: true }
+                );
+                if (profileError) {
+                    console.warn('[Auth] Google OAuth: sessao criada, mas upsert de profile falhou:', profileError.message);
+                }
+            }
+        } catch (profileBootstrapError: any) {
+            console.warn('[Auth] Google OAuth: sessao criada, mas bootstrap de profile falhou:', profileBootstrapError?.message || profileBootstrapError);
         }
 
         return { ok: true };

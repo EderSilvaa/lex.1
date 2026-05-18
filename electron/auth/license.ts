@@ -42,54 +42,6 @@ export async function authSignUp(email: string, password: string): Promise<{ ok:
     }
 }
 
-export async function authSignInWithGoogle(): Promise<{ ok: boolean; url?: string; error?: string }> {
-    try {
-        const sb = getSupabase();
-        const { data, error } = await sb.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: 'http://localhost/auth/callback',
-                skipBrowserRedirect: true,
-            },
-        });
-        console.log('[Auth] Google OAuth URL:', data?.url);
-        if (error) {
-            console.error('[Auth] Google OAuth error:', error);
-            return { ok: false, error: error.message };
-        }
-        return { ok: true, url: data.url };
-    } catch (e: any) {
-        console.error('[Auth] Google OAuth exception:', e);
-        return { ok: false, error: e.message };
-    }
-}
-
-export async function handleGoogleCallback(url: string): Promise<{ ok: boolean; error?: string }> {
-    try {
-        const sb = getSupabase();
-        const hashOrQuery = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
-        if (!hashOrQuery) return { ok: false, error: 'URL de callback inválida' };
-
-        const params = new URLSearchParams(hashOrQuery);
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-
-        if (!accessToken) return { ok: false, error: 'Token não encontrado no callback' };
-
-        const { error } = await sb.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken || '',
-        });
-        if (error) return { ok: false, error: error.message };
-
-        invalidateCache();
-        await ensureProfile();
-        return { ok: true };
-    } catch (e: any) {
-        return { ok: false, error: e.message };
-    }
-}
-
 export async function authSignOut(): Promise<void> {
     const sb = getSupabase();
     await sb.auth.signOut();
@@ -101,7 +53,7 @@ async function ensureProfile(): Promise<void> {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
-    // Insere perfil apenas se não existir (ignoreDuplicates)
+    // Insere perfil apenas se nao existir (ignoreDuplicates)
     await sb.from('profiles').upsert(
         { id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' },
         { onConflict: 'id', ignoreDuplicates: true }

@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld('lexApi', {
 contextBridge.exposeInMainWorld('authApi', {
     signIn: (email: string, password: string) => ipcRenderer.invoke('auth-sign-in', { email, password }),
     signUp: (email: string, password: string) => ipcRenderer.invoke('auth-sign-up', { email, password }),
-    signInWithGoogle: () => ipcRenderer.invoke('auth-google'),
+    signInWithGoogle: (opts?: { mode?: 'system' | 'embedded' }) => ipcRenderer.invoke('auth-google', opts || {}),
     signOut: () => ipcRenderer.invoke('auth-sign-out'),
     checkLicense: () => ipcRenderer.invoke('auth-check-license'),
     refreshLicense: () => ipcRenderer.invoke('auth-refresh-license'),
