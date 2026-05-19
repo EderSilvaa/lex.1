@@ -747,6 +747,12 @@ ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderI
         agentModel: canonical.agentModel,
         visionModel: canonical.visionModel,
     });
+    setActiveConfig({
+        providerId: canonical.providerId,
+        apiKey: loadApiKey(canonical.providerId),
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
     return { success: true, provider: canonical };
 });
 
@@ -779,9 +785,12 @@ ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { provid
     const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
     saveApiKey(providerId, normalizedKey);
 
-    // Se é o provider ativo, re-sincroniza imediatamente
+    // Se é o provider ativo, atualiza a cópia em memória e re-sincroniza.
+    // Sem o setActiveConfig aqui, o spawn do Console Lex (terminal-create-engine)
+    // continuaria injetando a chave antiga no env do Hermes mesmo após restart.
     const current = getActiveConfig();
     if (current.providerId === providerId) {
+        setActiveConfig({ ...current, apiKey: normalizedKey });
         await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
     }
     return { success: true, configured: normalizedKey.length > 0 };
