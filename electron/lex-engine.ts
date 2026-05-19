@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ProviderId } from './provider-config';
@@ -63,6 +63,83 @@ export interface LexEngineProviderSnapshot {
     error?: string;
 }
 
+export interface LexEngineSkillsRuntimeSnapshot {
+    available: boolean;
+    source?: string;
+    distro?: string;
+    projectPath?: string;
+    configPath?: string;
+    hermesHome?: string;
+    totalSkills?: number;
+    activeSkills?: number;
+    disabledSkills?: number;
+    legalSkills?: number;
+    activeSkillNames?: string[];
+    disabledSkillNames?: string[];
+    memoryProvider?: string;
+    memoriesDir?: string;
+    memoryFiles?: Array<{
+        name: string;
+        exists: boolean;
+        charCount: number;
+        entryCount: number;
+        modifiedAt?: string;
+    }>;
+    recentSkillUpdates?: Array<{
+        name: string;
+        path: string;
+        modifiedAt?: string;
+    }>;
+    error?: string;
+}
+
+export interface LexEngineConnectorMcpServer {
+    id: string;
+    name: string;
+    enabled: boolean;
+    transport: string;
+    command?: string;
+    url?: string;
+    argsCount: number;
+    envKeys: string[];
+    toolFilters: string[];
+}
+
+export interface LexEngineConnectorGatewayRuntime {
+    manager: string;
+    running: boolean;
+    serviceInstalled: boolean;
+    serviceRunning: boolean;
+    serviceScope?: string;
+    hasProcessServiceMismatch: boolean;
+    gatewayPids: number[];
+}
+
+export interface LexEngineConnectorGatewayPlatform {
+    id: string;
+    label: string;
+    toolset?: string;
+    kind: string;
+    enabled: boolean;
+    connected: boolean;
+    hasHomeChannel: boolean;
+    hasCredentials: boolean;
+    extraKeys: string[];
+}
+
+export interface LexEngineConnectorsSnapshot {
+    available: boolean;
+    source?: string;
+    distro?: string;
+    projectPath?: string;
+    configPath?: string;
+    hermesHome?: string;
+    mcpServers: LexEngineConnectorMcpServer[];
+    gatewayRuntime?: LexEngineConnectorGatewayRuntime;
+    gatewayPlatforms: LexEngineConnectorGatewayPlatform[];
+    error?: string;
+}
+
 const STATUS_TIMEOUT_MS = 5000;
 const ASK_TIMEOUT_MS = 180000;
 const PROVIDER_SYNC_TIMEOUT_MS = 30000;
@@ -108,7 +185,29 @@ function getLexEngineMode(): LexEngineMode {
 }
 
 function getDefaultWslDistro(): string {
-    return process.env['LEX_ENGINE_WSL_DISTRO'] || 'Ubuntu';
+    const configured = String(process.env['LEX_ENGINE_WSL_DISTRO'] || '').trim();
+    if (configured) return configured;
+
+    if (process.platform === 'win32') {
+        try {
+            const output = execFileSync('wsl.exe', ['-l', '-q'], {
+                encoding: 'utf16le',
+                stdio: ['ignore', 'pipe', 'ignore'],
+                windowsHide: true,
+                timeout: 5000,
+            });
+            const first = String(output || '')
+                .replace(/\0/g, '')
+                .split(/\r?\n/)
+                .map((line) => line.replace(/^\*/, '').trim())
+                .find(Boolean);
+            if (first) return first;
+        } catch {
+            // Fall back to the historical default below.
+        }
+    }
+
+    return 'Ubuntu';
 }
 
 function getDefaultWslProjectPath(): string {
@@ -219,6 +318,13 @@ function bashQuote(value: string): string {
     return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`')}"`;
 }
 
+function buildBashEnvPrefix(env: Record<string, string>): string {
+    return Object.entries(env)
+        .filter(([key]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+        .map(([key, value]) => `${key}=${bashQuote(String(value ?? ''))}`)
+        .join(' ');
+}
+
 async function execLexEngineCommand(command: string, timeoutMs = STATUS_TIMEOUT_MS): Promise<ExecResult> {
     const runtime = resolveLexEngineRuntime();
     if (!runtime.supported) {
@@ -278,6 +384,16 @@ function getHermesEnvVarForProvider(providerId: ProviderId): string | null {
     }
 }
 
+const TEXT_AUXILIARY_TASKS = [
+    'compression',
+    'title_generation',
+    'web_extract',
+    'session_search',
+    'skills_hub',
+    'approval',
+    'mcp',
+];
+
 export async function syncLexEngineProviderConfig(config: {
     providerId: ProviderId;
     apiKey: string;
@@ -297,10 +413,18 @@ export async function syncLexEngineProviderConfig(config: {
         `${runtime.command} config set auxiliary.vision.model ${bashQuote(config.visionModel)}`,
     ];
 
+    for (const task of TEXT_AUXILIARY_TASKS) {
+        commands.push(`${runtime.command} config set auxiliary.${task}.provider ${bashQuote(hermesProvider)}`);
+        commands.push(`${runtime.command} config set auxiliary.${task}.model ${bashQuote(config.agentModel)}`);
+    }
+
     if (config.providerId === 'ollama') {
         const ollamaBaseUrl = 'http://localhost:11434/v1';
         commands.push(`${runtime.command} config set model.base_url ${bashQuote(ollamaBaseUrl)}`);
         commands.push(`${runtime.command} config set auxiliary.vision.base_url ${bashQuote(ollamaBaseUrl)}`);
+        for (const task of TEXT_AUXILIARY_TASKS) {
+            commands.push(`${runtime.command} config set auxiliary.${task}.base_url ${bashQuote(ollamaBaseUrl)}`);
+        }
     } else {
         // Clear stale endpoint overrides when moving back to built-in providers.
         // Without this, Hermes can keep an old OpenRouter/custom base_url while
@@ -308,11 +432,20 @@ export async function syncLexEngineProviderConfig(config: {
         // routing such as provider=anthropic -> endpoint=openrouter.ai.
         commands.push(`${runtime.command} config set model.base_url ${bashQuote('')}`);
         commands.push(`${runtime.command} config set auxiliary.vision.base_url ${bashQuote('')}`);
+        for (const task of TEXT_AUXILIARY_TASKS) {
+            commands.push(`${runtime.command} config set auxiliary.${task}.base_url ${bashQuote('')}`);
+        }
     }
 
-    const envVar = getHermesEnvVarForProvider(config.providerId);
     const envValue = (config.apiKey || (config.providerId === 'ollama' ? 'ollama' : '')).trim();
-    if (envVar && envValue) {
+    const envVar = getHermesEnvVarForProvider(config.providerId);
+    if (config.providerId === 'anthropic' && envValue) {
+        // Hermes resolves ANTHROPIC_TOKEN before ANTHROPIC_API_KEY. When the
+        // desktop saves a fresh API key we must also clear any stale OAuth/setup
+        // token, otherwise the engine can keep authenticating with the old one.
+        commands.push(`${runtime.command} config set ANTHROPIC_API_KEY ${bashQuote(envValue)}`);
+        commands.push(`${runtime.command} config set ANTHROPIC_TOKEN ${bashQuote('')}`);
+    } else if (envVar && envValue) {
         commands.push(`${runtime.command} config set ${envVar} ${bashQuote(envValue)}`);
     }
 
@@ -373,6 +506,290 @@ export async function getLexEngineProviderSnapshot(): Promise<LexEngineProviderS
             available: false,
             source: runtime.source,
             error: error?.message || String(error),
+        };
+    }
+}
+
+export async function getLexEngineSkillsRuntimeSnapshot(): Promise<LexEngineSkillsRuntimeSnapshot> {
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        return {
+            available: false,
+            source: runtime.source,
+            error: runtime.unsupportedReason || 'Modo de Engine nao suportado.',
+        };
+    }
+
+    const pythonPath = getRuntimePythonPath(runtime);
+    const pythonCode = [
+        'import json',
+        'from pathlib import Path',
+        'from hermes_cli.config import load_config, get_config_path, get_hermes_home',
+        'from hermes_cli.skills_config import get_disabled_skills',
+        'from tools.skills_tool import _find_all_skills',
+        'cfg = load_config() or {}',
+        'hermes_home = Path(get_hermes_home())',
+        'memories_dir = hermes_home / "memories"',
+        'all_skills = _find_all_skills(skip_disabled=True)',
+        'disabled = sorted(get_disabled_skills(cfg))',
+        'disabled_set = set(disabled)',
+        'active = [s for s in all_skills if str(s.get("name") or "") not in disabled_set]',
+        'legal = [s for s in active if str(s.get("category") or "") == "legal"]',
+        'def memory_stats(filename):',
+        '    target = memories_dir / filename',
+        '    if not target.exists():',
+        '        return {"name": filename, "exists": False, "char_count": 0, "entry_count": 0}',
+        '    text = target.read_text(encoding="utf-8")',
+        '    parts = [p.strip() for p in text.split("\\n§\\n") if p.strip()]',
+        '    return {',
+        '        "name": filename,',
+        '        "exists": True,',
+        '        "char_count": len(text),',
+        '        "entry_count": len(parts),',
+        '        "modified_at": __import__("datetime").datetime.fromtimestamp(target.stat().st_mtime, __import__("datetime").timezone.utc).isoformat(),',
+        '    }',
+        'skill_updates = []',
+        'skills_root = hermes_home / "skills"',
+        'if skills_root.exists():',
+        '    for skill_file in skills_root.rglob("SKILL.md"):',
+        '        try:',
+        '            stat = skill_file.stat()',
+        '            skill_updates.append({',
+        '                "name": skill_file.parent.name,',
+        '                "path": str(skill_file),',
+        '                "modified_at": __import__("datetime").datetime.fromtimestamp(stat.st_mtime, __import__("datetime").timezone.utc).isoformat(),',
+        '                "modified_ts": stat.st_mtime,',
+        '            })',
+        '        except Exception:',
+        '            pass',
+        'skill_updates.sort(key=lambda item: item.get("modified_ts") or 0, reverse=True)',
+        'for item in skill_updates:',
+        '    item.pop("modified_ts", None)',
+        'payload = {',
+        '    "config_path": str(get_config_path()),',
+        '    "hermes_home": str(hermes_home),',
+        '    "total_skills": len(all_skills),',
+        '    "active_skills": len(active),',
+        '    "disabled_skills": len(disabled),',
+        '    "legal_skills": len(legal),',
+        '    "active_skill_names": sorted(str(s.get("name") or "") for s in active)[:80],',
+        '    "disabled_skill_names": disabled[:80],',
+        '    "memory_provider": str(((cfg.get("memory") or {}).get("provider")) or "builtin"),',
+        '    "memories_dir": str(memories_dir),',
+        '    "memory_files": [memory_stats("MEMORY.md"), memory_stats("USER.md")],',
+        '    "recent_skill_updates": skill_updates[:6],',
+        '}',
+        'print(json.dumps(payload))',
+    ].join('\n');
+
+    try {
+        const result = await execLexEngineCommand(
+            `${bashQuote(pythonPath)} -c ${bashQuote(pythonCode)}`,
+            PROVIDER_SYNC_TIMEOUT_MS,
+        );
+        const payload = JSON.parse(String(result.stdout || '').trim() || '{}') as Record<string, any>;
+        const gatewayRuntimePayload = payload['gateway_runtime'] as Record<string, any> | undefined;
+        return {
+            available: true,
+            source: runtime.source,
+            distro: getDefaultWslDistro(),
+            projectPath: runtime.wslPath,
+            configPath: String(payload['config_path'] || ''),
+            hermesHome: String(payload['hermes_home'] || ''),
+            totalSkills: Number(payload['total_skills'] || 0),
+            activeSkills: Number(payload['active_skills'] || 0),
+            disabledSkills: Number(payload['disabled_skills'] || 0),
+            legalSkills: Number(payload['legal_skills'] || 0),
+            activeSkillNames: Array.isArray(payload['active_skill_names']) ? payload['active_skill_names'].map(String) : [],
+            disabledSkillNames: Array.isArray(payload['disabled_skill_names']) ? payload['disabled_skill_names'].map(String) : [],
+            memoryProvider: String(payload['memory_provider'] || 'builtin'),
+            memoriesDir: String(payload['memories_dir'] || ''),
+            memoryFiles: Array.isArray(payload['memory_files'])
+                ? payload['memory_files'].map((item: any) => ({
+                    name: String(item?.name || ''),
+                    exists: Boolean(item?.exists),
+                    charCount: Number(item?.char_count || 0),
+                    entryCount: Number(item?.entry_count || 0),
+                    modifiedAt: item?.modified_at ? String(item.modified_at) : undefined,
+                }))
+                : [],
+            recentSkillUpdates: Array.isArray(payload['recent_skill_updates'])
+                ? payload['recent_skill_updates'].map((item: any) => ({
+                    name: String(item?.name || ''),
+                    path: String(item?.path || ''),
+                    modifiedAt: item?.modified_at ? String(item.modified_at) : undefined,
+                }))
+                : [],
+        };
+    } catch (error: any) {
+        return {
+            available: false,
+            source: runtime.source,
+            distro: getDefaultWslDistro(),
+            projectPath: runtime.wslPath,
+            error: error?.message || String(error),
+        };
+    }
+}
+
+export async function getLexEngineConnectorsSnapshot(): Promise<LexEngineConnectorsSnapshot> {
+    const runtime = resolveLexEngineRuntime();
+    if (!runtime.supported) {
+        return {
+            available: false,
+            source: runtime.source,
+            error: runtime.unsupportedReason || 'Modo de Engine nao suportado.',
+            mcpServers: [],
+            gatewayPlatforms: [],
+        };
+    }
+
+    const pythonPath = getRuntimePythonPath(runtime);
+    const pythonCode = [
+        'import json',
+        'from hermes_cli.config import load_config, get_config_path, get_hermes_home',
+        'from hermes_cli.gateway import get_gateway_runtime_snapshot',
+        'from hermes_cli.platforms import PLATFORMS',
+        'from gateway.config import load_gateway_config',
+        'cfg = load_config() or {}',
+        'gateway_cfg = load_gateway_config()',
+        'runtime = get_gateway_runtime_snapshot()',
+        'connected_keys = {getattr(platform, "value", str(platform)) for platform in gateway_cfg.get_connected_platforms()}',
+        'mcp_cfg = cfg.get("mcp_servers") if isinstance(cfg.get("mcp_servers"), dict) else {}',
+        'def infer_kind(key):',
+        '    messaging = {"telegram", "discord", "slack", "whatsapp", "signal", "mattermost", "matrix", "email", "sms", "dingtalk", "feishu", "wecom", "wecom_callback", "weixin", "bluebubbles", "qqbot", "yuanbao"}',
+        '    if key in {"api_server", "webhook"}:',
+        '        return "api"',
+        '    if key in {"cron", "scheduler"}:',
+        '        return "automation"',
+        '    if key in messaging:',
+        '        return "messaging"',
+        '    return "general"',
+        'def normalize_server(name, raw):',
+        '    raw = raw if isinstance(raw, dict) else {}',
+        '    command = str(raw.get("command") or "").strip()',
+        '    url = str(raw.get("url") or raw.get("endpoint") or "").strip()',
+        '    args = raw.get("args") if isinstance(raw.get("args"), list) else []',
+        '    env = raw.get("env") if isinstance(raw.get("env"), dict) else {}',
+        '    filters = raw.get("tool_filters") if isinstance(raw.get("tool_filters"), list) else []',
+        '    enabled = bool(raw.get("enabled", not raw.get("disabled", False)))',
+        '    transport = "stdio" if command else ("http" if url else "unknown")',
+        '    return {',
+        '        "id": str(name),',
+        '        "name": str(raw.get("name") or name),',
+        '        "enabled": enabled,',
+        '        "transport": transport,',
+        '        "command": command,',
+        '        "url": url,',
+        '        "args_count": len(args),',
+        '        "env_keys": sorted(str(key) for key in env.keys())[:8],',
+        '        "tool_filters": [str(item) for item in filters][:8],',
+        '    }',
+        'mcp_servers = [normalize_server(name, raw) for name, raw in sorted(mcp_cfg.items())]',
+        'platform_entries = []',
+        'known_keys = [key for key in PLATFORMS.keys() if key not in {"cli", "cron"}]',
+        'for key in known_keys:',
+        '    info = PLATFORMS.get(key)',
+        '    platform_key = next((item for item in gateway_cfg.platforms.keys() if getattr(item, "value", str(item)) == key), None)',
+        '    platform_cfg = gateway_cfg.platforms.get(platform_key) if platform_key is not None else None',
+        '    extra = dict(getattr(platform_cfg, "extra", {}) or {}) if platform_cfg is not None else {}',
+        '    token = str(getattr(platform_cfg, "token", "") or "") if platform_cfg is not None else ""',
+        '    api_key = str(getattr(platform_cfg, "api_key", "") or "") if platform_cfg is not None else ""',
+        '    has_home = bool(getattr(platform_cfg, "home_channel", None)) if platform_cfg is not None else False',
+        '    has_credentials = bool(token or api_key or extra or has_home)',
+        '    enabled = bool(getattr(platform_cfg, "enabled", False)) if platform_cfg is not None else False',
+        '    platform_entries.append({',
+        '        "id": key,',
+        '        "label": str(getattr(info, "label", key)),',
+        '        "toolset": str(getattr(info, "default_toolset", "")),',
+        '        "kind": infer_kind(key),',
+        '        "enabled": enabled,',
+        '        "connected": key in connected_keys,',
+        '        "has_home_channel": has_home,',
+        '        "has_credentials": has_credentials,',
+        '        "extra_keys": sorted(str(item) for item in extra.keys())[:8],',
+        '    })',
+        'payload = {',
+        '    "config_path": str(get_config_path()),',
+        '    "hermes_home": str(get_hermes_home()),',
+        '    "mcp_servers": mcp_servers,',
+        '    "gateway_runtime": {',
+        '        "manager": str(runtime.manager),',
+        '        "running": bool(runtime.running),',
+        '        "service_installed": bool(runtime.service_installed),',
+        '        "service_running": bool(runtime.service_running),',
+        '        "service_scope": str(runtime.service_scope or ""),',
+        '        "has_process_service_mismatch": bool(runtime.has_process_service_mismatch),',
+        '        "gateway_pids": [int(pid) for pid in getattr(runtime, "gateway_pids", ())],',
+        '    },',
+        '    "gateway_platforms": platform_entries,',
+        '}',
+        'print(json.dumps(payload))',
+    ].join('\n');
+
+    try {
+        const result = await execLexEngineCommand(
+            `${bashQuote(pythonPath)} -c ${bashQuote(pythonCode)}`,
+            PROVIDER_SYNC_TIMEOUT_MS,
+        );
+        const payload = JSON.parse(String(result.stdout || '').trim() || '{}') as Record<string, any>;
+        const gatewayRuntimePayload = payload['gateway_runtime'] as Record<string, any> | undefined;
+        return {
+            available: true,
+            source: runtime.source,
+            distro: getDefaultWslDistro(),
+            projectPath: runtime.wslPath,
+            configPath: String(payload['config_path'] || ''),
+            hermesHome: String(payload['hermes_home'] || ''),
+            mcpServers: Array.isArray(payload['mcp_servers'])
+                ? payload['mcp_servers'].map((item: any) => ({
+                    id: String(item?.id || ''),
+                    name: String(item?.name || item?.id || ''),
+                    enabled: Boolean(item?.enabled),
+                    transport: String(item?.transport || 'unknown'),
+                    command: item?.command ? String(item.command) : undefined,
+                    url: item?.url ? String(item.url) : undefined,
+                    argsCount: Number(item?.args_count || 0),
+                    envKeys: Array.isArray(item?.env_keys) ? item.env_keys.map(String) : [],
+                    toolFilters: Array.isArray(item?.tool_filters) ? item.tool_filters.map(String) : [],
+                }))
+                : [],
+            gatewayRuntime: gatewayRuntimePayload
+                ? {
+                    manager: String(gatewayRuntimePayload?.['manager'] || 'manual process'),
+                    running: Boolean(gatewayRuntimePayload?.['running']),
+                    serviceInstalled: Boolean(gatewayRuntimePayload?.['service_installed']),
+                    serviceRunning: Boolean(gatewayRuntimePayload?.['service_running']),
+                    serviceScope: gatewayRuntimePayload?.['service_scope'] ? String(gatewayRuntimePayload['service_scope']) : undefined,
+                    hasProcessServiceMismatch: Boolean(gatewayRuntimePayload?.['has_process_service_mismatch']),
+                    gatewayPids: Array.isArray(gatewayRuntimePayload?.['gateway_pids'])
+                        ? gatewayRuntimePayload['gateway_pids'].map((pid: any) => Number(pid || 0)).filter((pid: number) => Number.isFinite(pid) && pid > 0)
+                        : [],
+                }
+                : undefined,
+            gatewayPlatforms: Array.isArray(payload['gateway_platforms'])
+                ? payload['gateway_platforms'].map((item: any) => ({
+                    id: String(item?.id || ''),
+                    label: String(item?.label || item?.id || ''),
+                    toolset: item?.toolset ? String(item.toolset) : undefined,
+                    kind: String(item?.kind || 'general'),
+                    enabled: Boolean(item?.enabled),
+                    connected: Boolean(item?.connected),
+                    hasHomeChannel: Boolean(item?.has_home_channel),
+                    hasCredentials: Boolean(item?.has_credentials),
+                    extraKeys: Array.isArray(item?.extra_keys) ? item.extra_keys.map(String) : [],
+                }))
+                : [],
+        };
+    } catch (error: any) {
+        return {
+            available: false,
+            source: runtime.source,
+            distro: getDefaultWslDistro(),
+            projectPath: runtime.wslPath,
+            error: error?.message || String(error),
+            mcpServers: [],
+            gatewayPlatforms: [],
         };
     }
 }
@@ -486,7 +903,7 @@ export async function getLexEngineStatus(): Promise<LexEngineStatus> {
     };
 }
 
-export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpawn {
+export function getLexEngineConsoleSpawn(sessionId: string, extraEnv: Record<string, string> = {}): LexEngineConsoleSpawn {
     const runtime = resolveLexEngineRuntime();
     const engineMode = runtime.mode;
     const distro = getDefaultWslDistro();
@@ -510,6 +927,7 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
         LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
         LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
         LEX_STATUS_URL: '',
+        ...extraEnv,
     };
 
     if (!runtime.supported) {
@@ -519,9 +937,15 @@ export function getLexEngineConsoleSpawn(sessionId: string): LexEngineConsoleSpa
     if (process.platform === 'win32') {
         const wslAgoraBoardPath = windowsPathToWslPath(agoraBoardPath);
         const wslKanbanHomePath = windowsPathToWslPath(kanbanHomePath);
+        const commandEnv = {
+            ...env,
+            LEX_AGORA_BOARD_PATH: wslAgoraBoardPath,
+            HERMES_KANBAN_HOME: wslKanbanHomePath,
+        };
+        const envPrefix = buildBashEnvPrefix(commandEnv);
         return {
             shell: 'wsl.exe',
-            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && LEX_AGORA_BOARD_PATH=${bashQuote(wslAgoraBoardPath)} HERMES_KANBAN_HOME=${bashQuote(wslKanbanHomePath)} ${runtime.command}`],
+            args: ['-d', distro, '--', 'bash', '-lc', `cd ${bashQuote(projectPath)} && ${envPrefix} ${runtime.command}`],
             cwd,
             env,
         };

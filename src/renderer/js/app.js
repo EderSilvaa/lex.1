@@ -874,9 +874,9 @@ if (sendBtn) {
                 if (routingLoadingId) { removeMessageFromUI(routingLoadingId); routingLoadingId = null; }
 
                 if (!result?.success) {
-                    addMessageToUI(`Motor local: ${result?.error || 'falha ao responder'}`, 'system');
+                    addMessageToUI(await formatLexEngineUserError(result?.error || 'falha ao responder'), 'system');
                 } else {
-                    const aiText = result.data?.text || 'Sem resposta do motor local.';
+                    const aiText = result.data?.text || 'Sem resposta do motor Lex.';
                     addMessageToUI(aiText, 'ai');
                     trackMessage('assistant', aiText);
                     saveCurrentConversation();
@@ -1276,8 +1276,8 @@ const views = {
     'nav-files': document.querySelector('.file-manager-wrapper'),
     'nav-history': null,
     'nav-brain': document.querySelector('.brain-wrapper'),
+    'nav-skills': document.querySelector('.skills-wrapper'),
     'nav-terminal': document.querySelector('.terminal-wrapper'),
-    'nav-agora': document.querySelector('.agora-wrapper'),
     'nav-settings': document.querySelector('.settings-wrapper')
 };
 
@@ -1297,20 +1297,21 @@ navItems.forEach(item => {
             views[viewId].classList.remove('hidden');
         }
 
-        // Refresh plugins e perfil ao abrir settings
+        // Refresh perfil ao abrir settings
         if (viewId === 'nav-settings') {
-            initPluginsUI();
             loadProfileCard();
-        }
-
-        // Init Agora workflow view
-        if (viewId === 'nav-agora') {
-            if (typeof initAgoraView === 'function') initAgoraView();
         }
 
         // Init brain view
         if (viewId === 'nav-brain') {
             if (typeof initBrainView === 'function') initBrainView();
+        }
+
+        if (viewId === 'nav-skills') {
+            if (typeof skillsState !== 'undefined') {
+                skillsState.stage = 'home';
+            }
+            initSkillsView();
         }
 
         // Init terminal view
@@ -1837,41 +1838,1297 @@ async function loadAnalyticsDashboard() {
 const PROVIDER_KEY_LINKS = {
     anthropic: 'https://console.anthropic.com/settings/keys',
     openai: 'https://platform.openai.com/api-keys',
-    openrouter: 'https://openrouter.ai/keys',
-    google: 'https://aistudio.google.com/app/apikey',
-    groq: 'https://console.groq.com/keys',
     ollama: '',
 };
 
+const SETTINGS_PROVIDERS = ['anthropic', 'openai', 'ollama'];
+
+function normalizeSettingsProvider(providerId) {
+    return SETTINGS_PROVIDERS.includes(providerId) ? providerId : 'anthropic';
+}
+
+function syncProviderChoiceUI(providerId) {
+    const normalized = normalizeSettingsProvider(providerId);
+    document.querySelectorAll('.provider-choice').forEach((btn) => {
+        const active = btn.dataset.provider === normalized;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+}
+
 let _providerPresets = null;
+let _hermesProviderSnapshot = null;
+
+function isLikelyLexEngineNetworkError(errorText) {
+    const raw = String(errorText || '');
+    return /APIConnectionError|Connection error\.?|connection reset by peer|recv failure|SSL_connect|TLS|network is unreachable|timed out|connect timeout/i.test(raw);
+}
+
+async function formatLexEngineUserError(errorText) {
+    const raw = String(errorText || '').trim();
+    if (!raw) return 'Motor Lex: falha ao responder';
+    if (!isLikelyLexEngineNetworkError(raw) || !window.lexEngineApi?.getStatus) {
+        return `Motor Lex: ${raw}`;
+    }
+
+    try {
+        const statusResult = await window.lexEngineApi.getStatus();
+        const status = statusResult?.success ? statusResult.data : null;
+        const mode = status?.engineMode || status?.engineSource || '';
+        if (!/wsl/i.test(mode)) {
+            return `Motor Lex: ${raw}`;
+        }
+
+        const endpointMatch = raw.match(/https?:\/\/[^\s|)]+/i);
+        const endpoint = endpointMatch ? endpointMatch[0] : 'endpoint do provedor';
+        return [
+            'Motor Lex: a rede parece estar bloqueando a conexao do motor WSL com o provedor.',
+            `Endpoint afetado: ${endpoint}.`,
+            'Isso costuma acontecer em redes de faculdade, empresa ou ambientes com inspecao de TLS no WSL.',
+            'Tente outra rede, hotspot 4G/5G ou VPN e teste novamente.',
+        ].join(' ');
+    } catch (_) {
+        return `Motor Lex: ${raw}`;
+    }
+}
 
 async function loadProviderSettings() {
     try {
         _providerPresets = await window.lexApi.getProviderPresets();
-        const current = await window.lexApi.getProvider();
+        const [current, hermesState] = await Promise.all([
+            window.lexApi.getProvider(),
+            window.lexApi.getLexEngineProviderState?.().catch(() => null),
+        ]);
+        _hermesProviderSnapshot = hermesState || null;
+
+        const providerFromHermes = SETTINGS_PROVIDERS.includes(hermesState?.desktopProviderId) ? hermesState.desktopProviderId : '';
+        const effectiveProviderId = normalizeSettingsProvider(providerFromHermes || current?.providerId || 'anthropic');
 
         const providerSelect = document.getElementById('ai-provider');
-        if (providerSelect && current?.providerId) {
-            providerSelect.value = current.providerId;
+        if (providerSelect && effectiveProviderId) {
+            providerSelect.value = effectiveProviderId;
         }
+        syncProviderChoiceUI(effectiveProviderId);
 
-        populateModelSelects(current?.providerId || 'anthropic', true);
+        populateModelSelects(effectiveProviderId, true);
 
         const agentSelect = document.getElementById('ai-agent-model');
         const visionSelect = document.getElementById('ai-vision-model');
-        if (agentSelect && current?.agentModel) agentSelect.value = current.agentModel;
-        if (visionSelect && current?.visionModel) visionSelect.value = current.visionModel;
+        const effectiveAgentModel = hermesState?.agentModel || current?.agentModel;
+        const effectiveVisionModel = hermesState?.visionModel || current?.visionModel;
+        if (agentSelect && effectiveAgentModel) agentSelect.value = effectiveAgentModel;
+        if (visionSelect && effectiveVisionModel) visionSelect.value = effectiveVisionModel;
 
         // Status da chave
-        if (current?.providerId) {
-            const status = await window.lexApi.getApiKeyStatus(current.providerId);
+        if (effectiveProviderId) {
+            const status = await window.lexApi.getApiKeyStatus(effectiveProviderId);
             updateKeyStatusBadge(status);
         }
 
         // Link de docs + placeholder
-        updateProviderLink(current?.providerId || 'anthropic');
-        updateApiKeyPlaceholder(current?.providerId || 'anthropic');
+        updateProviderLink(effectiveProviderId);
+        updateApiKeyPlaceholder(effectiveProviderId);
+        renderHermesProviderState(_hermesProviderSnapshot);
     } catch (_) {}
+}
+
+const skillsState = {
+    loaded: false,
+    catalog: null,
+    runtime: null,
+    analytics: null,
+    connectors: null,
+    connectorsLoaded: false,
+    brainDashboard: null,
+    stage: 'home',
+    selectedPromotionFlowId: '',
+    selectedPromotionPreview: null,
+    promotionActionInFlight: false,
+    promotionActionMessage: '',
+    promotionActionError: '',
+    customizeTab: 'skills',
+    selectedSkillId: '',
+    selectedSkillContent: '',
+    selectedSkillContentLoaded: false,
+    filter: 'all',
+    query: '',
+};
+
+function escapeSkillsHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function openSkillsInfoModal() {
+    document.getElementById('skills-info-modal')?.classList.remove('hidden');
+}
+
+function closeSkillsInfoModal() {
+    document.getElementById('skills-info-modal')?.classList.add('hidden');
+}
+
+function setSkillsStage(stage) {
+    const nextStage = stage === 'details' ? 'details' : 'home';
+    skillsState.stage = nextStage;
+    document.getElementById('skills-home-panel')?.classList.toggle('hidden', nextStage !== 'home');
+    document.getElementById('skills-detail-layout')?.classList.toggle('hidden', nextStage !== 'details');
+}
+
+function switchSkillsCustomizeTab(tab) {
+    const nextTab = tab === 'connectors' ? 'connectors' : 'skills';
+    skillsState.customizeTab = nextTab;
+    setSkillsStage('details');
+
+    document.querySelectorAll('[data-skills-tab]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-skills-tab') === nextTab);
+    });
+
+    document.querySelectorAll('[data-skills-panel]').forEach((node) => {
+        const isActive = node.getAttribute('data-skills-panel') === nextTab;
+        node.classList.toggle('hidden', !isActive);
+        node.classList.toggle('active', isActive);
+    });
+
+    if (nextTab === 'connectors') {
+        void loadSkillsConnectors();
+    }
+}
+
+function getSkillsRelativePath(entry) {
+    const roots = skillsState.catalog?.roots || {};
+    const pathValue = String(entry?.path || '');
+    const candidates = [roots.localHermes, roots.repoBundled, roots.repoOptional]
+        .filter(Boolean)
+        .map((root) => String(root).replace(/\\/g, '/'));
+    const normalizedPath = pathValue.replace(/\\/g, '/');
+    const matchingRoot = candidates.find((root) => normalizedPath.startsWith(root));
+    if (!matchingRoot) return normalizedPath;
+    return normalizedPath.slice(matchingRoot.length).replace(/^\/+/, '') || 'SKILL.md';
+}
+
+function renderSelectedSkillPreview(entry, options = {}) {
+    const titleEl = document.getElementById('skills-file-title');
+    const subtitleEl = document.getElementById('skills-file-subtitle');
+    const badgesEl = document.getElementById('skills-file-badges');
+    const metaEl = document.getElementById('skills-file-meta');
+    const bodyEl = document.getElementById('skills-file-body');
+    if (!titleEl || !subtitleEl || !badgesEl || !metaEl || !bodyEl) return;
+
+    if (!entry) {
+        titleEl.textContent = 'Selecione uma skill';
+        subtitleEl.textContent = 'Abra uma habilidade na arvore para ler o conteudo e revisar o contexto.';
+        badgesEl.innerHTML = '';
+        metaEl.innerHTML = '';
+        bodyEl.innerHTML = '<p>O conteudo real da <code>SKILL.md</code> aparecera aqui.</p>';
+        return;
+    }
+
+    titleEl.textContent = entry.name || 'Skill';
+    subtitleEl.textContent = options.loading
+        ? 'Carregando o conteudo real da skill...'
+        : entry.description || 'Skill sem resumo adicional.';
+
+    badgesEl.innerHTML = [
+        `<span class="skills-file-badge">${escapeSkillsHtml(entry.command || '/skill')}</span>`,
+        `<span class="skills-file-badge">${escapeSkillsHtml(entry.sourceLabel || 'Origem')}</span>`,
+        `<span class="skills-file-badge">${escapeSkillsHtml(entry.category || 'geral')}</span>`,
+    ].join('');
+
+    metaEl.innerHTML = [
+        `<span class="skills-file-meta-item">Arquivo: ${escapeSkillsHtml(getSkillsRelativePath(entry))}</span>`,
+        entry.lastModifiedAt ? `<span class="skills-file-meta-item">Atualizada: ${escapeSkillsHtml(new Date(entry.lastModifiedAt).toLocaleDateString('pt-BR'))}</span>` : '',
+        entry.isLocalOnly ? '<span class="skills-file-meta-item">Local/aprendida</span>' : '',
+    ].filter(Boolean).join('');
+
+    if (options.loading) {
+        bodyEl.innerHTML = '<p>Carregando <code>SKILL.md</code>...</p>';
+        return;
+    }
+
+    const content = String(options.content || '').trim();
+    bodyEl.innerHTML = content
+        ? renderMarkdownSafe(content)
+        : `<p>${escapeSkillsHtml(entry.description || 'Skill sem conteudo adicional.')}</p>`;
+}
+
+async function loadSelectedSkillContent(entry) {
+    if (!entry) {
+        skillsState.selectedSkillContent = '';
+        skillsState.selectedSkillContentLoaded = false;
+        renderSelectedSkillPreview(null);
+        return;
+    }
+
+    renderSelectedSkillPreview(entry, { loading: true });
+
+    if (!window.skillsApi?.readSkillFile) {
+        skillsState.selectedSkillContent = entry.description || '';
+        skillsState.selectedSkillContentLoaded = false;
+        renderSelectedSkillPreview(entry, { content: entry.description || '' });
+        return;
+    }
+
+    try {
+        const result = await window.skillsApi.readSkillFile(entry.path);
+        if (entry.id !== skillsState.selectedSkillId) return;
+        skillsState.selectedSkillContent = result?.success ? String(result.content || '') : (entry.description || '');
+        skillsState.selectedSkillContentLoaded = !!result?.success;
+        renderSelectedSkillPreview(entry, { content: skillsState.selectedSkillContent });
+    } catch (error) {
+        console.error('[Skills] Erro ao ler SKILL.md:', error);
+        if (entry.id !== skillsState.selectedSkillId) return;
+        skillsState.selectedSkillContent = entry.description || '';
+        skillsState.selectedSkillContentLoaded = false;
+        renderSelectedSkillPreview(entry, { content: skillsState.selectedSkillContent });
+    }
+}
+
+function getConnectorStatusMeta(item, type) {
+    if (type === 'mcp') {
+        if (item?.enabled) return { label: 'habilitado', tone: 'live' };
+        return { label: 'desligado', tone: 'idle' };
+    }
+
+    if (item?.connected) return { label: 'conectado', tone: 'live' };
+    if (item?.enabled) return { label: 'habilitado', tone: 'warm' };
+    if (item?.hasCredentials) return { label: 'configurado', tone: 'soft' };
+    return { label: 'desligado', tone: 'idle' };
+}
+
+function renderSkillsConnectorsSummary(payload) {
+    const snapshot = payload?.snapshot || null;
+    const plugins = Array.isArray(payload?.plugins) ? payload.plugins : [];
+    const mcpServers = Array.isArray(snapshot?.mcpServers) ? snapshot.mcpServers : [];
+    const gatewayPlatforms = Array.isArray(snapshot?.gatewayPlatforms) ? snapshot.gatewayPlatforms : [];
+    const total = mcpServers.length + gatewayPlatforms.length;
+
+    const totalEl = document.getElementById('skills-connectors-total');
+    const connectedEl = document.getElementById('skills-connectors-connected');
+    const readyEl = document.getElementById('skills-connectors-ready');
+    const noteEl = document.getElementById('skills-connectors-note');
+
+    if (totalEl) totalEl.textContent = String(total || 0);
+    if (connectedEl) connectedEl.textContent = String(mcpServers.length || 0);
+    if (readyEl) readyEl.textContent = String(gatewayPlatforms.length || 0);
+
+    if (!noteEl) return;
+
+    if (!snapshot?.available) {
+        noteEl.textContent = snapshot?.error
+            ? `O Hermes nao respondeu com o mapa de conectores: ${snapshot.error}`
+            : 'O snapshot de conectores do Hermes nao esta disponivel agora.';
+        return;
+    }
+
+    const enabledMcp = mcpServers.filter((item) => item?.enabled).length;
+    const connectedGateway = gatewayPlatforms.filter((item) => item?.connected).length;
+    const runtime = snapshot.gatewayRuntime || null;
+    const runtimeLabel = runtime?.running
+        ? `gateway em execucao via ${runtime.manager || 'runtime local'}`
+        : `gateway parado (${runtime?.manager || 'sem manager detectado'})`;
+    const desktopConnected = plugins.filter((plugin) => plugin?.status === 'connected').length;
+
+    noteEl.textContent =
+        `${enabledMcp}/${mcpServers.length} MCP habilitados, ` +
+        `${connectedGateway}/${gatewayPlatforms.length} plataformas de gateway conectadas e ` +
+        `${desktopConnected}/${plugins.length} integracoes visuais do desktop prontas; ${runtimeLabel}.`;
+}
+
+function renderSkillsConnectorsRuntime(snapshot) {
+    const runtimeEl = document.getElementById('skills-connectors-runtime');
+    if (!runtimeEl) return;
+
+    if (!snapshot?.available) {
+        runtimeEl.innerHTML = `<div class="skills-empty-state">${escapeSkillsHtml(snapshot?.error || 'Runtime do Hermes indisponivel.')}</div>`;
+        return;
+    }
+
+    const runtime = snapshot.gatewayRuntime || {};
+    const status = runtime.running ? 'Em execucao' : 'Parado';
+    const service = runtime.serviceInstalled
+        ? (runtime.serviceRunning ? 'Servico ativo' : 'Servico instalado')
+        : 'Sem servico instalado';
+    const pids = Array.isArray(runtime.gatewayPids) && runtime.gatewayPids.length
+        ? runtime.gatewayPids.join(', ')
+        : 'nenhum PID visivel';
+
+    runtimeEl.innerHTML = `
+        <div class="skills-connectors-runtime-grid">
+            <div class="skills-sidecard">
+                <span class="skills-sidecard-kicker">Gateway Hermes</span>
+                <strong class="skills-connector-runtime-title">${escapeSkillsHtml(status)}</strong>
+                <p class="skills-side-note">${escapeSkillsHtml(runtime.manager || 'manual process')}</p>
+            </div>
+            <div class="skills-sidecard">
+                <span class="skills-sidecard-kicker">Servico</span>
+                <strong class="skills-connector-runtime-title">${escapeSkillsHtml(service)}</strong>
+                <p class="skills-side-note">${escapeSkillsHtml(runtime.serviceScope || 'escopo nao informado')}</p>
+            </div>
+            <div class="skills-sidecard">
+                <span class="skills-sidecard-kicker">Projeto WSL</span>
+                <strong class="skills-connector-runtime-title">${escapeSkillsHtml(snapshot.projectPath || '--')}</strong>
+                <p class="skills-side-note">Distro ${escapeSkillsHtml(snapshot.distro || '--')}</p>
+            </div>
+            <div class="skills-sidecard">
+                <span class="skills-sidecard-kicker">Config</span>
+                <strong class="skills-connector-runtime-title">${escapeSkillsHtml(snapshot.configPath || '--')}</strong>
+                <p class="skills-side-note">PIDs: ${escapeSkillsHtml(pids)}</p>
+            </div>
+        </div>
+    `;
+}
+
+function renderSkillsConnectorGroup(title, kicker, items, type) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return `
+            <section class="skills-connector-group">
+                <div class="skills-preview-head">
+                    <div>
+                        <span class="skills-sidecard-kicker">${escapeSkillsHtml(kicker)}</span>
+                        <h3>${escapeSkillsHtml(title)}</h3>
+                    </div>
+                    <span class="skills-preview-meta">0 itens</span>
+                </div>
+                <div class="skills-empty-state">Nenhum item encontrado nesta camada.</div>
+            </section>
+        `;
+    }
+
+    const cards = items.map((item) => {
+        const status = getConnectorStatusMeta(item, type);
+        const meta = [];
+        if (type === 'mcp') {
+            meta.push(`Transporte: ${item.transport || 'unknown'}`);
+            if (item.command) meta.push(`Comando: ${item.command}`);
+            if (item.url) meta.push(`URL: ${item.url}`);
+            if (item.argsCount) meta.push(`Args: ${item.argsCount}`);
+            if (Array.isArray(item.toolFilters) && item.toolFilters.length) {
+                meta.push(`Filtros: ${item.toolFilters.join(', ')}`);
+            }
+        } else {
+            meta.push(`Tipo: ${item.kind || 'general'}`);
+            if (item.toolset) meta.push(`Toolset: ${item.toolset}`);
+            meta.push(`Home channel: ${item.hasHomeChannel ? 'sim' : 'nao'}`);
+            if (Array.isArray(item.extraKeys) && item.extraKeys.length) {
+                meta.push(`Campos: ${item.extraKeys.join(', ')}`);
+            }
+        }
+
+        return `
+            <article class="skills-connector-card">
+                <div class="skills-connector-header">
+                    <div>
+                        <strong class="skills-connector-name">${escapeSkillsHtml(item.name || item.label || item.id || 'Connector')}</strong>
+                        <div class="skills-connector-id">${escapeSkillsHtml(item.id || '')}</div>
+                    </div>
+                    <span class="skills-connector-badge is-${escapeSkillsHtml(status.tone)}">${escapeSkillsHtml(status.label)}</span>
+                </div>
+                <div class="skills-connector-meta">
+                    ${meta.map((line) => `<span>${escapeSkillsHtml(line)}</span>`).join('')}
+                </div>
+            </article>
+        `;
+    }).join('');
+
+    return `
+        <section class="skills-connector-group">
+            <div class="skills-preview-head">
+                <div>
+                    <span class="skills-sidecard-kicker">${escapeSkillsHtml(kicker)}</span>
+                    <h3>${escapeSkillsHtml(title)}</h3>
+                </div>
+                <span class="skills-preview-meta">${items.length} itens</span>
+            </div>
+            <div class="skills-connector-grid">${cards}</div>
+        </section>
+    `;
+}
+
+function renderSkillsConnectorsGroups(snapshot) {
+    const groupsEl = document.getElementById('skills-connectors-groups');
+    if (!groupsEl) return;
+
+    if (!snapshot?.available) {
+        groupsEl.innerHTML = `<div class="skills-empty-state">${escapeSkillsHtml(snapshot?.error || 'Connectors do Hermes indisponiveis.')}</div>`;
+        return;
+    }
+
+    groupsEl.innerHTML = [
+        renderSkillsConnectorGroup('Servidores MCP do Hermes', 'MCP', snapshot.mcpServers || [], 'mcp'),
+        renderSkillsConnectorGroup('Plataformas e gateways herdados', 'Gateway', snapshot.gatewayPlatforms || [], 'gateway'),
+    ].join('');
+}
+
+async function loadSkillsConnectors(force = false) {
+    const runtimeEl = document.getElementById('skills-connectors-runtime');
+    const groupsEl = document.getElementById('skills-connectors-groups');
+    const noteEl = document.getElementById('skills-connectors-note');
+    if (!runtimeEl || !groupsEl) return;
+
+    if (skillsState.connectorsLoaded && !force && skillsState.connectors) {
+        renderSkillsConnectorsSummary(skillsState.connectors);
+        renderSkillsConnectorsRuntime(skillsState.connectors.snapshot);
+        renderSkillsConnectorsGroups(skillsState.connectors.snapshot);
+        await initPluginsUI(skillsState.connectors.plugins || []);
+        return;
+    }
+
+    runtimeEl.innerHTML = '<div class="skills-empty-state">Carregando runtime do Hermes...</div>';
+    groupsEl.innerHTML = '<div class="skills-empty-state">Carregando conectores do Hermes...</div>';
+    if (noteEl) noteEl.textContent = 'Lendo MCP, gateway e integracoes herdadas do Hermes...';
+
+    try {
+        const [snapshotResult, plugins] = await Promise.all([
+            window.skillsApi?.getConnectorsSnapshot?.(),
+            window.pluginsApi?.list ? window.pluginsApi.list() : Promise.resolve([]),
+        ]);
+        const snapshot = snapshotResult?.success ? snapshotResult.snapshot : {
+            available: false,
+            error: snapshotResult?.error || 'Falha ao consultar snapshot de connectors.',
+            mcpServers: [],
+            gatewayPlatforms: [],
+        };
+        const payload = {
+            snapshot,
+            plugins: Array.isArray(plugins) ? plugins : [],
+        };
+
+        skillsState.connectors = payload;
+        skillsState.connectorsLoaded = true;
+        renderSkillsConnectorsSummary(payload);
+        renderSkillsConnectorsRuntime(snapshot);
+        renderSkillsConnectorsGroups(snapshot);
+        await initPluginsUI(payload.plugins);
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar connectors:', error);
+        const message = escapeSkillsHtml(error?.message || 'Falha ao carregar connectors.');
+        if (noteEl) noteEl.textContent = 'Nao foi possivel carregar os connectors agora.';
+        runtimeEl.innerHTML = `<div class="skills-empty-state">${message}</div>`;
+        groupsEl.innerHTML = `<div class="skills-empty-state">${message}</div>`;
+    }
+}
+
+function setupSkillsCustomizeShell() {
+    const wrapper = document.querySelector('.skills-wrapper');
+    if (!wrapper || wrapper.dataset.customizeBound === '1') return;
+    wrapper.dataset.customizeBound = '1';
+
+    document.getElementById('skills-home-open-skills')?.addEventListener('click', () => {
+        switchSkillsCustomizeTab('skills');
+    });
+
+    document.getElementById('skills-home-open-connectors')?.addEventListener('click', () => {
+        switchSkillsCustomizeTab('connectors');
+    });
+
+    document.querySelectorAll('[data-skills-tab]').forEach((node) => {
+        node.addEventListener('click', () => {
+            switchSkillsCustomizeTab(node.getAttribute('data-skills-tab') || 'skills');
+        });
+    });
+
+    document.getElementById('skills-switch-connectors-btn')?.addEventListener('click', () => {
+        switchSkillsCustomizeTab('connectors');
+    });
+
+    document.getElementById('skills-open-approval-btn')?.addEventListener('click', () => {
+        switchSkillsCustomizeTab('skills');
+        document.getElementById('skills-preview-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    ['skills-open-info-btn', 'skills-open-info-inline-btn', 'skills-open-create-btn'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('click', openSkillsInfoModal);
+    });
+
+    document.getElementById('skills-info-close')?.addEventListener('click', closeSkillsInfoModal);
+    document.getElementById('skills-info-modal')?.addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) closeSkillsInfoModal();
+    });
+}
+
+function renderSkillsRoots(roots) {
+    const rootsEl = document.getElementById('skills-roots');
+    if (!rootsEl || !roots) return;
+
+    rootsEl.innerHTML = [
+        ['Repo skills', roots.repoBundled],
+        ['Optional', roots.repoOptional],
+        ['Hermes home', roots.localHermes],
+    ].map(([label, value]) => (
+        `<div class="skills-root-chip"><strong>${escapeSkillsHtml(label)}</strong><span>${escapeSkillsHtml(value)}</span></div>`
+    )).join('');
+}
+
+function updateSkillsMetrics(summary) {
+    const entries = Array.isArray(skillsState.catalog?.entries) ? skillsState.catalog.entries : [];
+    const legalEntries = entries.filter((entry) => entry?.isLegal);
+    const pjeEntries = legalEntries.filter((entry) =>
+        /pje|tribunal|processo|autos|consulta/i.test(`${entry?.name || ''} ${entry?.description || ''} ${entry?.category || ''}`),
+    );
+    const localEntries = legalEntries.filter((entry) => entry?.source === 'local-hermes');
+
+    document.getElementById('skills-metric-total').textContent = String(legalEntries.length || summary?.legal || '--');
+    document.getElementById('skills-metric-legal').textContent = String(pjeEntries.length || '--');
+    document.getElementById('skills-metric-local').textContent = String(localEntries.length || '--');
+}
+
+function isPjeSkillEntry(entry) {
+    const text = `${entry?.name || ''} ${entry?.description || ''} ${entry?.category || ''}`.toLowerCase();
+    return /pje|tribunal|processo|autos|consulta|mural/.test(text);
+}
+
+function isDocumentSkillEntry(entry) {
+    const text = `${entry?.name || ''} ${entry?.description || ''} ${entry?.category || ''}`.toLowerCase();
+    return /document|petic|juris|sentenc|acord|analise|sumar|resumo|prova|contrato/.test(text);
+}
+
+function getPromotionTargetUiLabel(target) {
+    if (target === 'skill') return 'Skill em potencial';
+    if (target === 'playbook') return 'Playbook em potencial';
+    return 'Nota em potencial';
+}
+
+function getPromotionTargetUiMeaning(target) {
+    if (target === 'skill') return 'Procedimento maduro o bastante para futura habilidade acionavel.';
+    if (target === 'playbook') return 'Procedimento repetivel que merece virar guia operacional.';
+    return 'Aprendizado curto, memoria de caso/processo, contexto ou alerta util.';
+}
+
+function getFilteredSkillsEntries() {
+    const entries = Array.isArray(skillsState.catalog?.entries)
+        ? skillsState.catalog.entries.filter((entry) => entry?.isLegal)
+        : [];
+    const query = skillsState.query.trim().toLowerCase();
+
+    return entries.filter((entry) => {
+        if (skillsState.filter === 'pje' && !isPjeSkillEntry(entry)) return false;
+        if (skillsState.filter === 'documentos' && !isDocumentSkillEntry(entry)) return false;
+        if (skillsState.filter === 'local-hermes' && entry.source !== 'local-hermes') return false;
+        if (!query) return true;
+
+        const haystack = [
+            entry.name,
+            entry.command,
+            entry.description,
+            entry.category,
+            entry.sourceLabel,
+        ].join(' ').toLowerCase();
+
+        return haystack.includes(query);
+    });
+}
+
+function renderSkillsList() {
+    const listEl = document.getElementById('skills-list');
+    const treeEl = document.getElementById('skills-tree-list');
+    if (listEl) listEl.classList.add('hidden');
+    if (!treeEl) return;
+
+    const entries = getFilteredSkillsEntries();
+    if (!entries.length) {
+        skillsState.selectedSkillId = '';
+        treeEl.innerHTML = '<div class="skills-empty-state">Nenhuma habilidade juridica encontrada para esse filtro.</div>';
+        renderSelectedSkillPreview(null);
+        return;
+    }
+
+    const groups = new Map();
+    for (const entry of entries) {
+        const sourceKey = entry.sourceLabel || 'Skills';
+        if (!groups.has(sourceKey)) groups.set(sourceKey, new Map());
+        const categoryMap = groups.get(sourceKey);
+        const categoryKey = entry.category || 'geral';
+        if (!categoryMap.has(categoryKey)) categoryMap.set(categoryKey, []);
+        categoryMap.get(categoryKey).push(entry);
+    }
+
+    const previousActiveId = skillsState.selectedSkillId;
+    const activeId = entries.some((entry) => entry.id === skillsState.selectedSkillId)
+        ? skillsState.selectedSkillId
+        : entries[0]?.id || '';
+    if (activeId !== previousActiveId) {
+        skillsState.selectedSkillContent = '';
+        skillsState.selectedSkillContentLoaded = false;
+    }
+    skillsState.selectedSkillId = activeId;
+
+    treeEl.innerHTML = Array.from(groups.entries()).map(([sourceLabel, categoryMap]) => `
+        <details class="skills-tree-group" open>
+            <summary class="skills-tree-group-summary">${escapeSkillsHtml(sourceLabel)}</summary>
+            ${Array.from(categoryMap.entries()).map(([category, categoryEntries]) => `
+                <details class="skills-tree-folder" open>
+                    <summary class="skills-tree-folder-summary">${escapeSkillsHtml(category)}</summary>
+                    <div class="skills-tree-items">
+                        ${categoryEntries.map((entry) => `
+                            <button type="button" class="skills-tree-item${entry.id === activeId ? ' active' : ''}" data-skill-id="${escapeSkillsHtml(entry.id)}">
+                                <span class="skills-tree-item-icon">#</span>
+                                <span class="skills-tree-item-label">
+                                    <strong>${escapeSkillsHtml(entry.name)}</strong>
+                                    <span>${escapeSkillsHtml(entry.command)}</span>
+                                </span>
+                            </button>
+                        `).join('')}
+                    </div>
+                </details>
+            `).join('')}
+        </details>
+    `).join('');
+
+    treeEl.querySelectorAll('.skills-tree-item').forEach((node) => {
+        node.addEventListener('click', () => {
+            const skillId = node.getAttribute('data-skill-id') || '';
+            if (!skillId || skillId === skillsState.selectedSkillId) return;
+            skillsState.selectedSkillId = skillId;
+            skillsState.selectedSkillContent = '';
+            skillsState.selectedSkillContentLoaded = false;
+            renderSkillsList();
+        });
+    });
+
+    const activeEntry = entries.find((entry) => entry.id === activeId) || entries[0] || null;
+    if (!activeEntry) {
+        renderSelectedSkillPreview(null);
+        return;
+    }
+
+    if (skillsState.selectedSkillContentLoaded && activeEntry.id === activeId) {
+        renderSelectedSkillPreview(activeEntry, { content: skillsState.selectedSkillContent });
+        return;
+    }
+
+    void loadSelectedSkillContent(activeEntry);
+}
+
+function renderSkillsRuntime(snapshot) {
+    const runtimeNoteEl = document.getElementById('skills-runtime-note');
+    if (!runtimeNoteEl) return;
+
+    if (!snapshot?.available) {
+        runtimeNoteEl.textContent = snapshot?.error
+            ? `Runtime Hermes indisponivel agora: ${snapshot.error}`
+            : 'Runtime Hermes indisponivel agora.';
+        return;
+    }
+
+    const active = Number(snapshot.activeSkills || 0);
+    const total = Number(snapshot.totalSkills || 0);
+    const disabled = Number(snapshot.disabledSkills || 0);
+    const legal = Number(snapshot.legalSkills || 0);
+    const distro = snapshot.distro || 'WSL';
+    runtimeNoteEl.innerHTML = [
+        `Runtime Hermes ativa em <strong>${escapeSkillsHtml(distro)}</strong>.`,
+        `Hoje a Lex enxerga <strong>${active}</strong> skills ativas de um total de ${total}, com ${disabled} desabilitadas e ${legal} legais ativas.`,
+        snapshot.hermesHome ? `Hermes home: ${escapeSkillsHtml(snapshot.hermesHome)}` : '',
+    ].filter(Boolean).join(' ');
+}
+
+function formatSkillsRelativeTime(isoString) {
+    if (!isoString) return 'sem data';
+    const ts = new Date(isoString).getTime();
+    if (!Number.isFinite(ts)) return 'sem data';
+
+    const diffMs = Date.now() - ts;
+    const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+    if (diffMinutes < 1) return 'agora';
+    if (diffMinutes < 60) return `${diffMinutes} min atras`;
+
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours} h atras`;
+
+    const diffDays = Math.round(diffHours / 24);
+    if (diffDays < 30) return `${diffDays} d atras`;
+
+    return new Date(ts).toLocaleDateString('pt-BR');
+}
+
+function renderSkillsMemoryState(snapshot) {
+    const memoryStateEl = document.getElementById('skills-memory-state');
+    const activityStateEl = document.getElementById('skills-activity-state');
+    if (!memoryStateEl || !activityStateEl) return;
+
+    if (!snapshot?.available) {
+        memoryStateEl.innerHTML = '<li>Runtime Hermes indisponivel para ler memoria agora.</li>';
+        activityStateEl.innerHTML = '<li>Sem atividade recente enquanto a runtime estiver off.</li>';
+        return;
+    }
+
+    const memoryProvider = snapshot.memoryProvider || 'builtin';
+    const memoryFiles = Array.isArray(snapshot.memoryFiles) ? snapshot.memoryFiles : [];
+    const recentSkillUpdates = Array.isArray(snapshot.recentSkillUpdates) ? snapshot.recentSkillUpdates : [];
+
+    memoryStateEl.innerHTML = [
+        `<li><strong>Provider:</strong> ${escapeSkillsHtml(memoryProvider === 'builtin' ? 'built-in only' : memoryProvider)}</li>`,
+        snapshot.memoriesDir ? `<li><strong>Onde mora:</strong> ${escapeSkillsHtml(snapshot.memoriesDir)}</li>` : '',
+        ...memoryFiles.map((file) => {
+            if (!file?.exists) {
+                return `<li><strong>${escapeSkillsHtml(file?.name || 'memoria')}:</strong> ainda nao criado</li>`;
+            }
+            return `<li><strong>${escapeSkillsHtml(file.name)}:</strong> ${Number(file.entryCount || 0)} entradas, ${Number(file.charCount || 0)} chars, atualizado ${escapeSkillsHtml(formatSkillsRelativeTime(file.modifiedAt))}</li>`;
+        }),
+    ].filter(Boolean).join('');
+
+    if (!recentSkillUpdates.length) {
+        activityStateEl.innerHTML = '<li>Nenhuma skill local recente detectada na runtime.</li>';
+        return;
+    }
+
+    activityStateEl.innerHTML = recentSkillUpdates.map((item) => {
+        const label = item?.name || 'skill';
+        const when = formatSkillsRelativeTime(item?.modifiedAt);
+        return `<li><strong>${escapeSkillsHtml(label)}:</strong> curada/atualizada ${escapeSkillsHtml(when)}</li>`;
+    }).join('');
+}
+
+function renderSkillsUsageState(summary) {
+    const usageStateEl = document.getElementById('skills-usage-state');
+    if (!usageStateEl) return;
+
+    const recentCalls = Array.isArray(summary?.recentSkillCalls) ? summary.recentSkillCalls : [];
+    if (!recentCalls.length) {
+        usageStateEl.innerHTML = '<li>Nenhuma skill usada ainda nesta sessao.</li>';
+        return;
+    }
+
+    const grouped = new Map();
+    for (const item of recentCalls) {
+        const skill = String(item?.skill || '').trim();
+        if (!skill) continue;
+        if (!grouped.has(skill)) {
+            grouped.set(skill, {
+                skill,
+                count: 0,
+                successCount: 0,
+                lastAt: item?.at || '',
+            });
+        }
+        const current = grouped.get(skill);
+        current.count += 1;
+        if (item?.success) current.successCount += 1;
+        if (!current.lastAt && item?.at) current.lastAt = item.at;
+    }
+
+    const items = Array.from(grouped.values()).slice(0, 6);
+    usageStateEl.innerHTML = items.map((item) => {
+        const successInfo = item.successCount === item.count
+            ? 'ok'
+            : `${item.successCount}/${item.count} ok`;
+        return `<li><strong>${escapeSkillsHtml(item.skill)}:</strong> usada ${item.count}x, ${escapeSkillsHtml(successInfo)}, por ultimo ${escapeSkillsHtml(formatSkillsRelativeTime(item.lastAt))}</li>`;
+    }).join('');
+}
+
+function renderSkillsPromotionState(dashboard) {
+    const promotionStateEl = document.getElementById('skills-promotion-state');
+    if (!promotionStateEl) return;
+
+    const topFlows = Array.isArray(dashboard?.topFlows) ? dashboard.topFlows : [];
+    if (!topFlows.length) {
+        promotionStateEl.innerHTML = '<li>Nenhum flow recorrente forte o suficiente para promover ainda.</li>';
+        return;
+    }
+
+    const candidates = topFlows
+        .filter((flow) => Number(flow?.instances || 0) >= 2 && Number(flow?.confidence || 0) >= 0.55)
+        .slice(0, 4)
+        .map((flow) => {
+            const tools = Array.isArray(flow?.tools) ? flow.tools : [];
+            const tribunal = flow?.tribunal || '?';
+            const context = flow?.pjeContext || '';
+            const isSkillCandidate = tools.length >= 3 || tools.some((tool) => /browser_use|exploration/i.test(String(tool || '')));
+            return {
+                tribunal,
+                context,
+                instances: Number(flow?.instances || 0),
+                confidence: Number(flow?.confidence || 0),
+                recommendation: isSkillCandidate ? 'candidato a skill/playbook' : 'candidato a nota/playbook',
+            };
+        });
+
+    if (!candidates.length) {
+        promotionStateEl.innerHTML = '<li>Flows existem, mas ainda sem recorrencia ou confianca para promocao duravel.</li>';
+        return;
+    }
+
+    promotionStateEl.innerHTML = candidates.map((candidate) => (
+        `<li><strong>${escapeSkillsHtml(candidate.tribunal)} ${candidate.context ? `· ${escapeSkillsHtml(candidate.context)}` : ''}</strong><br>${escapeSkillsHtml(candidate.recommendation)} · ${candidate.instances}x · conf ${candidate.confidence.toFixed(2)}</li>`
+    )).join('');
+}
+
+// Politica centralizada: usa candidatos calculados pelo Brain dashboard
+// em vez de heuristica inline de UI.
+function renderSkillsPromotionState(dashboard) {
+    const promotionStateEl = document.getElementById('skills-promotion-state');
+    if (!promotionStateEl) return;
+
+    const candidates = Array.isArray(dashboard?.promotionCandidates) ? dashboard.promotionCandidates : [];
+    if (!candidates.length) {
+        promotionStateEl.innerHTML = '<li>Nenhum flow recorrente forte o suficiente para promover ainda.</li>';
+        return;
+    }
+
+    promotionStateEl.innerHTML = candidates.slice(0, 4).map((candidate) => (
+        `<li><strong>${escapeSkillsHtml(candidate.tribunal || '?')}${candidate.pjeContext ? ` · ${escapeSkillsHtml(candidate.pjeContext)}` : ''}</strong><br>${escapeSkillsHtml(candidate.target)} · ${candidate.instances}x · conf ${candidate.confidence.toFixed(2)}<br><span class="skills-side-note">${escapeSkillsHtml(candidate.rationale || '')}</span></li>`
+    )).join('');
+}
+
+function renderSkillsPromotionState(dashboard) {
+    const promotionStateEl = document.getElementById('skills-promotion-state');
+    if (!promotionStateEl) return;
+
+    const candidates = Array.isArray(dashboard?.promotionCandidates) ? dashboard.promotionCandidates : [];
+    if (!candidates.length) {
+        skillsState.selectedPromotionFlowId = '';
+        promotionStateEl.innerHTML = '<li>Nenhum flow recorrente forte o suficiente para promover ainda.</li>';
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    const visibleCandidates = candidates.slice(0, 4);
+    const activeFlowId = visibleCandidates.some((candidate) => candidate.flowId === skillsState.selectedPromotionFlowId)
+        ? skillsState.selectedPromotionFlowId
+        : visibleCandidates[0]?.flowId;
+
+    skillsState.selectedPromotionFlowId = activeFlowId || '';
+
+    promotionStateEl.innerHTML = visibleCandidates.map((candidate) => (
+        `<li><button type="button" class="skills-promotion-item${candidate.flowId === activeFlowId ? ' active' : ''}" data-flow-id="${escapeSkillsHtml(candidate.flowId)}" data-target="${escapeSkillsHtml(candidate.target)}"><strong>${escapeSkillsHtml(candidate.tribunal || '?')}${candidate.pjeContext ? ` · ${escapeSkillsHtml(candidate.pjeContext)}` : ''}</strong><br>${escapeSkillsHtml(candidate.target)} · ${candidate.instances}x · conf ${candidate.confidence.toFixed(2)}<br><span class="skills-side-note">${escapeSkillsHtml(candidate.rationale || '')}</span></button></li>`
+    )).join('');
+
+    promotionStateEl.querySelectorAll('.skills-promotion-item').forEach((node) => {
+        node.addEventListener('click', () => {
+            const flowId = node.getAttribute('data-flow-id') || '';
+            const target = node.getAttribute('data-target') || '';
+            skillsState.selectedPromotionFlowId = flowId;
+            renderSkillsPromotionState(skillsState.brainDashboard);
+            loadSkillsPromotionPreview(flowId, target);
+        });
+    });
+
+    if (activeFlowId) {
+        const activeCandidate = visibleCandidates.find((candidate) => candidate.flowId === activeFlowId);
+        loadSkillsPromotionPreview(activeFlowId, activeCandidate?.target || '');
+    }
+}
+
+function renderSkillsPromotionPreview(preview) {
+    const titleEl = document.getElementById('skills-preview-title');
+    const metaEl = document.getElementById('skills-preview-meta');
+    const bodyEl = document.getElementById('skills-preview-body');
+    if (!titleEl || !metaEl || !bodyEl) return;
+
+    if (!preview?.ok) {
+        titleEl.textContent = 'Nenhum candidato selecionado';
+        metaEl.textContent = 'Aguardando flow candidato.';
+        bodyEl.textContent = 'Selecione um candidato de promocao para ver um rascunho de nota, playbook ou skill.';
+        return;
+    }
+
+    titleEl.textContent = preview.label || 'Preview de promocao';
+    metaEl.textContent = `${preview.target || 'nota'} · ${preview.tribunal || '?'}${preview.pjeContext ? ` · ${preview.pjeContext}` : ''}`;
+    bodyEl.innerHTML = renderMarkdownSafe(preview.markdown || '');
+}
+
+async function loadSkillsPromotionPreview(flowId, target) {
+    if (!flowId || !window.brainApi?.getPromotionPreview) {
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    try {
+        const preview = await window.brainApi.getPromotionPreview(flowId, target || undefined);
+        renderSkillsPromotionPreview(preview);
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar preview de promocao:', error);
+        renderSkillsPromotionPreview(null);
+    }
+}
+
+function updateSkillsPromotionActions() {
+    const noteBtn = document.getElementById('skills-curate-note-btn');
+    const playbookBtn = document.getElementById('skills-curate-playbook-btn');
+    const brainBtn = document.getElementById('skills-curate-brain-btn');
+    const discardBtn = document.getElementById('skills-curate-discard-btn');
+    const saveStateEl = document.getElementById('skills-preview-save-state');
+    if (!noteBtn || !playbookBtn || !brainBtn || !discardBtn || !saveStateEl) return;
+
+    const preview = skillsState.selectedPromotionPreview;
+    const disabled = !preview?.ok || skillsState.promotionActionInFlight;
+    noteBtn.disabled = disabled;
+    playbookBtn.disabled = disabled;
+    brainBtn.disabled = disabled;
+    discardBtn.disabled = disabled;
+
+    if (skillsState.promotionActionInFlight) {
+        saveStateEl.textContent = 'Aplicando decisao de curadoria...';
+        return;
+    }
+
+    if (skillsState.promotionActionError) {
+        saveStateEl.textContent = `Falha ao aplicar curadoria: ${skillsState.promotionActionError}`;
+        return;
+    }
+
+    if (skillsState.promotionActionMessage) {
+        saveStateEl.innerHTML = skillsState.promotionActionMessage;
+        return;
+    }
+
+    if (!preview?.ok) {
+        saveStateEl.textContent = 'Depois da revisao, escolha se isso vira nota, playbook, fica so no Brain ou deve ser descartado.';
+        return;
+    }
+
+    saveStateEl.textContent = [
+        'Nota = memoria curta de caso/processo, contexto ou alerta.',
+        'Playbook = procedimento repetivel.',
+        'Manter no Brain = deixa como memoria operacional.',
+        'Descartar = oculta a sugestao atual.',
+    ].join(' ');
+}
+
+function setupSkillsPromotionActions() {
+    const noteBtn = document.getElementById('skills-curate-note-btn');
+    const playbookBtn = document.getElementById('skills-curate-playbook-btn');
+    const brainBtn = document.getElementById('skills-curate-brain-btn');
+    const discardBtn = document.getElementById('skills-curate-discard-btn');
+    if (!noteBtn || !playbookBtn || !brainBtn || !discardBtn || noteBtn.dataset.bound === '1') return;
+    noteBtn.dataset.bound = '1';
+
+    const runCuration = async (action) => {
+        const preview = skillsState.selectedPromotionPreview;
+        if (!preview?.ok || !window.brainApi?.curatePromotion || skillsState.promotionActionInFlight) return;
+
+        skillsState.promotionActionInFlight = true;
+        skillsState.promotionActionMessage = '';
+        skillsState.promotionActionError = '';
+        updateSkillsPromotionActions();
+
+        try {
+            const result = await window.brainApi.curatePromotion(preview.flowId, action);
+            if (!result?.ok) {
+                throw new Error(result?.error || 'Falha ao aplicar curadoria');
+            }
+
+            if (action === 'nota' || action === 'playbook') {
+                skillsState.promotionActionMessage = `${action === 'nota' ? 'Nota' : 'Playbook'} criado em <code>${escapeSkillsHtml(result.relativePath || result.path || '')}</code>.`;
+            } else if (action === 'brain_only') {
+                skillsState.promotionActionMessage = 'Sugestao marcada para permanecer so no Brain.';
+            } else {
+                skillsState.promotionActionMessage = 'Sugestao descartada desta fila de promocao.';
+            }
+
+            skillsState.brainDashboard = await window.brainApi.getDashboard?.({ windowDays: 7, topFlowsLimit: 8 }) || skillsState.brainDashboard;
+            renderSkillsPromotionState(skillsState.brainDashboard);
+        } catch (error) {
+            console.error('[Skills] Erro ao aplicar curadoria de promocao:', error);
+            skillsState.promotionActionError = error?.message || String(error || 'Falha ao aplicar curadoria');
+        } finally {
+            skillsState.promotionActionInFlight = false;
+            updateSkillsPromotionActions();
+        }
+    };
+
+    noteBtn.addEventListener('click', () => { void runCuration('nota'); });
+    playbookBtn.addEventListener('click', () => { void runCuration('playbook'); });
+    brainBtn.addEventListener('click', () => { void runCuration('brain_only'); });
+    discardBtn.addEventListener('click', () => { void runCuration('discarded'); });
+
+    updateSkillsPromotionActions();
+}
+
+function renderSkillsPromotionPreview(preview) {
+    const titleEl = document.getElementById('skills-preview-title');
+    const metaEl = document.getElementById('skills-preview-meta');
+    const bodyEl = document.getElementById('skills-preview-body');
+    if (!titleEl || !metaEl || !bodyEl) return;
+
+    skillsState.selectedPromotionPreview = preview?.ok ? preview : null;
+
+    if (!preview?.ok) {
+        titleEl.textContent = 'Nenhum candidato selecionado';
+        metaEl.textContent = 'Aguardando flow candidato.';
+        bodyEl.textContent = 'Selecione um candidato de promocao para ver um rascunho de nota, playbook ou skill.';
+        updateSkillsPromotionActions();
+        return;
+    }
+
+    titleEl.textContent = preview.label || 'Preview de promocao';
+    metaEl.textContent = `${preview.target || 'nota'} | ${preview.tribunal || '?'}${preview.pjeContext ? ` | ${preview.pjeContext}` : ''}`;
+    bodyEl.innerHTML = renderMarkdownSafe(preview.markdown || '');
+    updateSkillsPromotionActions();
+}
+
+async function loadSkillsPromotionPreview(flowId, target) {
+    if (!flowId || !window.brainApi?.getPromotionPreview) {
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    try {
+        const preview = await window.brainApi.getPromotionPreview(flowId, target || undefined);
+        if (flowId !== skillsState.selectedPromotionFlowId) return;
+        renderSkillsPromotionPreview(preview);
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar preview de promocao:', error);
+        renderSkillsPromotionPreview(null);
+    }
+}
+
+function renderSkillsPromotionState(dashboard) {
+    const promotionStateEl = document.getElementById('skills-promotion-state');
+    if (!promotionStateEl) return;
+
+    const candidates = Array.isArray(dashboard?.promotionCandidates) ? dashboard.promotionCandidates : [];
+    if (!candidates.length) {
+        skillsState.selectedPromotionFlowId = '';
+        skillsState.selectedPromotionPreview = null;
+        skillsState.promotionActionMessage = '';
+        skillsState.promotionActionError = '';
+        promotionStateEl.innerHTML = '<li>Nenhum flow recorrente forte o suficiente para promover ainda.</li>';
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    const visibleCandidates = candidates.slice(0, 4);
+    const activeFlowId = visibleCandidates.some((candidate) => candidate.flowId === skillsState.selectedPromotionFlowId)
+        ? skillsState.selectedPromotionFlowId
+        : visibleCandidates[0]?.flowId;
+
+    skillsState.selectedPromotionFlowId = activeFlowId || '';
+
+    promotionStateEl.innerHTML = visibleCandidates.map((candidate) => (
+        `<li><button type="button" class="skills-promotion-item${candidate.flowId === activeFlowId ? ' active' : ''}" data-flow-id="${escapeSkillsHtml(candidate.flowId)}" data-target="${escapeSkillsHtml(candidate.target)}"><strong>${escapeSkillsHtml(candidate.tribunal || '?')}${candidate.pjeContext ? ` | ${escapeSkillsHtml(candidate.pjeContext)}` : ''}</strong><br>${escapeSkillsHtml(candidate.target)} | ${candidate.instances}x | conf ${candidate.confidence.toFixed(2)}<br><span class="skills-side-note">${escapeSkillsHtml(candidate.rationale || '')}</span></button></li>`
+    )).join('');
+
+    promotionStateEl.querySelectorAll('.skills-promotion-item').forEach((node) => {
+        node.addEventListener('click', () => {
+            const flowId = node.getAttribute('data-flow-id') || '';
+            const target = node.getAttribute('data-target') || '';
+            skillsState.selectedPromotionFlowId = flowId;
+            skillsState.selectedPromotionPreview = null;
+            skillsState.promotionActionMessage = '';
+            skillsState.promotionActionError = '';
+            renderSkillsPromotionState(skillsState.brainDashboard);
+            loadSkillsPromotionPreview(flowId, target);
+        });
+    });
+
+    if (activeFlowId) {
+        const activeCandidate = visibleCandidates.find((candidate) => candidate.flowId === activeFlowId);
+        loadSkillsPromotionPreview(activeFlowId, activeCandidate?.target || '');
+    } else {
+        renderSkillsPromotionPreview(null);
+    }
+}
+
+function renderSkillsPromotionPreview(preview) {
+    const titleEl = document.getElementById('skills-preview-title');
+    const metaEl = document.getElementById('skills-preview-meta');
+    const bodyEl = document.getElementById('skills-preview-body');
+    if (!titleEl || !metaEl || !bodyEl) return;
+
+    skillsState.selectedPromotionPreview = preview?.ok ? preview : null;
+
+    if (!preview?.ok) {
+        titleEl.textContent = 'Nenhum candidato selecionado';
+        metaEl.textContent = 'Escolha um candidato de promocao para revisar a proposta.';
+        bodyEl.innerHTML = [
+            '<p><strong>O que acontece aqui:</strong> quando a Lex detecta um flow recorrente e confiavel, ela sugere transformar esse aprendizado em conhecimento duravel.</p>',
+            '<p><strong>O que o rascunho faz:</strong> ele gera um arquivo Markdown em revisao. Isso ainda nao ativa skill nova e nao publica nada automaticamente.</p>',
+            '<p><strong>Importante:</strong> isso vale tanto para trilhas PJe quanto para memoria de casos, processos, documentos e atuacao juridica.</p>',
+        ].join('');
+        updateSkillsPromotionActions();
+        return;
+    }
+
+    const targetLabel = getPromotionTargetUiLabel(preview.target);
+
+    titleEl.textContent = preview.label || 'Preview de promocao';
+    metaEl.textContent = `${targetLabel} | ${preview.tribunal || '?'}${preview.pjeContext ? ` | ${preview.pjeContext}` : ''}`;
+    bodyEl.innerHTML = renderMarkdownSafe(preview.markdown || '');
+    updateSkillsPromotionActions();
+}
+
+async function loadSkillsPromotionPreview(flowId, target) {
+    if (!flowId || !window.brainApi?.getPromotionPreview) {
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    try {
+        const preview = await window.brainApi.getPromotionPreview(flowId, target || undefined);
+        if (flowId !== skillsState.selectedPromotionFlowId) return;
+        renderSkillsPromotionPreview(preview);
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar preview de promocao:', error);
+        renderSkillsPromotionPreview(null);
+    }
+}
+
+function renderSkillsPromotionState(dashboard) {
+    const promotionStateEl = document.getElementById('skills-promotion-state');
+    if (!promotionStateEl) return;
+
+    const candidates = Array.isArray(dashboard?.promotionCandidates) ? dashboard.promotionCandidates : [];
+    if (!candidates.length) {
+        skillsState.selectedPromotionFlowId = '';
+        skillsState.selectedPromotionPreview = null;
+        promotionStateEl.innerHTML = '<li>Nenhum aprendizado recorrente forte o suficiente para promover ainda.</li>';
+        renderSkillsPromotionPreview(null);
+        return;
+    }
+
+    const visibleCandidates = candidates.slice(0, 4);
+    const activeFlowId = visibleCandidates.some((candidate) => candidate.flowId === skillsState.selectedPromotionFlowId)
+        ? skillsState.selectedPromotionFlowId
+        : visibleCandidates[0]?.flowId;
+
+    skillsState.selectedPromotionFlowId = activeFlowId || '';
+
+    promotionStateEl.innerHTML = visibleCandidates.map((candidate) => {
+        const targetLabel = candidate.target === 'skill'
+            ? 'skill'
+            : candidate.target === 'playbook'
+                ? 'playbook'
+                : 'nota';
+        const meaning = getPromotionTargetUiMeaning(candidate.target);
+        return `<li><button type="button" class="skills-promotion-item${candidate.flowId === activeFlowId ? ' active' : ''}" data-flow-id="${escapeSkillsHtml(candidate.flowId)}" data-target="${escapeSkillsHtml(candidate.target)}"><strong>${escapeSkillsHtml(candidate.tribunal || '?')}${candidate.pjeContext ? ` | ${escapeSkillsHtml(candidate.pjeContext)}` : ''}</strong><br>candidato a ${escapeSkillsHtml(targetLabel)} | ${candidate.instances}x | conf ${candidate.confidence.toFixed(2)}<br><span class="skills-side-note">${escapeSkillsHtml(candidate.rationale || '')}</span><br><span class="skills-side-note">${escapeSkillsHtml(meaning)}</span></button></li>`;
+    }).join('');
+
+    promotionStateEl.querySelectorAll('.skills-promotion-item').forEach((node) => {
+        node.addEventListener('click', () => {
+            const flowId = node.getAttribute('data-flow-id') || '';
+            const target = node.getAttribute('data-target') || '';
+            skillsState.selectedPromotionFlowId = flowId;
+            skillsState.selectedPromotionPreview = null;
+            skillsState.promotionActionMessage = '';
+            skillsState.promotionActionError = '';
+            renderSkillsPromotionState(skillsState.brainDashboard);
+            loadSkillsPromotionPreview(flowId, target);
+        });
+    });
+
+    if (activeFlowId) {
+        const activeCandidate = visibleCandidates.find((candidate) => candidate.flowId === activeFlowId);
+        loadSkillsPromotionPreview(activeFlowId, activeCandidate?.target || '');
+    } else {
+        renderSkillsPromotionPreview(null);
+    }
+}
+
+async function renderSkillsBrainState() {
+    const brainStateEl = document.getElementById('skills-brain-state');
+    if (!brainStateEl || !window.brainApi?.getPreference) return;
+
+    try {
+        const replayEnabled = await window.brainApi.getPreference('replay.enabled', true);
+        const confirmBeforeExecute = await window.brainApi.getPreference('replay.confirmBeforeExecute', false);
+        brainStateEl.innerHTML = [
+            `<li><strong>Replay:</strong> ${replayEnabled ? 'ligado' : 'desligado'}</li>`,
+            `<li><strong>Confirmacao:</strong> ${confirmBeforeExecute ? 'antes de executar' : 'execucao direta quando houver replay'}</li>`,
+            `<li><strong>Papel atual:</strong> execucao situada e aceleracao opcional</li>`,
+        ].join('');
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar estado do Brain:', error);
+        brainStateEl.innerHTML = '<li>Nao foi possivel ler o estado do Brain agora.</li>';
+    }
+}
+
+function setupSkillsFilters() {
+    const filterGroup = document.getElementById('skills-filter-group');
+    if (!filterGroup || filterGroup.dataset.bound === '1') return;
+    filterGroup.dataset.bound = '1';
+
+    filterGroup.addEventListener('click', (event) => {
+        const btn = event.target.closest('.skills-filter');
+        if (!btn) return;
+        skillsState.filter = btn.dataset.filter || 'all';
+        filterGroup.querySelectorAll('.skills-filter').forEach((node) => node.classList.remove('active'));
+        btn.classList.add('active');
+        renderSkillsList();
+    });
+
+    const searchInput = document.getElementById('skills-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            skillsState.query = searchInput.value || '';
+            renderSkillsList();
+        });
+    }
+}
+
+async function initSkillsView(force = false) {
+    setupSkillsCustomizeShell();
+    setupSkillsFilters();
+    setupSkillsPromotionActions();
+    setSkillsStage(skillsState.stage);
+
+    if (skillsState.loaded && !force) {
+        renderSkillsRuntime(skillsState.runtime);
+        renderSkillsMemoryState(skillsState.runtime);
+        renderSkillsUsageState(skillsState.analytics);
+        renderSkillsPromotionState(skillsState.brainDashboard);
+        renderSkillsBrainState().catch?.(() => {});
+        renderSkillsList();
+        if (skillsState.stage === 'details') {
+            switchSkillsCustomizeTab(skillsState.customizeTab);
+        }
+        return;
+    }
+
+    const listEl = document.getElementById('skills-list');
+    const runtimeNoteEl = document.getElementById('skills-runtime-note');
+    if (listEl) listEl.innerHTML = '<div class="skills-empty-state">Carregando catalogo de habilidades...</div>';
+    renderSkillsBrainState().catch?.(() => {});
+
+    try {
+        const [result, runtimeResult, analyticsSummary, brainDashboard] = await Promise.all([
+            window.skillsApi?.listCatalog?.(),
+            window.skillsApi?.getRuntimeSnapshot?.(),
+            window.lexApi?.getAnalyticsSummary?.(),
+            window.brainApi?.getDashboard?.({ windowDays: 7, topFlowsLimit: 8 }),
+        ]);
+        if (!result?.success || !result.catalog) {
+            throw new Error(result?.error || 'Catalogo indisponivel.');
+        }
+
+        skillsState.catalog = result.catalog;
+        skillsState.runtime = runtimeResult?.success ? (runtimeResult.snapshot || null) : null;
+        skillsState.analytics = analyticsSummary || null;
+        skillsState.brainDashboard = brainDashboard || null;
+        skillsState.loaded = true;
+
+        updateSkillsMetrics(result.catalog.summary || {});
+        renderSkillsRoots(result.catalog.roots || {});
+        if (runtimeNoteEl && !skillsState.runtime) {
+            runtimeNoteEl.textContent = result.catalog.runtimeNote || 'Catalogo carregado.';
+        }
+        renderSkillsRuntime(skillsState.runtime);
+        renderSkillsMemoryState(skillsState.runtime);
+        renderSkillsUsageState(skillsState.analytics);
+        renderSkillsPromotionState(skillsState.brainDashboard);
+        renderSkillsList();
+        if (skillsState.stage === 'details') {
+            switchSkillsCustomizeTab(skillsState.customizeTab);
+        }
+    } catch (error) {
+        console.error('[Skills] Erro ao carregar catalogo:', error);
+        if (runtimeNoteEl) {
+            runtimeNoteEl.textContent = 'Nao foi possivel carregar o catalogo de skills agora.';
+        }
+        renderSkillsMemoryState(null);
+        renderSkillsUsageState(null);
+        renderSkillsPromotionState(null);
+        if (listEl) {
+            listEl.innerHTML = `<div class="skills-empty-state">${escapeSkillsHtml(error?.message || 'Falha ao carregar skills.')}</div>`;
+        }
+        if (skillsState.stage === 'details') {
+            switchSkillsCustomizeTab(skillsState.customizeTab);
+        }
+    }
 }
 
 function populateModelSelects(providerId, keepCurrent) {
@@ -1926,6 +3183,7 @@ function populateModelSelects(providerId, keepCurrent) {
 }
 
 function updateProviderLink(providerId) {
+    providerId = normalizeSettingsProvider(providerId);
     const link = document.getElementById('ai-provider-key-link');
     if (!link) return;
     const url = PROVIDER_KEY_LINKS[providerId] || '#';
@@ -1956,11 +3214,21 @@ function updateProviderLink(providerId) {
     const ollamaSection = document.getElementById('ollama-section');
     if (ollamaSection) ollamaSection.style.display = providerId === 'ollama' ? '' : 'none';
     if (providerId === 'ollama') refreshOllamaStatus();
+    syncProviderChoiceUI(providerId);
 }
 
 function updateApiKeyPlaceholder(providerId) {
     const input = document.getElementById('ai-api-key');
     if (!input) return;
+    providerId = normalizeSettingsProvider(providerId);
+    if (providerId === 'anthropic') {
+        input.placeholder = 'Cole sua chave Claude aqui';
+        return;
+    }
+    if (providerId === 'openai') {
+        input.placeholder = 'Cole sua chave OpenAI aqui';
+        return;
+    }
     if (providerId === 'openrouter') {
         input.placeholder = 'Chave gratuita — crie em openrouter.ai/keys';
     } else {
@@ -1980,15 +3248,120 @@ function updateKeyStatusBadge(status) {
     }
 }
 
+function showProviderSaveFeedback(message, tone = 'success') {
+    const feedback = document.getElementById('provider-save-feedback');
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.style.color = tone === 'error' ? 'var(--danger-color)' : (tone === 'warn' ? 'var(--warning-color)' : 'var(--success-color)');
+    feedback.classList.remove('hidden');
+    if (tone === 'success') {
+        setTimeout(() => feedback.classList.add('hidden'), 3000);
+    }
+}
+
+function renderHermesProviderState(snapshot) {
+    const badge = document.getElementById('hermes-provider-badge');
+    const caption = document.getElementById('hermes-provider-caption');
+    const providerValue = document.getElementById('hermes-provider-value');
+    const modelValue = document.getElementById('hermes-model-value');
+    const visionValue = document.getElementById('hermes-vision-value');
+    const meta = document.getElementById('hermes-provider-meta');
+    if (!badge || !caption || !providerValue || !modelValue || !visionValue || !meta) return;
+
+    badge.className = 'settings-engine-badge';
+
+    if (!snapshot?.available) {
+        badge.classList.add('is-error');
+        badge.textContent = 'Hermes indisponivel';
+        caption.textContent = snapshot?.error || 'Nao foi possivel ler a configuracao do Console Lex.';
+        providerValue.textContent = '-';
+        modelValue.textContent = '-';
+        visionValue.textContent = '-';
+        meta.textContent = snapshot?.source ? `Runtime: ${snapshot.source}` : '';
+        return;
+    }
+
+    const selectedProvider = document.getElementById('ai-provider')?.value || '';
+    const selectedAgent = document.getElementById('ai-agent-model')?.value || '';
+    const selectedVision = document.getElementById('ai-vision-model')?.value || '';
+    const isSynced =
+        snapshot.desktopProviderId === selectedProvider &&
+        (!snapshot.agentModel || snapshot.agentModel === selectedAgent) &&
+        (!snapshot.visionModel || snapshot.visionModel === selectedVision);
+
+    badge.classList.add(isSynced ? 'is-ok' : 'is-warn');
+    badge.textContent = isSynced ? 'Sincronizado com Hermes' : 'Hermes com estado diferente';
+    caption.textContent = isSynced
+        ? 'O Console Lex esta alinhado com a configuracao visual.'
+        : 'Ha alteracoes na tela que ainda nao foram aplicadas ao Console Lex.';
+    providerValue.textContent = snapshot.hermesProviderId || '-';
+    modelValue.textContent = snapshot.agentModel || '-';
+    visionValue.textContent = snapshot.visionModel || '-';
+
+    const metaParts = [];
+    if (snapshot.source) metaParts.push(`Runtime: ${snapshot.source}`);
+    if (snapshot.configPath) metaParts.push(`Config: ${snapshot.configPath}`);
+    if (snapshot.envPath) metaParts.push(`Secrets: ${snapshot.envPath}`);
+    meta.textContent = metaParts.join('  |  ');
+}
+
+async function refreshHermesProviderState() {
+    if (!window.lexApi.getLexEngineProviderState) return null;
+    try {
+        const snapshot = await window.lexApi.getLexEngineProviderState();
+        _hermesProviderSnapshot = snapshot;
+        renderHermesProviderState(snapshot);
+        return snapshot;
+    } catch (e) {
+        const snapshot = { available: false, error: e?.message || 'Falha ao consultar Hermes.' };
+        _hermesProviderSnapshot = snapshot;
+        renderHermesProviderState(snapshot);
+        return snapshot;
+    }
+}
+
+function applyHermesProviderSnapshotToSettings(snapshot) {
+    if (!snapshot?.available || !snapshot?.desktopProviderId) return;
+
+    const providerId = normalizeSettingsProvider(snapshot.desktopProviderId);
+    const providerSelect = document.getElementById('ai-provider');
+    if (providerSelect) {
+        providerSelect.value = providerId;
+    }
+
+    populateModelSelects(providerId, true);
+
+    const agentSelect = document.getElementById('ai-agent-model');
+    const visionSelect = document.getElementById('ai-vision-model');
+    if (agentSelect && snapshot.agentModel) {
+        agentSelect.value = snapshot.agentModel;
+    }
+    if (visionSelect && snapshot.visionModel) {
+        visionSelect.value = snapshot.visionModel;
+    }
+
+    updateProviderLink(providerId);
+    updateApiKeyPlaceholder(providerId);
+    syncProviderChoiceUI(providerId);
+}
+
 async function saveProviderSettings() {
-    const providerId = document.getElementById('ai-provider')?.value;
+    const providerId = normalizeSettingsProvider(document.getElementById('ai-provider')?.value);
     const apiKey = document.getElementById('ai-api-key')?.value?.trim();
     const agentModel = document.getElementById('ai-agent-model')?.value;
     const visionModel = document.getElementById('ai-vision-model')?.value;
 
-    if (!providerId) return;
+    if (!providerId) return false;
 
     try {
+        if (providerId !== 'ollama' && !apiKey) {
+            const existingStatus = await window.lexApi.getApiKeyStatus(providerId);
+            if (!existingStatus?.configured) {
+                updateKeyStatusBadge(existingStatus);
+                showProviderSaveFeedback('Cole e teste uma chave antes de aplicar.', 'error');
+                return false;
+            }
+        }
         if (apiKey) {
             await window.lexApi.setApiKey(providerId, apiKey);
             document.getElementById('ai-api-key').value = '';
@@ -1998,8 +3371,14 @@ async function saveProviderSettings() {
         }
         const status = await window.lexApi.getApiKeyStatus(providerId);
         updateKeyStatusBadge(status);
+        const snapshot = await refreshHermesProviderState();
+        applyHermesProviderSnapshotToSettings(snapshot);
+        showProviderSaveFeedback('Configuracao aplicada ao Console Lex.');
+        return true;
     } catch (e) {
         console.error('[Settings] Erro ao salvar provider:', e);
+        showProviderSaveFeedback('Nao foi possivel aplicar a configuracao no Hermes.', 'error');
+        return false;
     }
 }
 
@@ -2530,52 +3909,66 @@ document.addEventListener('DOMContentLoaded', () => {
     // Settings save button
     const btnSaveSettings = document.getElementById('btn-save-settings');
     if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
+    const btnSaveProvider = document.getElementById('btn-save-provider');
+    if (btnSaveProvider) btnSaveProvider.addEventListener('click', saveProviderSettings);
+    const btnRefreshHermesProvider = document.getElementById('btn-refresh-hermes-provider');
+    if (btnRefreshHermesProvider) btnRefreshHermesProvider.addEventListener('click', refreshHermesProviderState);
 
     // Provider selector — re-popula modelos e atualiza link
     const providerSelect = document.getElementById('ai-provider');
     if (providerSelect) {
         providerSelect.addEventListener('change', () => {
-            const pid = providerSelect.value;
+            const pid = normalizeSettingsProvider(providerSelect.value);
+            providerSelect.value = pid;
             populateModelSelects(pid);
             updateProviderLink(pid);
             updateApiKeyPlaceholder(pid);
             window.lexApi.getApiKeyStatus(pid).then(updateKeyStatusBadge).catch(() => {});
+            renderHermesProviderState(_hermesProviderSnapshot);
         });
     }
+
+    document.querySelectorAll('.provider-choice').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const pid = normalizeSettingsProvider(btn.dataset.provider);
+            if (providerSelect) {
+                providerSelect.value = pid;
+                providerSelect.dispatchEvent(new Event('change'));
+            }
+        });
+    });
+
+    document.getElementById('ai-agent-model')?.addEventListener('change', () => renderHermesProviderState(_hermesProviderSnapshot));
+    document.getElementById('ai-vision-model')?.addEventListener('change', () => renderHermesProviderState(_hermesProviderSnapshot));
 
     // Botão testar chave
     const btnTest = document.getElementById('btn-test-api');
     if (btnTest) {
         btnTest.addEventListener('click', async () => {
-            const providerId = document.getElementById('ai-provider')?.value;
+            const providerId = normalizeSettingsProvider(document.getElementById('ai-provider')?.value);
             const apiKey = document.getElementById('ai-api-key')?.value?.trim();
             const statusEl = document.getElementById('ai-key-status');
             if (!providerId) return;
 
-            // Salva temporariamente para testar
+            if (statusEl) { statusEl.textContent = 'Testando...'; statusEl.style.color = 'var(--text-secondary)'; }
+            btnTest.disabled = true;
+            const check = await window.lexApi.testApiKey(providerId, apiKey || '').catch(e => ({ success: false, error: e?.message || 'Falha no teste' }));
+            if (!check?.success) {
+                if (statusEl) { statusEl.textContent = 'Erro: ' + (check?.error || 'Chave recusada'); statusEl.style.color = 'var(--danger-color)'; }
+                btnTest.disabled = false;
+                return;
+            }
             if (apiKey) await window.lexApi.setApiKey(providerId, apiKey);
             await window.lexApi.setProvider({
                 providerId,
                 agentModel: document.getElementById('ai-agent-model')?.value || '',
                 visionModel: document.getElementById('ai-vision-model')?.value || '',
             });
-
-            if (statusEl) { statusEl.textContent = 'Testando...'; statusEl.style.color = 'var(--text-secondary)'; }
-            btnTest.disabled = true;
-
-            try {
-                const res = await window.lexApi.sendChat('ping — responda apenas "ok"');
-                if (res && !res.error) {
-                    if (statusEl) { statusEl.textContent = '✓ Funcionando'; statusEl.style.color = 'var(--success-color)'; }
-                    if (apiKey) document.getElementById('ai-api-key').value = '';
-                } else {
-                    throw new Error(res?.error || 'Sem resposta');
-                }
-            } catch (e) {
-                if (statusEl) { statusEl.textContent = '✗ ' + (e.message || 'Erro'); statusEl.style.color = 'var(--danger-color)'; }
-            } finally {
-                btnTest.disabled = false;
-            }
+            if (apiKey) document.getElementById('ai-api-key').value = '';
+            await refreshHermesProviderState();
+            if (statusEl) { statusEl.textContent = 'Funcionando e salvo'; statusEl.style.color = 'var(--success-color)'; }
+            btnTest.disabled = false;
+            return;
         });
     }
 
@@ -2601,13 +3994,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Legislacao Brasileira — download e indexacao
     initLegislacaoSettings();
-
-    // Plugins / Integracoes
-    initPluginsUI();
-    // Recarrega quando main avisa que plugins estão prontos (boot assíncrono)
-    if (window.pluginsApi?.onReady) {
-        window.pluginsApi.onReady(() => initPluginsUI());
-    }
 
     // Settings tab navigation
     initSettingsTabs();
@@ -2658,7 +4044,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.addEventListener('lex-terminal-session-change', (event) => {
         const session = event.detail || {};
-        if (session.mode !== 'lex' || !session.sessionId) return;
+        if (session.mode !== 'engine' || !session.sessionId) return;
         const sameConversation = session.sessionId === convId;
         convId = session.sessionId;
         currentSessionId = session.sessionId;
@@ -2757,7 +4143,7 @@ async function switchConversation(id) {
     await waitForTerminalLayout();
     if (typeof createTerminalSession === 'function') {
         await createTerminalSession({
-            mode: 'lex',
+            mode: 'engine',
             sessionId: conv.id,
             displayName: conv.title || 'LEX',
             initialMessages: convMessages,
@@ -2790,10 +4176,18 @@ async function newConversation() {
 }
 
 async function handleNewConversationClick() {
+    if (convMessages.length > 0) await saveCurrentConversation();
+
+    const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+    convId = newId;
+    currentSessionId = newId;
+    convTitle = null;
+    convMessages = [];
+
     showTerminalView({ autoCreate: false });
     await waitForTerminalLayout();
     if (typeof createTerminalSession === 'function') {
-        await createTerminalSession({ mode: 'lex' });
+        await createTerminalSession({ mode: 'engine', sessionId: newId, displayName: 'Nova conversa' });
         return;
     }
 
@@ -2918,28 +4312,29 @@ function initSettingsTabs() {
             const panel = document.getElementById('tab-' + tab);
             if (panel) panel.classList.add('active');
             // Refresh data when switching to specific tabs
-            if (tab === 'integracoes') initPluginsUI();
             if (tab === 'uso') loadAnalyticsDashboard();
             if (tab === 'perfil') loadProfileCard();
         });
     });
 }
 
-async function initPluginsUI() {
+async function initPluginsUI(pluginsOverride) {
     console.log('[Plugins UI] Iniciando...');
     if (!window.pluginsApi) {
-        console.warn('[Plugins UI] pluginsApi nao disponivel');
+        const grid = document.getElementById('desktop-plugins-grid');
+        if (grid) {
+            grid.innerHTML = '<div class="skills-empty-state">Integracoes visuais indisponiveis nesta build.</div>';
+        }
         return;
     }
 
-    const grid = document.getElementById('plugins-grid');
+    const grid = document.getElementById('desktop-plugins-grid');
     if (!grid) {
-        console.warn('[Plugins UI] plugins-grid nao encontrado no DOM');
         return;
     }
 
     try {
-        const plugins = await window.pluginsApi.list();
+        const plugins = Array.isArray(pluginsOverride) ? pluginsOverride : await window.pluginsApi.list();
         grid.innerHTML = '';
 
         for (const plugin of plugins) {
@@ -3003,7 +4398,9 @@ async function openPluginModal(pluginId, pluginName) {
             document.getElementById('plugin-connect-go').addEventListener('click', async () => {
                 await window.pluginsApi.startOAuth(pluginId);
                 modal.classList.add('hidden');
+                skillsState.connectorsLoaded = false;
                 initPluginsUI();
+                void loadSkillsConnectors(true);
             });
 
         } else if (auth.type === 'oauth2') {
@@ -3028,7 +4425,12 @@ async function openPluginModal(pluginId, pluginName) {
                     connectBtn.disabled = true;
 
                     var result = await window.pluginsApi.startOAuth(pluginId);
-                    if (result.success) { modal.classList.add('hidden'); initPluginsUI(); }
+                    if (result.success) {
+                        modal.classList.add('hidden');
+                        skillsState.connectorsLoaded = false;
+                        initPluginsUI();
+                        void loadSkillsConnectors(true);
+                    }
                     else {
                         errorEl.textContent = result.error || 'Falha na autorizacao.';
                         errorEl.style.display = 'block';
@@ -3056,7 +4458,12 @@ async function openPluginModal(pluginId, pluginName) {
                 if (!apiKey) { errorEl.textContent = 'Chave obrigatoria.'; errorEl.style.display = 'block'; return; }
 
                 var result = await window.pluginsApi.startOAuth(pluginId, apiKey);
-                if (result.success) { modal.classList.add('hidden'); initPluginsUI(); }
+                if (result.success) {
+                    modal.classList.add('hidden');
+                    skillsState.connectorsLoaded = false;
+                    initPluginsUI();
+                    void loadSkillsConnectors(true);
+                }
                 else { errorEl.textContent = result.error || 'Falha ao conectar.'; errorEl.style.display = 'block'; }
             });
         }
@@ -3073,7 +4480,12 @@ async function openPluginModal(pluginId, pluginName) {
 
 async function disconnectPlugin(pluginId) {
     if (!confirm('Desconectar este plugin? As credenciais serao removidas.')) return;
-    try { await window.pluginsApi.disconnect(pluginId); initPluginsUI(); }
+    try {
+        await window.pluginsApi.disconnect(pluginId);
+        skillsState.connectorsLoaded = false;
+        initPluginsUI();
+        void loadSkillsConnectors(true);
+    }
     catch (err) { console.error('[Plugins] Erro ao desconectar:', err); }
 }
 

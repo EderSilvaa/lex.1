@@ -35,7 +35,10 @@ contextBridge.exposeInMainWorld('lexApi', {
         ipcRenderer.invoke('store-set-api-key', { providerId, key }),
     getApiKeyStatus: (providerId: string) =>
         ipcRenderer.invoke('store-get-api-key-status', providerId),
+    testApiKey: (providerId: string, key: string) =>
+        ipcRenderer.invoke('store-test-api-key', { providerId, key }),
     getProviderPresets: () => ipcRenderer.invoke('store-get-provider-presets'),
+    getLexEngineProviderState: () => ipcRenderer.invoke('lex-engine-provider-snapshot'),
     // Aliases legados (retrocompat)
     setAnthropicKey: (key: string) => ipcRenderer.invoke('store-set-anthropic-key', key),
     getAnthropicKeyStatus: () => ipcRenderer.invoke('store-get-anthropic-key-status'),
@@ -210,6 +213,12 @@ contextBridge.exposeInMainWorld('brainApi', {
     // Observer dashboard & aprendizado
     getDashboard: (opts?: { windowDays?: number; topFlowsLimit?: number }) =>
         ipcRenderer.invoke('brain-dashboard', opts),
+    getPromotionPreview: (flowId: string, target?: 'nota' | 'playbook' | 'skill') =>
+        ipcRenderer.invoke('brain-promotion-preview', { flowId, target }),
+    savePromotionDraft: (flowId: string, target?: 'nota' | 'playbook' | 'skill') =>
+        ipcRenderer.invoke('brain-promotion-save-draft', { flowId, target }),
+    curatePromotion: (flowId: string, action: 'nota' | 'playbook' | 'brain_only' | 'discarded') =>
+        ipcRenderer.invoke('brain-promotion-curate', { flowId, action }),
     getTrace: (traceId: string) => ipcRenderer.invoke('brain-trace', traceId),
     detectFlows: () => ipcRenderer.invoke('brain-detect-flows'),
     getPreference: (key: string, fallback?: any) => ipcRenderer.invoke('brain-get-preference', key, fallback),
@@ -248,6 +257,13 @@ contextBridge.exposeInMainWorld('pluginsApi', {
         ipcRenderer.invoke('plugins-start-oauth', { pluginId, apiKey }),
     disconnect: (pluginId: string) => ipcRenderer.invoke('plugins-disconnect', pluginId),
     onReady: (cb: () => void) => ipcRenderer.on('plugins-ready', () => cb()),
+});
+
+contextBridge.exposeInMainWorld('skillsApi', {
+    listCatalog: () => ipcRenderer.invoke('skills-catalog-list'),
+    getRuntimeSnapshot: () => ipcRenderer.invoke('skills-runtime-snapshot'),
+    getConnectorsSnapshot: () => ipcRenderer.invoke('skills-connectors-snapshot'),
+    readSkillFile: (skillPath: string) => ipcRenderer.invoke('skills-read-file', skillPath),
 });
 
 contextBridge.exposeInMainWorld('agoraApi', {
@@ -331,8 +347,6 @@ contextBridge.exposeInMainWorld('docKnowledgeApi', {
 contextBridge.exposeInMainWorld('terminalApi', {
     create: (sessionId: string, opts?: { shell?: string; cwd?: string; cols?: number; rows?: number }) =>
         ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
-    createLex: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
-        ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
     createEngine: (sessionId: string, opts?: { cols?: number; rows?: number }) =>
         ipcRenderer.invoke('terminal-create-engine', { sessionId, ...opts }),
     write: (sessionId: string, data: string, opts?: { paste?: boolean }) =>
@@ -350,6 +364,15 @@ contextBridge.exposeInMainWorld('terminalApi', {
     offEvents: () => {
         ipcRenderer.removeAllListeners('terminal-data');
         ipcRenderer.removeAllListeners('terminal-exit');
+    },
+});
+
+contextBridge.exposeInMainWorld('userInputApi', {
+    resolve: (answer: string) => ipcRenderer.invoke('user-input-resolve', { answer }),
+    onRequested: (cb: (payload: { prompt: string; createdAt: number }) => void) =>
+        ipcRenderer.on('user-input-requested', (_, payload) => cb(payload)),
+    offRequested: () => {
+        ipcRenderer.removeAllListeners('user-input-requested');
     },
 });
 

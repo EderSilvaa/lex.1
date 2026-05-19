@@ -63,6 +63,14 @@
                     </svg>
                     <span class="label">Brain</span>
                 </button>
+                <button class="nav-item" id="nav-skills" title="Habilidades">
+                    <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                        fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3l7 4v10l-7 4-7-4V7l7-4z"></path>
+                        <path d="M9 11.5 11 13.5 15.5 9"></path>
+                    </svg>
+                    <span class="label">Habilidades</span>
+                </button>
                 <button class="nav-item active" id="nav-terminal" title="Console Lex">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -71,7 +79,7 @@
                     </svg>
                     <span class="label">Console</span>
                 </button>
-                <button class="nav-item" id="nav-agora" title="Ágora">
+                <button class="nav-item hidden" id="nav-agora" title="Ágora">
                     <svg class="icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
                         fill="none" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="4" width="18" height="16" rx="2"></rect>
@@ -226,7 +234,6 @@
                             <li class="settings-nav-item" data-tab="privacidade">Privacidade</li>
                             <li class="settings-nav-item" data-tab="dados">Base de Dados</li>
                             <li class="settings-nav-item" data-tab="telegram">Telegram</li>
-                            <li class="settings-nav-item" data-tab="integracoes">Integracoes</li>
                             <li class="settings-nav-item" data-tab="uso">Uso</li>
                         </ul>
                     </nav>
@@ -290,29 +297,68 @@
                         <!-- Tab: Provedor de IA -->
                         <div class="settings-tab-panel" id="tab-ia">
                             <h2 class="settings-panel-title">Provedor de IA</h2>
+                            <div class="settings-engine-card" id="hermes-provider-card">
+                                <div class="settings-engine-card-head">
+                                    <div>
+                                        <div class="settings-engine-kicker">Console Lex</div>
+                                        <h3 class="settings-engine-title">Motor Hermes</h3>
+                                    </div>
+                                    <button class="settings-ghost-btn" id="btn-refresh-hermes-provider" type="button">Recarregar</button>
+                                </div>
+                                <p class="settings-engine-copy">
+                                    O que voce configurar aqui deve refletir no Console Lex sem exigir comandos manuais.
+                                </p>
+                                <div class="settings-engine-status-row">
+                                    <span class="settings-engine-badge" id="hermes-provider-badge">Lendo estado do motor...</span>
+                                    <span class="settings-engine-caption" id="hermes-provider-caption">Sincronizando com o Hermes.</span>
+                                </div>
+                                <div class="settings-engine-grid">
+                                    <div class="settings-engine-stat">
+                                        <span class="settings-engine-stat-label">Provider</span>
+                                        <strong id="hermes-provider-value">-</strong>
+                                    </div>
+                                    <div class="settings-engine-stat">
+                                        <span class="settings-engine-stat-label">Modelo principal</span>
+                                        <strong id="hermes-model-value">-</strong>
+                                    </div>
+                                    <div class="settings-engine-stat">
+                                        <span class="settings-engine-stat-label">Vision</span>
+                                        <strong id="hermes-vision-value">-</strong>
+                                    </div>
+                                </div>
+                                <div class="settings-engine-meta" id="hermes-provider-meta"></div>
+                            </div>
                             <div class="settings-form">
                                 <div class="settings-field">
                                     <label class="settings-label" for="ai-provider">Provedor</label>
-                                    <select class="settings-input settings-select" id="ai-provider">
-                                        <option value="openrouter">OpenRouter — modelos gratuitos</option>
-                                        <option value="anthropic">Anthropic (Claude)</option>
-                                        <option value="openai">OpenAI (GPT)</option>
-                                        <option value="google">Google AI (Gemini)</option>
-                                        <option value="groq">Groq (ultra-rapido)</option>
-                                        <option value="ollama">Modelo Local (Ollama)</option>
+                                    <div class="provider-choice-group" id="provider-choice-group" role="tablist" aria-label="Provedor de IA">
+                                        <button class="provider-choice" type="button" data-provider="anthropic" role="tab">
+                                            <span>Claude</span>
+                                            <small>Anthropic</small>
+                                        </button>
+                                        <button class="provider-choice" type="button" data-provider="openai" role="tab">
+                                            <span>ChatGPT</span>
+                                            <small>OpenAI</small>
+                                        </button>
+                                        <button class="provider-choice" type="button" data-provider="ollama" role="tab">
+                                            <span>Local</span>
+                                            <small>Ollama</small>
+                                        </button>
+                                    </div>
+                                    <select class="settings-input settings-select" id="ai-provider" style="display:none">
+                                        <option value="anthropic">Claude</option>
+                                        <option value="openai">ChatGPT</option>
+                                        <option value="ollama">Modelo Local</option>
                                     </select>
                                     <span class="settings-hint" id="ai-provider-hint">
                                         Obter chave: <a id="ai-provider-key-link" href="#" target="_blank" style="color:var(--accent-color)">console.anthropic.com</a>
-                                    </span>
-                                    <span class="settings-hint" id="ai-provider-free-hint" style="display:none;color:var(--success-color)">
-                                        Crie uma conta gratuita em <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--success-color)">openrouter.ai</a> e copie sua chave — sem cartao, sem custo.
                                     </span>
                                 </div>
                                 <div class="settings-field">
                                     <label class="settings-label" for="ai-api-key">Chave API</label>
                                     <div style="display:flex;gap:8px;align-items:center">
                                         <input class="settings-input" type="password" id="ai-api-key" placeholder="Cole sua chave aqui" autocomplete="off" style="flex:1">
-                                        <button class="settings-save-btn" id="btn-test-api" style="white-space:nowrap;padding:8px 14px;font-size:12px">Testar</button>
+                                        <button class="settings-save-btn" id="btn-test-api" type="button" style="white-space:nowrap;padding:8px 14px;font-size:12px">Testar e salvar</button>
                                         <span id="ai-key-status" style="font-size:12px;color:var(--text-muted)"></span>
                                     </div>
                                 </div>
@@ -327,6 +373,10 @@
                                         <select class="settings-input settings-select" id="ai-vision-model"></select>
                                         <span class="settings-hint">Deve suportar vision para automacao PJe</span>
                                     </div>
+                                </div>
+                                <div class="settings-actions">
+                                    <button class="settings-save-btn" id="btn-save-provider" type="button">Salvar configuracao</button>
+                                    <span class="settings-save-feedback hidden" id="provider-save-feedback">Aplicado no Hermes.</span>
                                 </div>
                             </div>
 
@@ -457,15 +507,6 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Integracoes -->
-                        <div class="settings-tab-panel" id="tab-integracoes">
-                            <h2 class="settings-panel-title">Integracoes</h2>
-                            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Conecte servicos externos para expandir as capacidades do LEX.</p>
-                            <div id="plugins-grid" class="plugins-grid">
-                                <div style="font-size:13px;color:var(--text-muted)">Carregando plugins...</div>
-                            </div>
-                        </div>
-
                         <!-- Tab: Uso -->
                         <div class="settings-tab-panel" id="tab-uso">
                             <h2 class="settings-panel-title">Estatisticas de Uso</h2>
@@ -480,17 +521,6 @@
                     </div>
                 </div>
 
-                <!-- Modal OAuth / API Key -->
-                <div id="plugin-modal" class="plugin-modal hidden">
-                    <div class="plugin-modal-content">
-                        <div class="plugin-modal-header">
-                            <h3 id="plugin-modal-title">Conectar Plugin</h3>
-                            <button id="plugin-modal-close" class="plugin-modal-close">&times;</button>
-                        </div>
-                        <div id="plugin-modal-body" class="plugin-modal-body">
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- File Manager View (Originally Hidden) -->
@@ -645,11 +675,367 @@
                 </div>
             </div>
 
+            <div class="skills-wrapper hidden">
+                <div class="skills-shell">
+                    <div class="skills-hero">
+                        <div class="skills-hero-copy">
+                            <span class="skills-kicker">Customize</span>
+                            <h2>Habilidades e conectores da Lex</h2>
+                            <p>
+                                Esta area expõe a base herdada do Hermes: skills procedurais, conhecimento
+                                legivel em arquivo e a direcao `markdown-first`, com o Brain ficando como
+                                camada opcional de execucao e replay.
+                            </p>
+                        </div>
+                        <div class="skills-hero-metrics" id="skills-summary-cards">
+                            <div class="skills-metric">
+                                <span>Juridicas</span>
+                                <strong id="skills-metric-total">--</strong>
+                            </div>
+                            <div class="skills-metric">
+                                <span>PJe e Tribunais</span>
+                                <strong id="skills-metric-legal">--</strong>
+                            </div>
+                            <div class="skills-metric">
+                                <span>Locais</span>
+                                <strong id="skills-metric-local">--</strong>
+                            </div>
+                            <div class="skills-hero-actions">
+                                <button id="skills-open-approval-btn" class="skills-action-btn" type="button">Revisar aprovacoes</button>
+                                <button id="skills-switch-connectors-btn" class="skills-action-btn is-secondary" type="button">Ver conectores</button>
+                                <button id="skills-open-info-btn" class="skills-info-btn" type="button" aria-label="Entender Skills e Connectors">i</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="skills-home-panel" class="skills-home-panel">
+                        <div class="skills-home-card">
+                            <span class="skills-sidecard-kicker">Customize</span>
+                            <h3>Escolha o que voce quer ajustar</h3>
+                            <p>
+                                Entre em `Skills` para navegar pelas habilidades como arquivos e ler o conteudo
+                                real de cada uma. Entre em `Connectors` para ver e conectar servicos herdados do Hermes.
+                            </p>
+                            <div class="skills-home-actions">
+                                <button id="skills-home-open-skills" class="skills-home-btn" type="button">Abrir Skills</button>
+                                <button id="skills-home-open-connectors" class="skills-home-btn is-secondary" type="button">Abrir Connectors</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="skills-detail-layout" class="skills-layout hidden">
+                        <aside class="skills-sidepanel">
+                            <div class="skills-sidecard skills-customize-nav-card">
+                                <span class="skills-sidecard-kicker">Customize</span>
+                                <button class="skills-customize-tab active" type="button" data-skills-tab="skills">
+                                    <span class="skills-customize-tab-title">Skills</span>
+                                    <span class="skills-customize-tab-copy">Catalogo juridico, memoria e curadoria</span>
+                                </button>
+                                <button class="skills-customize-tab" type="button" data-skills-tab="connectors">
+                                    <span class="skills-customize-tab-title">Connectors</span>
+                                    <span class="skills-customize-tab-copy">Integracoes herdadas do Hermes para ampliar a atuacao</span>
+                                </button>
+                            </div>
+                            <div class="skills-sidecard">
+                                <span class="skills-sidecard-kicker">Criacao com seguranca</span>
+                                <h3>Primeiro rascunho, depois aprovacao</h3>
+                                <p>
+                                    Na Lex, criacao de conhecimento passa por rascunho em Markdown e revisao.
+                                    Isso reduz ruido, evita skill errada e deixa a automacao juridica mais confiavel.
+                                </p>
+                                <div class="skills-sidebar-actions">
+                                    <button id="skills-open-create-btn" class="skills-inline-btn" type="button">Entender criacao</button>
+                                    <button id="skills-open-info-inline-btn" class="skills-inline-btn is-muted" type="button">Ver modelo mental</button>
+                                </div>
+                            </div>
+                            <div class="skills-sidecard">
+                                <span class="skills-sidecard-kicker">Runtime atual</span>
+                                <p id="skills-runtime-note">
+                                    Carregando observacao sobre o catalogo e a runtime...
+                                </p>
+                            </div>
+                            <div class="skills-sidecard">
+                                <span class="skills-sidecard-kicker">Modo Brain</span>
+                                <ul class="skills-side-list" id="skills-brain-state">
+                                    <li>Carregando preferencias de replay...</li>
+                                </ul>
+                            </div>
+                        </aside>
+
+                        <section class="skills-mainpanel skills-customize-panel active" data-skills-panel="skills">
+                            <div class="skills-explorer-shell">
+                                <aside class="skills-explorer-sidebar">
+                                    <div class="skills-toolbar">
+                                        <input id="skills-search-input" class="skills-search" type="text" placeholder="Buscar habilidade juridica, fluxo PJe, documento..." />
+                                        <div class="skills-filter-group" id="skills-filter-group">
+                                            <button class="skills-filter active" data-filter="all">Todas</button>
+                                            <button class="skills-filter" data-filter="pje">PJe</button>
+                                            <button class="skills-filter" data-filter="documentos">Documentos</button>
+                                            <button class="skills-filter" data-filter="local-hermes">Locais</button>
+                                        </div>
+                                    </div>
+                                    <div class="skills-roots" id="skills-roots"></div>
+                                    <div id="skills-tree-list" class="skills-tree-list">
+                                        <div class="skills-empty-state">Carregando arvore de habilidades...</div>
+                                    </div>
+                                </aside>
+                                <section class="skills-explorer-preview">
+                                    <div class="skills-file-header">
+                                        <div>
+                                            <span class="skills-sidecard-kicker">Skill</span>
+                                            <h3 id="skills-file-title">Selecione uma skill</h3>
+                                            <p id="skills-file-subtitle">Abra uma habilidade na arvore para ler o conteudo e revisar o contexto.</p>
+                                        </div>
+                                        <div id="skills-file-badges" class="skills-file-badges"></div>
+                                    </div>
+                                    <div id="skills-file-meta" class="skills-file-meta"></div>
+                                    <div id="skills-file-body" class="skills-file-body markdown-body">
+                                        O conteudo real da `SKILL.md` aparecera aqui.
+                                    </div>
+                                </section>
+                            </div>
+
+                            <div class="skills-guide-grid hidden">
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">1. O que ja existe</span>
+                                    <h3>Catalogo e runtime</h3>
+                                    <p>
+                                        A parte de baixo mostra as habilidades conhecidas pela Lex.
+                                        Algumas sao herdadas do Hermes, outras podem ser locais ou aprendidas.
+                                    </p>
+                                </article>
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">2. O que aconteceu agora</span>
+                                    <h3>Memoria e uso recente</h3>
+                                    <p>
+                                        Esta area resume memoria do Hermes, curas recentes e as skills
+                                        que a Lex usou na sessao atual.
+                                    </p>
+                                </article>
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">3. O que pode virar conhecimento</span>
+                                    <h3>Promocao com curadoria</h3>
+                                    <p>
+                                        Quando um flow fica recorrente e confiavel, voce pode revisar
+                                        um rascunho em Markdown antes de transformar isso em nota,
+                                        playbook ou skill juridica.
+                                    </p>
+                                </article>
+                            </div>
+
+                            <div class="skills-observability-grid hidden">
+                                <div class="skills-sidecard">
+                                    <span class="skills-sidecard-kicker">Memoria Hermes</span>
+                                    <ul class="skills-side-list" id="skills-memory-state">
+                                        <li>Carregando memoria curada recente...</li>
+                                    </ul>
+                                </div>
+                                <div class="skills-sidecard">
+                                    <span class="skills-sidecard-kicker">Curas recentes</span>
+                                    <ul class="skills-side-list" id="skills-activity-state">
+                                        <li>Carregando atividade recente de skills...</li>
+                                    </ul>
+                                </div>
+                                <div class="skills-sidecard">
+                                    <span class="skills-sidecard-kicker">Uso recente</span>
+                                    <ul class="skills-side-list" id="skills-usage-state">
+                                        <li>Carregando skills usadas na sessao...</li>
+                                    </ul>
+                                </div>
+                                <div class="skills-sidecard">
+                                    <span class="skills-sidecard-kicker">Promocoes sugeridas</span>
+                                    <ul class="skills-side-list" id="skills-promotion-state">
+                                        <li>Carregando candidatos de promocao...</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                             <div class="skills-preview-panel">
+                                  <div class="skills-preview-head">
+                                      <div>
+                                          <span class="skills-sidecard-kicker">Curadoria de promocao</span>
+                                          <h3 id="skills-preview-title">Nenhum candidato selecionado</h3>
+                                      </div>
+                                      <span id="skills-preview-meta" class="skills-preview-meta">Aguardando flow candidato.</span>
+                                  </div>
+                                  <div class="skills-preview-explainer">
+                                      <div class="skills-preview-step">
+                                          <strong>Selecionar</strong>
+                                          <span>Escolha um aprendizado observado pela Lex em fluxo, processo, documento ou atuacao.</span>
+                                      </div>
+                                      <div class="skills-preview-step">
+                                          <strong>Revisar</strong>
+                                          <span>Entenda se isso e memoria curta de caso, procedimento repetivel ou futura skill.</span>
+                                      </div>
+                                      <div class="skills-preview-step">
+                                          <strong>Gerar .md</strong>
+                                          <span>Salva um rascunho em revisao. Isso ainda nao ativa skill nova nem publica nada automaticamente.</span>
+                                      </div>
+                                  </div>
+                                  <div class="skills-sidecard skills-promotion-legend">
+                                      <span class="skills-sidecard-kicker">Como decidir</span>
+                                      <ul class="skills-side-list">
+                                          <li><strong>Nota:</strong> aprendizado curto, memoria de caso, contexto ou alerta</li>
+                                          <li><strong>Playbook:</strong> procedimento repetivel, checklist ou rota de trabalho</li>
+                                          <li><strong>Skill:</strong> procedimento maduro e acionavel pela Lex</li>
+                                      </ul>
+                                  </div>
+                                  <div id="skills-preview-body" class="skills-preview-body markdown-body">
+                                      Selecione um candidato de promocao para ver um rascunho de nota, playbook ou skill.
+                                  </div>
+                                  <div class="skills-preview-actions">
+                                      <button id="skills-curate-note-btn" class="skills-preview-btn" type="button" disabled>Marcar como nota</button>
+                                      <button id="skills-curate-playbook-btn" class="skills-preview-btn" type="button" disabled>Promover para playbook</button>
+                                      <button id="skills-curate-brain-btn" class="skills-preview-btn is-secondary" type="button" disabled>Manter so no Brain</button>
+                                      <button id="skills-curate-discard-btn" class="skills-preview-btn is-secondary" type="button" disabled>Descartar sugestao</button>
+                                      <span id="skills-preview-save-state" class="skills-side-note">Depois da revisao, escolha o destino desse aprendizado.</span>
+                                  </div>
+                              </div>
+
+                            <div class="skills-roots" id="skills-roots"></div>
+                            <div class="skills-list" id="skills-list">
+                                <div class="skills-empty-state">Carregando catalogo de habilidades...</div>
+                            </div>
+                        </section>
+                        <section class="skills-mainpanel skills-customize-panel hidden" data-skills-panel="connectors">
+                            <div class="skills-guide-grid">
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">Connectors</span>
+                                    <h3>Servicos que a Lex pode acoplar</h3>
+                                    <p>
+                                        Esses conectores ampliam o trabalho juridico com email, agenda,
+                                        arquivos, mensageria e outros servicos herdados da base Hermes.
+                                    </p>
+                                </article>
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">Uso pratico</span>
+                                    <h3>Menos friccao operacional</h3>
+                                    <p>
+                                        Em vez de ficar restrita ao chat, a Lex pode atuar com servicos
+                                        externos quando voce libera o acesso e conclui a conexao.
+                                    </p>
+                                </article>
+                                <article class="skills-guide-card">
+                                    <span class="skills-sidecard-kicker">Seguranca</span>
+                                    <h3>Conectar so quando fizer sentido</h3>
+                                    <p>
+                                        Cada conector tem estado proprio. Voce decide o que conectar,
+                                        desconectar e manter disponivel na rotina juridica.
+                                    </p>
+                                </article>
+                            </div>
+                            <div class="skills-hero-metrics">
+                                <div class="skills-metric">
+                                    <span>Total mapeado</span>
+                                    <strong id="skills-connectors-total">--</strong>
+                                </div>
+                                <div class="skills-metric">
+                                    <span>MCP</span>
+                                    <strong id="skills-connectors-connected">--</strong>
+                                </div>
+                                <div class="skills-metric">
+                                    <span>Gateway</span>
+                                    <strong id="skills-connectors-ready">--</strong>
+                                </div>
+                            </div>
+                            <div class="skills-sidecard">
+                                <span class="skills-sidecard-kicker">Leitura rapida</span>
+                                <p id="skills-connectors-note">Carregando estado dos conectores herdados do Hermes...</p>
+                            </div>
+                            <div id="skills-connectors-runtime" class="skills-connectors-runtime">
+                                <div class="skills-empty-state">Carregando runtime do Hermes...</div>
+                            </div>
+                            <div id="skills-connectors-groups" class="skills-connectors-groups">
+                                <div class="skills-empty-state">Carregando conectores...</div>
+                            </div>
+                            <div class="skills-sidecard skills-connectors-desktop">
+                                <div class="skills-preview-head">
+                                    <div>
+                                        <span class="skills-sidecard-kicker">Camada visual da Lex</span>
+                                        <h3>Integracoes complementares do desktop</h3>
+                                    </div>
+                                    <span class="skills-preview-meta">OAuth, API keys e atalhos locais.</span>
+                                </div>
+                                <p class="skills-side-note">
+                                    Esta camada continua util no Electron, mas o panorama principal acima
+                                    agora reflete os conectores reais do Hermes/engine.
+                                </p>
+                                <div id="desktop-plugins-grid" class="plugins-grid">
+                                    <div class="skills-empty-state">Carregando integracoes complementares...</div>
+                                </div>
+                            </div>
+                            <div id="plugins-grid" class="plugins-grid hidden">
+                                <div class="skills-empty-state">Carregando conectores...</div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <div id="skills-info-modal" class="skills-info-modal hidden">
+                <div class="skills-info-modal-content">
+                    <div class="skills-info-modal-header">
+                        <div>
+                            <span class="skills-sidecard-kicker">Guia rapido</span>
+                            <h3>Como a Lex organiza Skills e Connectors</h3>
+                        </div>
+                        <button id="skills-info-close" class="skills-info-close" type="button" aria-label="Fechar">×</button>
+                    </div>
+                    <div class="skills-info-modal-body">
+                        <div class="skills-guide-grid">
+                            <article class="skills-guide-card">
+                                <span class="skills-sidecard-kicker">Skills</span>
+                                <h3>O que sao</h3>
+                                <p>
+                                    Sao capacidades reutilizaveis da Lex para atuar em PJe, tribunais, documentos,
+                                    memoria de processos e outras rotinas juridicas.
+                                </p>
+                            </article>
+                            <article class="skills-guide-card">
+                                <span class="skills-sidecard-kicker">Connectors</span>
+                                <h3>Para que servem</h3>
+                                <p>
+                                    Sao pontes com servicos externos. Eles diminuem a barreira operacional e ampliam
+                                    o alcance da Lex quando voce precisa acoplar email, agenda, arquivos ou canais.
+                                </p>
+                            </article>
+                            <article class="skills-guide-card">
+                                <span class="skills-sidecard-kicker">Aprovacao</span>
+                                <h3>Por que existe</h3>
+                                <p>
+                                    A Lex primeiro sugere um rascunho em Markdown. So depois da sua leitura e aprovacao
+                                    isso vira nota, playbook ou candidata a skill madura.
+                                </p>
+                            </article>
+                        </div>
+                        <div class="skills-sidecard">
+                            <span class="skills-sidecard-kicker">Fluxo recomendado</span>
+                            <ul class="skills-side-list">
+                                <li><strong>1.</strong> A Lex observa um fluxo recorrente em PJe, documento ou caso.</li>
+                                <li><strong>2.</strong> Ela gera um rascunho revisavel, sem ativar nada automaticamente.</li>
+                                <li><strong>3.</strong> Voce decide se isso vira nota, playbook, fica so no Brain ou deve ser descartado.</li>
+                                <li><strong>4.</strong> Quando estiver maduro, esse conhecimento pode sustentar uma skill mais autonoma.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="plugin-modal" class="plugin-modal hidden">
+                <div class="plugin-modal-content">
+                    <div class="plugin-modal-header">
+                        <h3 id="plugin-modal-title">Conectar servico</h3>
+                        <button id="plugin-modal-close" class="plugin-modal-close" type="button" aria-label="Fechar">×</button>
+                    </div>
+                    <div id="plugin-modal-body" class="plugin-modal-body"></div>
+                </div>
+            </div>
+
             <!-- Console Lex View -->
             <div class="terminal-wrapper">
                 <div class="terminal-session-bar">
                     <div class="terminal-status-wrap">
-                        <button id="terminal-engine-status" class="terminal-engine-status" title="Verificar Console Lex e motor local">
+                        <button id="terminal-engine-status" class="terminal-engine-status" title="Verificar Console Lex e motor WSL">
                             <span class="terminal-status-dot unknown"></span>
                             <span id="terminal-engine-status-text">Motor</span>
                         </button>
@@ -661,25 +1047,7 @@
                             <div id="terminal-status-panel-body" class="terminal-status-panel-body"></div>
                         </div>
                     </div>
-                    <button id="terminal-new-engine-session" class="terminal-engine-btn" title="Abrir novo Console Lex">
-                        Novo console
-                    </button>
-                    <select id="terminal-prompt-shortcuts" class="terminal-shortcuts" title="Enviar prompt juridico seguro para o Console Lex">
-                        <option value="">Fluxos</option>
-                        <option value="pje-consultar">Consultar processo PJe</option>
-                        <option value="pje-resultados">Ler resultados</option>
-                        <option value="pje-abrir-autos">Abrir autos</option>
-                        <option value="pje-ler-autos">Ler autos</option>
-                        <option value="pje-baixar-doc">Baixar documento atual</option>
-                        <option value="pje-analisar-doc">Analisar documento baixado</option>
-                        <option value="doc-resumo">Resumo juridico</option>
-                    </select>
                     <div id="terminal-tabs" class="terminal-tabs"></div>
-                    <button id="terminal-new-session" class="terminal-new-btn" title="Nova sessao Lex local">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                        </svg>
-                    </button>
                 </div>
                 <div class="terminal-container"></div>
             </div>

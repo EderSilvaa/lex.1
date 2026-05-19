@@ -17,7 +17,8 @@ import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
 import { getLexDesktopBridgeState, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
-import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConsoleSpawn, getLexEngineKanbanHomePath, getLexEngineProviderSnapshot, getLexEngineStatus, syncLexEngineProviderConfig } from './lex-engine';
+import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConnectorsSnapshot, getLexEngineConsoleSpawn, getLexEngineKanbanHomePath, getLexEngineProviderSnapshot, getLexEngineSkillsRuntimeSnapshot, getLexEngineStatus, syncLexEngineProviderConfig } from './lex-engine';
+import { listHermesSkillsCatalog } from './hermes-skills-catalog';
 import { autoUpdater } from 'electron-updater';
 import {
     initConsentManager, initAuditLog, flushAuditLog,
@@ -531,6 +532,80 @@ function saveApiKey(providerId: ProviderId, key: string): void {
     store.set('apiKeys', apiKeys);
 }
 
+function getProviderRuntimeEnv(providerId: ProviderId, apiKey: string): Record<string, string> {
+    const key = String(apiKey || '').trim();
+    if (!key) return {};
+    switch (providerId) {
+        case 'anthropic':
+            return {
+                ANTHROPIC_API_KEY: key,
+                ANTHROPIC_TOKEN: '',
+            };
+        case 'openai':
+            return { OPENAI_API_KEY: key };
+        case 'openrouter':
+            return { OPENROUTER_API_KEY: key };
+        case 'google':
+            return { GOOGLE_API_KEY: key };
+        case 'groq':
+            return { GROQ_API_KEY: key };
+        case 'ollama':
+            return { OPENAI_API_KEY: 'ollama' };
+        default:
+            return {};
+    }
+}
+
+async function testProviderApiKey(providerId: ProviderId, key: string): Promise<{ success: boolean; error?: string }> {
+    const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
+    if (providerId === 'ollama') {
+        const status = await getOllamaStatus();
+        return status.running
+            ? { success: true }
+            : { success: false, error: (status as any).error || 'Ollama nao esta rodando.' };
+    }
+    if (!normalizedKey) return { success: false, error: 'Cole uma chave antes de testar.' };
+
+    const signal = AbortSignal.timeout(15000);
+    let url = '';
+    const headers: Record<string, string> = {};
+
+    if (providerId === 'anthropic') {
+        url = 'https://api.anthropic.com/v1/models';
+        headers['x-api-key'] = normalizedKey;
+        headers['anthropic-version'] = '2023-06-01';
+    } else if (providerId === 'openai') {
+        url = 'https://api.openai.com/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    } else if (providerId === 'openrouter') {
+        url = 'https://openrouter.ai/api/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    } else if (providerId === 'groq') {
+        url = 'https://api.groq.com/openai/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    } else if (providerId === 'google') {
+        url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(normalizedKey)}`;
+    } else {
+        return { success: false, error: `Provider nao suportado: ${providerId}` };
+    }
+
+    try {
+        const response = await fetch(url, { headers, signal });
+        if (response.ok) return { success: true };
+
+        let body = '';
+        try {
+            body = await response.text();
+        } catch {
+            body = '';
+        }
+        const compact = body.replace(/\s+/g, ' ').slice(0, 220);
+        return { success: false, error: `HTTP ${response.status}${compact ? `: ${compact}` : ''}` };
+    } catch (error: any) {
+        return { success: false, error: error?.message || String(error) };
+    }
+}
+
 function normalizeConversationContent(content: any): string {
     if (typeof content === 'string') return content.trim();
     if (content == null) return '';
@@ -672,7 +747,6 @@ ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderI
         agentModel: canonical.agentModel,
         visionModel: canonical.visionModel,
     });
-    await refreshBrowserRuntime('troca de provider');
     return { success: true, provider: canonical };
 });
 
@@ -709,7 +783,6 @@ ipcMain.handle('store-set-api-key', async (_event, { providerId, key }: { provid
     const current = getActiveConfig();
     if (current.providerId === providerId) {
         await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        await refreshBrowserRuntime('nova chave API');
     }
     return { success: true, configured: normalizedKey.length > 0 };
 });
@@ -724,6 +797,11 @@ ipcMain.handle('store-get-api-key-status', async (_event, providerId: ProviderId
 });
 
 /** Retorna catálogo de providers/modelos para a UI de configurações. */
+ipcMain.handle('store-test-api-key', async (_event, { providerId, key }: { providerId: ProviderId; key: string }) => {
+    const candidate = String(key || '').trim() || loadApiKey(providerId);
+    return await testProviderApiKey(providerId, candidate);
+});
+
 ipcMain.handle('store-get-provider-presets', () => {
     return PROVIDER_PRESETS;
 });
@@ -1142,6 +1220,8 @@ function createWindow() {
         mainWindow = null;
     });
 
+    syncUserInputNotifier();
+
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
 
@@ -1467,15 +1547,39 @@ app.whenReady().then(async () => {
             return { success: true, data: ptyMgr.listSessions() };
         });
 
+        ipcMain.handle('user-input-resolve', async (_event, { answer }) => {
+            try {
+                return {
+                    success: true,
+                    resolved: resolveUserInput(String(answer ?? '')),
+                };
+            } catch (err: any) {
+                return {
+                    success: false,
+                    error: err?.message || 'Falha ao entregar resposta ao agente.',
+                };
+            }
+        });
+
         // Sessão especial: roda o LEX CLI dentro do PTY
         ipcMain.handle('terminal-create-engine', async (_, opts) => {
             try {
+                const activeProvider = getActiveConfig();
+                const activeProviderKey = activeProvider.apiKey || loadApiKey(activeProvider.providerId);
+                await syncProvider(
+                    activeProvider.providerId,
+                    activeProviderKey,
+                    activeProvider.agentModel,
+                    activeProvider.visionModel,
+                );
+
                 const prefs = (store?.get('userPreferences', {}) || {}) as Record<string, any>;
                 const desktopUserName = String(prefs['displayName'] || prefs['fullName'] || '').trim();
                 const desktopUserRole = String(prefs['role'] || '').trim();
                 const desktopEnv = {
                     ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
                     ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
+                    ...getProviderRuntimeEnv(activeProvider.providerId, activeProviderKey),
                 };
                 const spawn = getLexEngineConsoleSpawn(opts.sessionId, desktopEnv);
                 await ptyMgr.createSession(opts.sessionId, {
@@ -1487,37 +1591,6 @@ app.whenReady().then(async () => {
                     mode: 'engine',
                     env: {
                         ...spawn.env,
-                        NODE_OPTIONS: '--max-old-space-size=4096',
-                    },
-                });
-                return { success: true };
-            } catch (err: any) {
-                return { success: false, error: err.message };
-            }
-        });
-
-        ipcMain.handle('terminal-create-lex', async (_, opts) => {
-            try {
-                const path = await import('path');
-                const cliEntry = path.join(app.getAppPath(), 'bin', 'lex.js');
-                const shell = process.platform === 'win32' ? 'node.exe' : 'node';
-                const prefs = (store?.get('userPreferences', {}) || {}) as Record<string, any>;
-                const desktopUserName = String(prefs['displayName'] || prefs['fullName'] || '').trim();
-                const desktopUserRole = String(prefs['role'] || '').trim();
-                await ptyMgr.createSession(opts.sessionId, {
-                    shell,
-                    args: [cliEntry, '--in-electron'],
-                    cwd: app.getAppPath(),
-                    cols: opts.cols,
-                    rows: opts.rows,
-                    mode: 'lex',
-                    env: {
-                        LEX_DESKTOP: '1',
-                        LEX_ENGINE_SESSION_ID: opts.sessionId,
-                        ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
-                        ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
-                        LEX_IN_ELECTRON: '1',
-                        LEX_CONVERSATION_ID: opts.sessionId,
                         NODE_OPTIONS: '--max-old-space-size=4096',
                     },
                 });
@@ -2500,7 +2573,7 @@ ipcMain.handle('agent-should-handle', async (_event, objetivo: string) => {
 // ============================================================================
 
 import { startBot, stopBot, isBotRunning, sendMessage as telegramSend } from './telegram-bot';
-import { setNotifyFn } from './user-input';
+import { resolveUserInput, setNotifyFn } from './user-input';
 
 function loadTelegramToken(): string {
     if (!store) return '';
@@ -2514,6 +2587,34 @@ function loadTelegramToken(): string {
     return safeDecrypt(raw);
 }
 
+function emitDesktopUserInputRequest(prompt: string): void {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('user-input-requested', {
+        prompt,
+        createdAt: Date.now(),
+    });
+}
+
+function syncUserInputNotifier(): void {
+    setNotifyFn(async (prompt) => {
+        const normalizedPrompt = String(prompt || '').trim();
+        if (!normalizedPrompt) return;
+
+        emitDesktopUserInputRequest(normalizedPrompt);
+
+        const telegramEnabled = Boolean(store?.get('telegramEnabled', false));
+        const userId = Number(store?.get('telegramUserId', 0)) || 0;
+        const token = loadTelegramToken();
+        if (!telegramEnabled || !userId || !token || !isBotRunning()) return;
+
+        try {
+            await telegramSend(userId, normalizedPrompt);
+        } catch (error: any) {
+            console.warn('[UserInput] Falha ao notificar Telegram:', error?.message || error);
+        }
+    });
+}
+
 async function initTelegramBotIfConfigured(): Promise<void> {
     if (!store) return;
     const enabled = store.get('telegramEnabled', false) as boolean;
@@ -2525,9 +2626,9 @@ async function initTelegramBotIfConfigured(): Promise<void> {
 
     try {
         await startBot({ token, authorizedUserId: userId }, runAgentForTelegram);
-        setNotifyFn((prompt) => telegramSend(userId, prompt));
         trayModeActive = true;
         if (!tray) createTray();
+        syncUserInputNotifier();
         console.log('[Telegram] Bot iniciado automaticamente (modo 24/7 ativo)');
     } catch (e: any) {
         console.error('[Telegram] Falha ao iniciar bot:', e.message);
@@ -2583,8 +2684,8 @@ ipcMain.handle('telegram-enable', async () => {
 
     try {
         await startBot({ token, authorizedUserId: userId }, runAgentForTelegram);
-        setNotifyFn((prompt) => telegramSend(userId, prompt));
         store.set('telegramEnabled', true);
+        syncUserInputNotifier();
         refreshTrayMenu();
         return { success: true, running: true };
     } catch (e: any) {
@@ -2596,6 +2697,7 @@ ipcMain.handle('telegram-enable', async () => {
 ipcMain.handle('telegram-disable', async () => {
     await stopBot();
     if (store) store.set('telegramEnabled', false);
+    syncUserInputNotifier();
     refreshTrayMenu();
     return { success: true, running: false };
 });
@@ -3003,6 +3105,136 @@ ipcMain.handle('brain-dashboard', async (_event, opts?: { windowDays?: number; t
         windowDays: opts?.windowDays ?? 7,
         topFlowsLimit: opts?.topFlowsLimit ?? 10,
     });
+});
+
+ipcMain.handle('brain-promotion-preview', async (_event, payload?: { flowId?: string; target?: 'nota' | 'playbook' | 'skill' }) => {
+    const brain = getBrainSafe();
+    if (!brain) return { ok: false, error: 'brain_not_initialized' };
+    const { buildPromotionPreview } = await import('./brain/dashboard');
+    return buildPromotionPreview(brain, String(payload?.flowId || ''), payload?.target);
+});
+
+async function writePromotionDraftFromPreview(
+    workspaceRoot: string,
+    preview: { ok?: boolean; markdown?: string; flowId?: string; label?: string; target?: 'nota' | 'playbook' | 'skill'; tribunal?: string; pjeContext?: string },
+) {
+    if (!preview?.ok || !preview.markdown || !preview.flowId) {
+        return { ok: false, error: 'promotion_preview_unavailable' };
+    }
+
+    const targetDirName = preview.target === 'skill'
+        ? 'skills'
+        : preview.target === 'playbook'
+            ? 'playbooks'
+            : 'notas';
+    const targetDir = path.join(workspaceRoot, 'docs', 'promotions', targetDirName);
+
+    const toSlug = (value: unknown, fallback = 'promotion-draft') => {
+        const raw = String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        return raw || fallback;
+    };
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const baseName = `${dateStamp}-${toSlug(preview.label, 'promotion-draft')}`;
+    let filePath = path.join(targetDir, `${baseName}.md`);
+    let counter = 2;
+    while (fs.existsSync(filePath)) {
+        filePath = path.join(targetDir, `${baseName}-${counter}.md`);
+        counter += 1;
+    }
+
+    const quoteYaml = (value: unknown) => JSON.stringify(String(value || '').replace(/\r?\n/g, ' ').trim());
+
+    const frontmatter = [
+        '---',
+        `lex_generated: true`,
+        `promotion_target: ${quoteYaml(preview.target || 'nota')}`,
+        `source: ${quoteYaml('brain_dashboard')}`,
+        `flow_id: ${quoteYaml(preview.flowId)}`,
+        `tribunal: ${quoteYaml(preview.tribunal || '?')}`,
+        `pje_context: ${quoteYaml(preview.pjeContext || 'nao_identificado')}`,
+        `generated_at: ${quoteYaml(new Date().toISOString())}`,
+        '---',
+        '',
+        '> Rascunho gerado com curadoria manual a partir de um candidato de promocao do Brain.',
+        '> Este arquivo ainda nao altera skills ativas do Hermes nem publica conhecimento automaticamente.',
+        '',
+    ].join('\n');
+
+    try {
+        await fs.promises.mkdir(targetDir, { recursive: true });
+        await fs.promises.writeFile(filePath, `${frontmatter}${preview.markdown.trim()}\n`, 'utf8');
+        return {
+            ok: true,
+            path: filePath,
+            relativePath: path.relative(workspaceRoot, filePath).replace(/\\/g, '/'),
+            target: preview.target,
+        };
+    } catch (error: any) {
+        return { ok: false, error: error?.message || 'promotion_draft_write_failed' };
+    }
+}
+
+ipcMain.handle('brain-promotion-save-draft', async (_event, payload?: { flowId?: string; target?: 'nota' | 'playbook' | 'skill' }) => {
+    const brain = getBrainSafe();
+    if (!brain) return { ok: false, error: 'brain_not_initialized' };
+
+    const workspaceRoot = getWorkspaceRoots()[0];
+    if (!workspaceRoot) {
+        return { ok: false, error: 'workspace_not_available' };
+    }
+
+    const { buildPromotionPreview } = await import('./brain/dashboard');
+    const preview = buildPromotionPreview(brain, String(payload?.flowId || ''), payload?.target);
+    return writePromotionDraftFromPreview(workspaceRoot, preview);
+});
+
+ipcMain.handle('brain-promotion-curate', async (_event, payload?: { flowId?: string; action?: 'nota' | 'playbook' | 'brain_only' | 'discarded' }) => {
+    const brain = getBrainSafe();
+    if (!brain) return { ok: false, error: 'brain_not_initialized' };
+
+    const flowId = String(payload?.flowId || '').trim();
+    const action = payload?.action;
+    if (!flowId || !action) {
+        return { ok: false, error: 'promotion_action_required' };
+    }
+
+    const { buildPromotionPreview, setPromotionDecision } = await import('./brain/dashboard');
+
+    if (action === 'brain_only' || action === 'discarded') {
+        setPromotionDecision(brain, flowId, {
+            action,
+            at: new Date().toISOString(),
+        });
+        return { ok: true, action };
+    }
+
+    const workspaceRoot = getWorkspaceRoots()[0];
+    if (!workspaceRoot) {
+        return { ok: false, error: 'workspace_not_available' };
+    }
+
+    const preview = buildPromotionPreview(brain, flowId, action);
+    const saved = await writePromotionDraftFromPreview(workspaceRoot, preview);
+    if (!saved?.ok) return saved;
+
+    setPromotionDecision(brain, flowId, {
+        action,
+        at: new Date().toISOString(),
+        path: String(saved.relativePath || saved.path || ''),
+    });
+
+    return {
+        ok: true,
+        action,
+        path: saved.path,
+        relativePath: saved.relativePath,
+    };
 });
 
 ipcMain.handle('brain-trace', async (_event, traceId: string) => {
@@ -4054,6 +4286,73 @@ ipcMain.handle('plugins-disconnect', async (_event, pluginId: string) => {
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('skills-catalog-list', async () => {
+    try {
+        return {
+            success: true,
+            catalog: listHermesSkillsCatalog(app.getAppPath()),
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao carregar catalogo de habilidades.',
+        };
+    }
+});
+
+ipcMain.handle('skills-runtime-snapshot', async () => {
+    try {
+        return {
+            success: true,
+            snapshot: await getLexEngineSkillsRuntimeSnapshot(),
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao consultar runtime de habilidades.',
+        };
+    }
+});
+
+ipcMain.handle('skills-connectors-snapshot', async () => {
+    try {
+        return {
+            success: true,
+            snapshot: await getLexEngineConnectorsSnapshot(),
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao consultar connectors do Hermes.',
+        };
+    }
+});
+
+ipcMain.handle('skills-read-file', async (_event, skillPath: string) => {
+    try {
+        const requestedPath = path.resolve(String(skillPath || ''));
+        const catalog = listHermesSkillsCatalog(app.getAppPath());
+        const entry = catalog.entries.find((item) => path.resolve(item.path) === requestedPath);
+        if (!entry) {
+            return {
+                success: false,
+                error: 'Skill nao encontrada no catalogo atual.',
+            };
+        }
+
+        return {
+            success: true,
+            content: fs.readFileSync(entry.path, 'utf-8'),
+            path: entry.path,
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao ler arquivo da skill.',
+        };
     }
 });
 
