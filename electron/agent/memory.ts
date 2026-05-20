@@ -5,7 +5,6 @@
  * Armazena contexto entre sessões para personalização e continuidade.
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
 import type { CrossSessionFact } from './types';

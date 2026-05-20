@@ -254,21 +254,10 @@ if (fmPreviewClose) {
     fmPreviewClose.addEventListener('click', closePreview);
 }
 
-// "Enviar ao Chat" — attaches file and switches to chat view
+// "Enviar ao Chat" — caminho removido junto com o chat oculto.
+// O botao continua escondido no DOM (preserva layout do preview) ate ser limpo do HTML.
 if (fmPreviewSend) {
-    fmPreviewSend.addEventListener('click', () => {
-        if (!previewedFile) return;
-
-        // Set attachment via global function exposed by app.js
-        if (typeof window.attachFileToChat === 'function') {
-            window.attachFileToChat(previewedFile);
-        }
-
-        // Switch to chat view
-        const navChat = document.getElementById('nav-chat');
-        if (navChat) navChat.click();
-        closePreview();
-    });
+    fmPreviewSend.style.display = 'none';
 }
 
 

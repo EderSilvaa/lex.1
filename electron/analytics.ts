@@ -18,6 +18,12 @@ interface SessionRecord {
     skills: Record<string, number>;
 }
 
+interface RecentSkillCall {
+    skill: string;
+    success: boolean;
+    at: string;
+}
+
 interface DailyStats {
     date: string;                    // YYYY-MM-DD
     sessions: number;
@@ -49,6 +55,7 @@ export interface AnalyticsSummary {
     topSkills: Array<{ skill: string; count: number }>;
     topModels: Array<{ model: string; count: number }>;
     mostActiveProvider: string;
+    recentSkillCalls: RecentSkillCall[];
     // Conversations
     totalConversations: number;
 }
@@ -61,11 +68,10 @@ export class Analytics {
     private store: any = null;
     private currentSession: SessionRecord | null = null;
     private focusStart: number = 0;
-    private todayKey: string = '';
     private storeReady = false;
+    private recentSkillCalls: RecentSkillCall[] = [];
 
     constructor() {
-        this.todayKey = this.dateKey();
         this.tryLoadStore();
     }
 
@@ -96,6 +102,7 @@ export class Analytics {
             messages: 0,
             skills: {},
         };
+        this.recentSkillCalls = [];
         this.focusStart = Date.now();
 
         // Increment sessions
@@ -129,6 +136,13 @@ export class Analytics {
         if (this.currentSession) {
             this.currentSession.skills[skillName] = (this.currentSession.skills[skillName] || 0) + 1;
         }
+
+        this.recentSkillCalls.unshift({
+            skill: skillName,
+            success,
+            at: new Date().toISOString(),
+        });
+        this.recentSkillCalls = this.recentSkillCalls.slice(0, 20);
 
         // Daily skill counter
         const today = this.getToday();
@@ -227,6 +241,7 @@ export class Analytics {
             topSkills,
             topModels,
             mostActiveProvider,
+            recentSkillCalls: [...this.recentSkillCalls],
             totalConversations,
         };
     }
@@ -327,7 +342,7 @@ export class Analytics {
             daysActive: 0, todaySessions: 0, todayMessages: 0, todayActiveMinutes: 0,
             todaySkills: {}, todayErrors: {}, currentSessionMinutes: 0,
             currentSessionMessages: 0, topSkills: [], topModels: [],
-            mostActiveProvider: 'nenhum', totalConversations: 0,
+            mostActiveProvider: 'nenhum', recentSkillCalls: [], totalConversations: 0,
         };
     }
 }

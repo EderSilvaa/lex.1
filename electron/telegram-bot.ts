@@ -7,7 +7,6 @@
 
 import { Telegraf } from 'telegraf';
 import { hasPendingInput, resolveUserInput } from './user-input';
-import { cancelAgentLoop } from './agent';
 
 export interface TelegramConfig {
     token: string;
@@ -47,13 +46,9 @@ export async function startBot(config: TelegramConfig, runAgent: AgentRunner): P
 
     bot.command('cancelar', async (ctx) => {
         if (ctx.from.id !== authorizedId) return;
-        const cancelou = cancelAgentLoop();
-        if (cancelou) {
-            isBusy = false;
-            await ctx.reply('🛑 Tarefa cancelada.');
-        } else {
-            await ctx.reply('ℹ️ Nenhuma tarefa em andamento.');
-        }
+        // Cancelamento foi atrelado ao agent loop legado, que foi removido.
+        // Mantemos a resposta amigavel ate definirmos o caminho novo (Hermes/MCP).
+        await ctx.reply('ℹ️ Cancelamento ainda nao esta ligado ao motor atual.');
     });
 
     bot.on('message', async (ctx) => {
@@ -134,14 +129,10 @@ export async function startBot(config: TelegramConfig, runAgent: AgentRunner): P
         const requestId = parts[1]!;
         const action = parts[2]!;
 
-        try {
-            const { handleTelegramHITL } = await import('./batch/telegram-hitl');
-            await handleTelegramHITL(requestId, action);
-            await ctx.answerCbQuery('Recebido!');
-        } catch (error: any) {
-            console.error('[Telegram] Erro no callback HITL:', error.message);
-            await ctx.answerCbQuery('Erro ao processar');
-        }
+        // HITL via Telegram vivia em batch/telegram-hitl, removido junto com o
+        // pipeline de Lotes. O caminho novo (Hermes/MCP) ainda nao expoe HITL pelo bot.
+        await ctx.answerCbQuery('HITL via Telegram desconectado.');
+        void requestId; void action;
     });
 
     // Captura erros de polling sem derrubar o processo

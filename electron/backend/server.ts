@@ -14,8 +14,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { setUserDataDir, getActivePage, ensureBrowser, attemptPassiveBrowserReconnect, getBrowserContext, setActivePage } from '../browser-manager';
 import { initMemoryDir, getMemory } from '../agent/memory';
 import { initRouteMemory, flush as flushRouteMemory } from '../pje/route-memory';
-import { inspectPjeContext } from '../pje/context-inspector';
+import { inspectActivePjePageContext, inspectPjeContext } from '../pje/context-inspector';
 import { inferPjeEnvironmentContext, normalizePjeEnvironmentContext, summarizePjeEnvironmentContext } from '../pje/environment-context';
+import { buildPjeActionGuidance, buildPjeExecutionBrief, resolveGuidanceReplayContext } from '../pje/action-guidance';
 import { fillPjeProcessNumber } from '../pje/process-number-filler';
 import { clickPjeSearch } from '../pje/search-clicker';
 import { readPjeSearchResults } from '../pje/search-results-reader';
@@ -23,12 +24,10 @@ import { openPjeSearchResult } from '../pje/process-result-opener';
 import { readPjeAutos } from '../pje/autos-reader';
 import { downloadPjeCurrentDocument } from '../pje/document-downloader';
 import { analyzePjeDownloadedDocument } from '../pje/document-analyzer';
+import { executePjeIntentCandidate } from '../pje/intent-candidate-executor';
 import { initCheckpointStore } from '../agent/checkpoint-store';
 import { initSessionManager } from '../agent/session';
-import { setActiveConfig, getActiveConfig, type ActiveProviderConfig } from '../provider-config';
-import { EventEmitter } from 'events';
 import { execSync } from 'child_process';
-import { initPythonEnv, ensurePythonEnvSetup, getPythonEnv } from '../python';
 import { createHash, randomUUID } from 'crypto';
 import type { BrainStore } from '../brain/brain-store';
 import type { BrainNode } from '../brain/types';
@@ -39,7 +38,6 @@ import type { Observation, ObservationAfter, ObservationBefore } from '../observ
 // ── Config via env vars (passadas pelo Electron main ao spawnar) ──
 const PORT = parseInt(process.env['LEX_BACKEND_PORT'] || '19876', 10);
 const USER_DATA_DIR = process.env['LEX_USER_DATA'] || '';
-const terminalRunSessions = new Map<string, string>();
 
 if (!USER_DATA_DIR) {
     console.error('[Backend] LEX_USER_DATA não definido');
@@ -148,68 +146,10 @@ function killProcessOnPort(port: number): void {
 
 killProcessOnPort(PORT);
 
-// ── Python + BrowserUse bootstrap (backend também precisa disso) ──
-let pythonBootstrapPromise: Promise<void> | null = null;
-
-async function bootstrapPythonForBrowserUse(): Promise<void> {
-    if (pythonBootstrapPromise) return pythonBootstrapPromise;
-
-    pythonBootstrapPromise = (async () => {
-        try {
-            initPythonEnv();
-            await ensurePythonEnvSetup();
-        } catch (err: any) {
-            console.warn('[Backend] Setup Python falhou:', err?.message || err);
-        }
-
-        const pyEnv = getPythonEnv();
-        if (!pyEnv.isReady()) {
-            console.warn('[Backend] Python indisponível — BrowserUse ficará em fallback.');
-            return;
-        }
-
-        try {
-            const { ensureBrowserUseInstalled } = await import('../browser/browser-use-setup');
-            const ok = await ensureBrowserUseInstalled();
-            console.log(ok
-                ? '[Backend] BrowserUse pronto no backend.'
-                : '[Backend] BrowserUse indisponível no backend (fallback ativo).'
-            );
-        } catch (err: any) {
-            console.warn('[Backend] Falha ao preparar BrowserUse:', err?.message || err);
-        }
-    })();
-
-    return pythonBootstrapPromise;
-}
-
-// Warm-up em background para reduzir fallback na primeira chamada do agente
-void bootstrapPythonForBrowserUse();
-
-// ── Agent module (lazy load) ──
-let agentModule: any = null;
-let agentInitialized = false;
-
-// Orquestrador ativo (para cancel)
-let _activeOrchestrator: any = null;
-
-async function ensureAgent() {
-    if (!agentModule) {
-        agentModule = await import('../agent');
-    }
-    if (!agentInitialized) {
-        await agentModule.initializeAgent();
-        agentInitialized = true;
-        console.log('[Backend] Agent inicializado');
-    }
-    return agentModule;
-}
 
 // ── WebSocket Server ──
 const wss = new WebSocketServer({ port: PORT, host: '127.0.0.1' });
 const connectedClients = new Map<WebSocket, string>();
-const runOwners = new Map<string, string>();
-let _activeOrchestratorOwnerId: string | null = null;
 
 // Handler de erro no WSS — previne crash por EADDRINUSE e outros erros de rede
 wss.on('error', (err: NodeJS.ErrnoException) => {
@@ -236,15 +176,6 @@ function sendEventToClient(ws: WebSocket, event: string, data: any): void {
     }
 }
 
-function sendEventToClientId(clientId: string, event: string, data: any): boolean {
-    for (const [ws, id] of connectedClients) {
-        if (id === clientId) {
-            sendEventToClient(ws, event, data);
-            return true;
-        }
-    }
-    return false;
-}
 
 // Envia evento para todos os clients conectados (streaming)
 function sendEvent(event: string, data: any): void {
@@ -253,97 +184,8 @@ function sendEvent(event: string, data: any): void {
     }
 }
 
-function normalizeConversationText(value: any): string {
-    if (typeof value === 'string') return value.trim();
-    if (value == null) return '';
-    try {
-        return JSON.stringify(value);
-    } catch {
-        return String(value);
-    }
-}
 
-function emitTerminalConversationMessage(input: {
-    sessionId?: string;
-    role: 'user' | 'assistant';
-    content: any;
-    runId?: string;
-}): void {
-    const sessionId = String(input.sessionId || '').trim();
-    const content = normalizeConversationText(input.content);
-    if (!sessionId || !content) return;
 
-    sendEvent('conversation-message', {
-        source: 'terminal',
-        conversationId: sessionId,
-        sessionId,
-        role: input.role,
-        content,
-        timestamp: Date.now(),
-        runId: input.runId,
-    });
-}
-
-function sendAgentEvent(data: any): void {
-    const runId = typeof data?.runId === 'string' ? data.runId : '';
-    const ownerId = runId ? runOwners.get(runId) : null;
-
-    if (ownerId && sendEventToClientId(ownerId, 'agent-event', data)) {
-        return;
-    }
-
-    sendEvent('agent-event', data);
-}
-
-function releaseRunOwnerships(clientId: string): void {
-    for (const [runId, ownerId] of runOwners) {
-        if (ownerId === clientId) {
-            runOwners.delete(runId);
-        }
-    }
-    if (_activeOrchestratorOwnerId === clientId) {
-        _activeOrchestratorOwnerId = null;
-    }
-}
-
-function resolveOwnedRunId(
-    activeRuns: Array<{ runId: string }>,
-    clientId: string,
-    requestedRunId?: string,
-): string | null {
-    const activeRunIds = activeRuns.map(r => r.runId);
-
-    if (requestedRunId) {
-        if (!activeRunIds.includes(requestedRunId)) return null;
-        const ownerId = runOwners.get(requestedRunId);
-        if (ownerId && ownerId !== clientId) {
-            throw new Error('Este run está sendo controlado por outro cliente conectado.');
-        }
-        if (!ownerId) {
-            runOwners.set(requestedRunId, clientId);
-        }
-        return requestedRunId;
-    }
-
-    const ownedRuns = activeRunIds.filter(runId => runOwners.get(runId) === clientId);
-    if (ownedRuns.length === 1) return ownedRuns[0]!;
-    if (ownedRuns.length > 1) {
-        throw new Error('Mais de um run ativo para este cliente. Informe o runId.');
-    }
-
-    const unownedRuns = activeRunIds.filter(runId => !runOwners.has(runId));
-    if (unownedRuns.length === 1) {
-        const runId = unownedRuns[0]!;
-        runOwners.set(runId, clientId);
-        return runId;
-    }
-
-    if (activeRunIds.length === 1) {
-        throw new Error('O run ativo pertence a outro cliente conectado.');
-    }
-
-    return null;
-}
 
 // Envia resposta RPC
 function sendResponse(ws: WebSocket, id: string, result?: any, error?: string): void {
@@ -378,7 +220,6 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         const disconnectedId = connectedClients.get(ws) || clientId;
         connectedClients.delete(ws);
-        releaseRunOwnerships(disconnectedId);
         console.log(`[Backend] Client desconectado: ${disconnectedId}`);
     });
 
@@ -387,17 +228,6 @@ wss.on('connection', (ws) => {
     });
 });
 
-// ── Forward agent events → WebSocket ──
-let eventForwardingSetup = false;
-
-async function setupEventForwarding(): Promise<void> {
-    if (eventForwardingSetup) return;
-    const agent = await ensureAgent();
-    (agent.agentEmitter as EventEmitter).on('agent-event', (event: any) => {
-        sendAgentEvent(event);
-    });
-    eventForwardingSetup = true;
-}
 function detectTribunalFromUrl(url: string | null): string | null {
     if (!url || !url.includes('pje.')) return null;
     const match = url.match(/pje\.([a-z0-9]+)\.jus\.br/i);
@@ -420,7 +250,16 @@ async function buildPjeStatus(): Promise<{
         const page = getActivePage();
         const url = page?.url() ?? null;
         const isPje = typeof url === 'string' && url.includes('pje.');
-        const tribunalAtivo = isPje ? detectTribunalFromUrl(url) : null;
+        let inspection: any = null;
+        if (page && isPje) {
+            inspection = await inspectActivePjePageContext({
+                maxElementsPerFrame: 24,
+                maxTextSnippetsPerFrame: 6,
+            }).catch(() => null);
+        }
+        const inspectedUrl = inspection?.ok !== false ? inspection?.page?.url : null;
+        const resolvedUrl = inspectedUrl || url;
+        const tribunalAtivo = resolvedUrl && resolvedUrl.includes('pje.') ? detectTribunalFromUrl(resolvedUrl) : null;
         const [title, textSample] = await Promise.all([
             page?.title().catch(() => '') ?? Promise.resolve(''),
             page?.evaluate(() => String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 2000)).catch(() => '') ?? Promise.resolve(''),
@@ -429,20 +268,25 @@ async function buildPjeStatus(): Promise<{
         const mem = getMemory();
         const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
         const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
-        const environment = inferPjeEnvironmentContext({
-            url: url || undefined,
-            title,
-            tribunal: tribunalAtivo || undefined,
-            textSnippets: textSample ? [textSample] : [],
-        });
+        const environment = inspection?.ok !== false && inspection?.environment
+            ? inspection.environment
+            : inferPjeEnvironmentContext({
+                url: resolvedUrl || undefined,
+                title,
+                tribunal: tribunalAtivo || undefined,
+                textSnippets: textSample ? [textSample] : [],
+            });
+        const contextSummary = inspection?.ok !== false && inspection?.contextSummary
+            ? inspection.contextSummary
+            : summarizePjeEnvironmentContext(environment) || null;
 
         return {
-            connected: !!url,
+            connected: !!resolvedUrl,
             isPje,
-            url,
+            url: resolvedUrl,
             tribunalAtivo,
             tribunalPreferido: pref,
-            contextSummary: summarizePjeEnvironmentContext(environment) || null,
+            contextSummary,
             environment,
         };
     } catch {
@@ -456,6 +300,70 @@ async function buildPjeStatus(): Promise<{
             environment: null,
         };
     }
+}
+
+async function enrichIntentGuidanceWithAutosSignals(
+    task: string,
+    guidance: any,
+): Promise<any> {
+    const domCandidates = Array.isArray(guidance?.explorationPlan?.domCandidates)
+        ? guidance.explorationPlan.domCandidates
+        : [];
+    const replayContext = resolveGuidanceReplayContext(task, guidance);
+    if (replayContext !== 'autos') return guidance;
+
+    const autos = await readPjeAutos({ waitMs: 400, maxMovements: 6, maxDocumentLines: 6 }).catch(() => null);
+    if (!autos?.ok) return guidance;
+
+    const dangerous = Array.isArray(autos?.controls?.dangerous) ? autos.controls.dangerous : [];
+    const downloadLike = dangerous.filter((control: any) =>
+        Array.isArray(control?.dangerKinds)
+        && control.dangerKinds.includes('download_or_print')
+    );
+    if (downloadLike.length === 0) return guidance;
+
+    const extraCandidates = downloadLike.slice(0, 4).map((control: any, index: number) => ({
+        source: 'surface_candidate',
+        role: index === 0 ? 'autos_download_detected' : 'autos_download_alternative',
+        suggestedAction: 'click',
+        ref: `autos-danger:${index}`,
+        label: String(control?.label || control?.title || control?.id || '').trim(),
+        selectorHints: [String(control?.selector || '').trim()].filter(Boolean),
+        candidateKinds: Array.isArray(control?.dangerKinds) ? control.dangerKinds.map((item: unknown) => String(item)) : [],
+        reason: 'Detectado na leitura dos autos como acao de download/impressao visivel na interface atual.',
+    }));
+
+    const existingRefs = new Set(domCandidates.map((candidate: any) => String(candidate?.ref || '').trim()).filter(Boolean));
+    const uniqueExtras = extraCandidates.filter((candidate: any) => !existingRefs.has(String(candidate.ref || '').trim()));
+    if (uniqueExtras.length === 0 && domCandidates.length > 0) return guidance;
+
+    const mergedDomCandidates = [...uniqueExtras, ...domCandidates];
+    const mergedActionableTargets = Array.isArray(guidance?.explorationPlan?.actionableTargets)
+        ? [...guidance.explorationPlan.actionableTargets]
+        : [];
+    const mergedWorldtreeTargets = Array.isArray(guidance?.explorationPlan?.worldtreeTargets)
+        ? [...guidance.explorationPlan.worldtreeTargets]
+        : [];
+    const mergedPrioritySteps = Array.isArray(guidance?.explorationPlan?.prioritySteps)
+        ? [...guidance.explorationPlan.prioritySteps]
+        : [];
+
+    if (uniqueExtras[0]) {
+        mergedPrioritySteps.unshift('A leitura dos autos detectou uma acao visivel de download/impressao; valide se ela corresponde a autos completos antes de procurar menus mais profundos.');
+        mergedActionableTargets.unshift(`Explorar acao detectada nos autos: label=${uniqueExtras[0].label || '(sem label)'} ref=${uniqueExtras[0].ref}`);
+        mergedWorldtreeTargets.unshift(`Sinal dos autos: ${uniqueExtras[0].label || '(sem label)'} | selector=${(uniqueExtras[0].selectorHints || [])[0] || 'n/a'}`);
+    }
+
+    return {
+        ...guidance,
+        explorationPlan: {
+            ...guidance.explorationPlan,
+            domCandidates: mergedDomCandidates,
+            actionableTargets: mergedActionableTargets,
+            worldtreeTargets: mergedWorldtreeTargets,
+            prioritySteps: mergedPrioritySteps,
+        },
+    };
 }
 
 // ── RPC Handlers ──
@@ -797,158 +705,8 @@ function recordBrainObservation(brain: BrainStore, params: any): any {
     };
 }
 
-async function handleRPC(ws: WebSocket, method: string, params: any): Promise<any> {
-    const clientId = getClientId(ws);
+async function handleRPC(_ws: WebSocket, method: string, params: any): Promise<any> {
     switch (method) {
-        // ── Agent ──
-        case 'agent-run': {
-            // Garante Python + browser-use também no processo backend.
-            await bootstrapPythonForBrowserUse();
-            const agent = await ensureAgent();
-            await setupEventForwarding();
-            const { objetivo, config, tenantConfig, sessionId, source } = params;
-            const isTerminalRun = source === 'terminal';
-            if (isTerminalRun) {
-                emitTerminalConversationMessage({ sessionId, role: 'user', content: objetivo });
-            }
-
-            // Goals compostos → Orchestrator (multi-agent paralelo)
-            const { shouldUsePlanner } = await import('../agent/planner');
-            if (shouldUsePlanner(objetivo)) {
-                console.log('[Backend] Goal composto detectado — usando Orchestrator');
-                const { Orchestrator } = await import('../agent/orchestrator');
-                const orchestrator = new Orchestrator();
-                _activeOrchestrator = orchestrator;
-                _activeOrchestratorOwnerId = clientId;
-                orchestrator.on('event', (evt: any) => {
-                    const event = { type: 'orchestrator', data: evt };
-                    if (!sendEventToClientId(clientId, 'agent-event', event)) {
-                        sendEvent('agent-event', event);
-                    }
-                });
-                try {
-                    const result = await orchestrator.execute(objetivo, sessionId);
-                    if (isTerminalRun) {
-                        emitTerminalConversationMessage({ sessionId, role: 'assistant', content: result });
-                    }
-                    return result;
-                } finally {
-                    _activeOrchestrator = null;
-                    _activeOrchestratorOwnerId = null;
-                }
-            }
-
-            const runId = randomUUID();
-            runOwners.set(runId, clientId);
-            if (isTerminalRun && sessionId) {
-                terminalRunSessions.set(runId, sessionId);
-            }
-            try {
-                const result = await agent.runAgentLoop({
-                    objetivo,
-                    config: config ?? {},
-                    tenantConfig: tenantConfig ?? agent.getDefaultTenantConfig(),
-                    sessionId,
-                    runId,
-                });
-                if (isTerminalRun) {
-                    emitTerminalConversationMessage({ sessionId, role: 'assistant', content: result, runId });
-                }
-                return result;
-            } finally {
-                runOwners.delete(runId);
-                terminalRunSessions.delete(runId);
-            }
-        }
-
-        case 'agent-cancel': {
-            // Cancela orchestrator ativo (se houver) ou o agent loop
-            if (_activeOrchestrator) {
-                if (_activeOrchestratorOwnerId && _activeOrchestratorOwnerId !== clientId) {
-                    throw new Error('A execução ativa pertence a outro cliente conectado.');
-                }
-                if (!_activeOrchestratorOwnerId) {
-                    _activeOrchestratorOwnerId = clientId;
-                }
-                await _activeOrchestrator.cancel();
-                _activeOrchestrator = null;
-                _activeOrchestratorOwnerId = null;
-                return { ok: true, kind: 'orchestrator' };
-            }
-            const agent = await ensureAgent();
-            const runId = resolveOwnedRunId(agent.listActiveRuns(), clientId, params?.runId);
-            if (!runId) return { ok: false, error: 'Nenhum run ativo encontrado.' };
-            return { ok: agent.cancelAgentLoop(runId), runId, kind: 'agent' };
-        }
-
-        case 'orchestrator-cancel': {
-            if (!_activeOrchestrator) return { success: false, error: 'Nenhuma execução ativa' };
-            if (_activeOrchestratorOwnerId && _activeOrchestratorOwnerId !== clientId) {
-                throw new Error('A execução ativa pertence a outro cliente conectado.');
-            }
-            if (!_activeOrchestratorOwnerId) {
-                _activeOrchestratorOwnerId = clientId;
-            }
-            await _activeOrchestrator.cancel();
-            _activeOrchestrator = null;
-            _activeOrchestratorOwnerId = null;
-            return { success: true };
-        }
-
-        case 'agent-respond': {
-            const agent = await ensureAgent();
-            const { runId, response, sessionId, source } = params;
-            if (!runId) {
-                throw new Error('runId obrigatório para responder ao agente.');
-            }
-            const controlledRunId = resolveOwnedRunId(agent.listActiveRuns(), clientId, runId);
-            if (!controlledRunId) {
-                throw new Error(`Run não encontrado: ${runId}`);
-            }
-            const ok = agent.resolveUserResponse(controlledRunId, response);
-            if (!ok) {
-                throw new Error(`Nenhuma resposta pendente para o run ${controlledRunId}.`);
-            }
-            if (source === 'terminal') {
-                emitTerminalConversationMessage({
-                    sessionId: terminalRunSessions.get(controlledRunId) || sessionId,
-                    role: 'user',
-                    content: response,
-                    runId: controlledRunId,
-                });
-            }
-            return { ok: true, runId: controlledRunId };
-        }
-
-        case 'agent-should-handle': {
-            // Heurística simples — retorna true se parece ser tarefa de automação
-            const text = String(params?.objetivo ?? '').toLowerCase();
-            const keywords = ['pje', 'processo', 'abrir', 'consultar', 'petição', 'navegar',
-                'movimentação', 'documento', 'tribunal', 'login', 'certificado'];
-            return keywords.some(k => text.includes(k));
-        }
-
-        // ── Config ──
-        case 'set-config': {
-            const { initAI } = await import('../ai-handler');
-            initAI(params);
-            return { ok: true };
-        }
-
-        case 'get-config': {
-            return getActiveConfig();
-        }
-
-        // ── AI Chat (direto, sem agent loop) ──
-        case 'ai-chat-send': {
-            const { callAI } = await import('../ai-handler');
-            return callAI({
-                system: params.system || 'Você é um assistente jurídico brasileiro especializado.',
-                user: params.user || params.message,
-                temperature: params.temperature ?? 0.3,
-                maxTokens: params.maxTokens ?? 2000,
-            });
-        }
 
         // ── Browser ──
         case 'browser-init': {
@@ -1009,6 +767,27 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
             return inspectPjeContext(params);
         }
 
+        case 'pje-explore-intent': {
+            const task = typeof params?.task === 'string' ? params.task.trim() : '';
+            if (!task) {
+                return { ok: false, error: 'task_required', message: 'Informe a intencao/tarefa a explorar no PJe.' };
+            }
+            const baseGuidance = await buildPjeActionGuidance(task);
+            const guidance = await enrichIntentGuidanceWithAutosSignals(task, baseGuidance);
+            return {
+                ok: true,
+                mode: 'intent_exploration_preview',
+                task,
+                replayContext: resolveGuidanceReplayContext(task, guidance),
+                executionBrief: buildPjeExecutionBrief(task, guidance),
+                guidance,
+            };
+        }
+
+        case 'pje-execute-intent-candidate': {
+            return executePjeIntentCandidate(params);
+        }
+
         case 'pje-fill-process-number': {
             return fillPjeProcessNumber(params);
         }
@@ -1062,23 +841,21 @@ async function handleRPC(ws: WebSocket, method: string, params: any): Promise<an
 
         // ── Session ──
         case 'session-list': {
-            const agent = await ensureAgent();
-            const sm = agent.getSessionManager();
-            return sm.listSessionPreviews();
+            const { getSessionManager } = await import('../agent/session');
+            return getSessionManager().listSessionPreviews();
         }
 
         case 'session-history': {
-            const agent = await ensureAgent();
-            const sm = agent.getSessionManager();
+            const { getSessionManager } = await import('../agent/session');
             const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : '';
             if (!sessionId) return [];
             const limit = typeof params?.limit === 'number' ? params.limit : 12;
-            return sm.getHistory(sessionId, limit);
+            return getSessionManager().getHistory(sessionId, limit);
         }
 
         case 'session-flush': {
-            const agent = await ensureAgent();
-            const sm = agent.getSessionManager();
+            const { getSessionManager } = await import('../agent/session');
+            const sm = getSessionManager();
             if (sm?.flush) await sm.flush();
             return { ok: true };
         }
@@ -1206,12 +983,11 @@ async function shutdown(): Promise<void> {
         const { closeBrowser } = await import('../browser-manager');
         await closeBrowser();
     } catch { /* ok */ }
-    if (agentModule) {
-        try {
-            const sm = agentModule.getSessionManager();
-            if (sm?.flush) await sm.flush();
-        } catch { /* ok */ }
-    }
+    try {
+        const { getSessionManager } = await import('../agent/session');
+        const sm = getSessionManager();
+        if (sm?.flush) await sm.flush();
+    } catch { /* ok */ }
     try {
         const { shutdownObserver } = await import('../observer');
         await shutdownObserver();

@@ -10,7 +10,7 @@
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { runBrowserTask, injectOverlay } from '../../browser-manager';
-import { agentEmitter } from '../../agent/loop';
+import { agentEmitter } from '../../agent-events';
 
 export const browserAutoTask: Skill = {
     nome: 'browser_auto_task',

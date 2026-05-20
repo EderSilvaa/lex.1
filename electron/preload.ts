@@ -24,7 +24,6 @@ contextBridge.exposeInMainWorld('lexEngineApi', {
 contextBridge.exposeInMainWorld('lexApi', {
     saveHistory: (mensagens: any) => ipcRenderer.invoke('save-history', mensagens),
     getHistory: () => ipcRenderer.invoke('get-history'),
-    sendChat: (message: string, context?: any) => ipcRenderer.invoke('ai-chat-send', { message, context }),
     savePreferences: (prefs: any) => ipcRenderer.invoke('save-preferences', prefs),
     getPreferences: () => ipcRenderer.invoke('get-preferences'),
     // Provider / API Keys — BYOK multi-provider
@@ -44,21 +43,8 @@ contextBridge.exposeInMainWorld('lexApi', {
     getAnthropicKeyStatus: () => ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => ipcRenderer.invoke('check-pje'),
     focusBrowser: () => ipcRenderer.invoke('browser-focus'),
-    executePlan: (plan: any) => ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query: string) => ipcRenderer.invoke('crawler-search', query),
 
-    // Agent Loop API
-    runAgent: (objetivo: string, config?: any, sessionId?: string) => ipcRenderer.invoke('agent-run', objetivo, config, sessionId),
-    respondAgent: (runId: string, response: string, sessionId?: string) =>
-        ipcRenderer.invoke('agent-respond', { runId, response, sessionId }),
-    shouldUseAgent: (objetivo: string) => ipcRenderer.invoke('agent-should-handle', objetivo),
-    cancelAgent: () => ipcRenderer.invoke('agent-cancel'),
-    onAgentEvent: (cb: (event: { type: string; data: any }) => void) => {
-        ipcRenderer.on('agent-event', (_, event) => cb(event));
-    },
-    offAgentEvent: () => {
-        ipcRenderer.removeAllListeners('agent-event');
-    },
     onBackendLog: (cb: (entry: any) => void) => {
         ipcRenderer.on('backend-log', (_, entry) => cb(entry));
     },
@@ -80,7 +66,6 @@ contextBridge.exposeInMainWorld('lexApi', {
     loadConversation: (id: string) => ipcRenderer.invoke('conversations-load', id),
     saveConversation: (conv: any) => ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id: string) => ipcRenderer.invoke('conversations-delete', id),
-    seedSession: (sessionId: string, messages: any[]) => ipcRenderer.invoke('session-seed', sessionId, messages),
     onConversationsUpdated: (cb: (summary: any) => void) => {
         ipcRenderer.on('conversations-updated', (_, summary) => cb(summary));
     },
@@ -140,10 +125,6 @@ contextBridge.exposeInMainWorld('lexApi', {
     privacyGetEffectiveLevel: (providerId?: string) => ipcRenderer.invoke('privacy-get-effective-level', providerId),
     privacyGetAuditSummary: (days?: number) => ipcRenderer.invoke('privacy-get-audit-summary', days),
 
-    // Training (PJe-Model dataset)
-    trainingStats: () => ipcRenderer.invoke('training-stats'),
-    trainingExport: (options?: { minConfidence?: 'medium' | 'high'; sistema?: string; tribunal?: string; maxExamples?: number }) =>
-        ipcRenderer.invoke('training-export', options),
 });
 
 contextBridge.exposeInMainWorld('authApi', {
@@ -154,47 +135,6 @@ contextBridge.exposeInMainWorld('authApi', {
     checkLicense: () => ipcRenderer.invoke('auth-check-license'),
     refreshLicense: () => ipcRenderer.invoke('auth-refresh-license'),
     getProfile: () => ipcRenderer.invoke('auth-get-profile'),
-});
-
-contextBridge.exposeInMainWorld('orchestratorApi', {
-    /** Retorna snapshot do plano ativo (subtasks + status). Null se nenhum plano rodando. */
-    getState: () => ipcRenderer.invoke('orchestrator-get-state'),
-    /** Cancela o plano em execução. Progresso é salvo em checkpoint. */
-    cancel: () => ipcRenderer.invoke('orchestrator-cancel'),
-    /** Pausa a execução (agentes em andamento terminam; novos não iniciam). */
-    pause: () => ipcRenderer.invoke('orchestrator-pause'),
-    /** Retoma execução pausada. */
-    resume: () => ipcRenderer.invoke('orchestrator-resume'),
-    /** Retorna se o plano está pausado. */
-    isPaused: () => ipcRenderer.invoke('orchestrator-is-paused'),
-    /** Escuta eventos de orquestração (plan_created, subtask_started, etc.) */
-    onEvent: (cb: (event: any) => void) =>
-        ipcRenderer.on('agent-event', (_, e) => { if (e.type === 'orchestrator') cb(e.data); }),
-    offEvent: () => ipcRenderer.removeAllListeners('agent-event'),
-});
-
-contextBridge.exposeInMainWorld('checkpointApi', {
-    listPending: () => ipcRenderer.invoke('checkpoint-list-pending'),
-    resume: (planId: string) => ipcRenderer.invoke('checkpoint-resume', { planId }),
-    remove: (planId: string) => ipcRenderer.invoke('checkpoint-remove', { planId }),
-});
-
-contextBridge.exposeInMainWorld('schedulerApi', {
-    listGoals: () => ipcRenderer.invoke('scheduler-list-goals'),
-    addGoal: (goal: any) => ipcRenderer.invoke('scheduler-add-goal', goal),
-    updateGoal: (id: string, updates: any) => ipcRenderer.invoke('scheduler-update-goal', { id, updates }),
-    removeGoal: (id: string) => ipcRenderer.invoke('scheduler-remove-goal', id),
-    pauseGoal: (id: string) => ipcRenderer.invoke('scheduler-pause-goal', id),
-    resumeGoal: (id: string) => ipcRenderer.invoke('scheduler-resume-goal', id),
-    runNow: (id: string) => ipcRenderer.invoke('scheduler-run-now', id),
-    getRuns: (goalId: string, limit?: number) => ipcRenderer.invoke('scheduler-get-runs', { goalId, limit }),
-    getStatus: () => ipcRenderer.invoke('scheduler-get-status'),
-    setAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('scheduler-set-auto-launch', enabled),
-    getAutoLaunch: () => ipcRenderer.invoke('scheduler-get-auto-launch'),
-    onSchedulerEvent: (cb: (event: any) => void) => ipcRenderer.on('scheduler-event', (_, e) => cb(e)),
-    offSchedulerEvent: () => ipcRenderer.removeAllListeners('scheduler-event'),
-    onNotificationBadge: (cb: (data: any) => void) => ipcRenderer.on('notification-badge', (_, d) => cb(d)),
-    offNotificationBadge: () => ipcRenderer.removeAllListeners('notification-badge'),
 });
 
 contextBridge.exposeInMainWorld('brainApi', {
@@ -278,45 +218,6 @@ contextBridge.exposeInMainWorld('agoraApi', {
     getRuns: (id: string) => ipcRenderer.invoke('agora-get-runs', id),
     onAgoraEvent: (cb: (event: any) => void) => ipcRenderer.on('agora-event', (_, e) => cb(e)),
     offAgoraEvent: () => ipcRenderer.removeAllListeners('agora-event'),
-});
-
-contextBridge.exposeInMainWorld('batchApi', {
-    // Lote CRUD
-    listLotes: () => ipcRenderer.invoke('batch-list-lotes'),
-    getLote: (id: string) => ipcRenderer.invoke('batch-get-lote', id),
-    removeLote: (id: string) => ipcRenderer.invoke('batch-remove-lote', id),
-
-    // Pipeline initiation
-    createLote: (input: {
-        rawInput: string; nome: string;
-        tipoPeticao?: string; tese?: string; tribunal?: string;
-        tom?: string; userInstructions?: string;
-    }) => ipcRenderer.invoke('batch-create-lote', input),
-
-    // HITL approvals
-    approveStrategy: (loteId: string) => ipcRenderer.invoke('batch-approve-strategy', loteId),
-    approveWave: (loteId: string, waveIndex: number, redraftIds?: string[]) =>
-        ipcRenderer.invoke('batch-approve-wave', { loteId, waveIndex, redraftIds }),
-    approveProtocol: (loteId: string) => ipcRenderer.invoke('batch-approve-protocol', loteId),
-
-    // Controls
-    pauseLote: (loteId: string) => ipcRenderer.invoke('batch-pause', loteId),
-    resumeLote: (loteId: string) => ipcRenderer.invoke('batch-resume', loteId),
-    cancelLote: (loteId: string) => ipcRenderer.invoke('batch-cancel', loteId),
-
-    // Petição editor
-    readPeticao: (filePath: string) => ipcRenderer.invoke('batch-read-peticao', filePath),
-    savePeticao: (filePath: string, content: string) =>
-        ipcRenderer.invoke('batch-save-peticao', { filePath, content }),
-    openFolder: (folderPath: string) => ipcRenderer.invoke('batch-open-folder', folderPath),
-
-    // Export
-    exportDocx: (filePath: string) => ipcRenderer.invoke('batch-export-docx', filePath),
-    exportPdf: (filePath: string) => ipcRenderer.invoke('batch-export-pdf', filePath),
-
-    // Events
-    onBatchEvent: (cb: (event: any) => void) => ipcRenderer.on('batch-event', (_, e) => cb(e)),
-    offBatchEvent: () => ipcRenderer.removeAllListeners('batch-event'),
 });
 
 contextBridge.exposeInMainWorld('docKnowledgeApi', {

@@ -14,7 +14,7 @@ import { getActiveConfig } from '../provider-config';
 import { isBrowserUseAvailable, ensureBrowserUseProviderDeps } from './browser-use-setup';
 import { withExternalLock } from './browser-lock';
 import { lookupSelectors, recordSuccess } from './selector-memory';
-import { agentEmitter } from '../agent/loop';
+import { agentEmitter } from '../agent-events';
 import { ensureBrowser, runBrowserTask } from '../browser-manager';
 import { inferCurrentPjeEnvironment } from '../pje/active-environment';
 

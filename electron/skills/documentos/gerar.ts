@@ -6,7 +6,6 @@
  */
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
-import { getEnrichedFormattingBlock } from '../../batch/legal-templates';
 import { getFullStyleBlock } from '../../legal/style-rules';
 import { detectLegalArea } from '../../legal/legal-language-engine';
 import * as fs from 'fs';
@@ -81,7 +80,7 @@ const docGerar: Skill = {
             // Monta system prompt enriquecido com templates + estilo jurídico
             const areas = detectLegalArea(instrucoes || tipoFormatado);
             const primaryArea = areas[0] || 'civil';
-            const formattingBlock = getEnrichedFormattingBlock(tipo, { area: primaryArea });
+            const formattingBlock = '';
             const styleBlock = getFullStyleBlock(primaryArea, tipo);
 
             // Súmulas e artigos relevantes do store dinâmico

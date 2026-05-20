@@ -148,17 +148,8 @@ export class SyncEngine {
                                 timestamp: new Date().toISOString(),
                             });
 
-                            // Notificação via sistema de notificações
-                            try {
-                                const { notify } = await import('../notifications');
-                                await notify({
-                                    title: `Nova movimentação: ${proc.apelido || proc.numero}`,
-                                    body: `${movNome}${movs[0]!.dataHora ? ` — ${movs[0]!.dataHora}` : ''}`,
-                                    urgency: 'high',
-                                    channels: ['toast', 'telegram', 'badge'],
-                                });
-                            } catch { /* notification optional */ }
-
+                            // Notificacao desconectada: o sistema de notificacoes vivia em
+                            // `electron/notifications.ts`, removido junto com o scheduler legado.
                             console.log(`[SyncEngine] 🔴 Movimentação nova: ${proc.apelido || proc.numero} — ${movNome}`);
                         } else if (!proc.ultimaMovimentacaoHash) {
                             // Primeira vez — salva hash sem notificar

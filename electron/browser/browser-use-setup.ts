@@ -7,7 +7,7 @@
  */
 
 import { getPythonEnv, ensurePythonEnvSetup } from '../python';
-import { agentEmitter } from '../agent/loop';
+import { agentEmitter } from '../agent-events';
 
 let _installed: boolean | null = null;
 let _ensurePromise: Promise<boolean> | null = null;

@@ -7,7 +7,7 @@
 
 import { Skill, SkillResult, AgentContext } from '../../agent/types';
 import { runComputerTask, takeScreenshot, getDisplayInfo } from '../../computer-manager';
-import { agentEmitter } from '../../agent/loop';
+import { agentEmitter } from '../../agent-events';
 
 export const pcAgir: Skill = {
     nome: 'pc_agir',

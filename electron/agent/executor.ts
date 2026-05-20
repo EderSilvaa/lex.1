@@ -5,7 +5,7 @@
  * Inspirado no OpenClaw.
  */
 
-import { Skill, SkillResult, SkillRegistry, AgentContext, AgentSpec } from './types';
+import { Skill, SkillResult, SkillRegistry, AgentContext } from './types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { captureDOMSnapshot, computeValidation } from '../browser/validation';

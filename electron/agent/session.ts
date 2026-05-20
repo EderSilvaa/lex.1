@@ -14,8 +14,28 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as os from 'os';
 import { saveEncrypted, loadEncrypted } from '../privacy/encrypted-storage';
-import { getContextBudget } from './context-budget';
-import type { SessionFacts, ProcessoFact, PrazoFact, StructuredSummary, SessionMeta, CrossSessionFact } from './types';
+import type { SessionFacts, StructuredSummary, SessionMeta } from './types';
+
+// Default context budget (large tier). O budget dinamico vivia em
+// `./context-budget.ts`, removido junto com o agent loop legado.
+type ContextBudgetTier = 'large' | 'medium' | 'small';
+function getContextBudget(): {
+    maxHistoryChars: number;
+    maxHistoryMessages: number;
+    maxAssistantTruncation: number;
+    maxUserTruncation: number;
+    maxSummaryTokens: number;
+    tier: ContextBudgetTier;
+} {
+    return {
+        maxHistoryChars: 80000,
+        maxHistoryMessages: 20,
+        maxAssistantTruncation: 6000,
+        maxUserTruncation: 8000,
+        maxSummaryTokens: 500,
+        tier: 'large',
+    };
+}
 import type { Memory } from './memory';
 import type { BrainStore } from '../brain/brain-store';
 
@@ -616,16 +636,17 @@ Retorne APENAS campos com valores. Omita campos vazios. Se não há fatos releva
             // Brain: upsert processo no grafo de conhecimento
             if (brain) {
                 try {
+                    const tribunalForBrain = processo.tribunal || facts.tribunal;
                     brain.upsertProcesso(processo.numero, {
                         processoNumero: processo.numero,
                         lastSessionId: sessionId,
                         lastUpdated: Date.now(),
-                        partes: processo.partes,
-                        classe: processo.classe,
-                        tribunal: processo.tribunal || facts.tribunal,
+                        ...(processo.partes !== undefined ? { partes: processo.partes } : {}),
+                        ...(processo.classe !== undefined ? { classe: processo.classe } : {}),
+                        ...(tribunalForBrain !== undefined ? { tribunal: tribunalForBrain } : {}),
                         tesesDiscutidas: facts.teses,
                         decisoes: facts.decisoes,
-                        status: processo.status,
+                        ...(processo.status !== undefined ? { status: processo.status } : {}),
                     });
                 } catch (e) { console.warn('[Session] Brain upsertProcesso falhou:', e); }
             }
