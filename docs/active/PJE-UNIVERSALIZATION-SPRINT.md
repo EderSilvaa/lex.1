@@ -275,7 +275,7 @@ como trilha estrutural paralela.
 
 Plano de execucao relacionado:
 
-- [`docs/future-tasks/PJE-ADVOGADO-FIRST-VALIDATION.md`](./PJE-ADVOGADO-FIRST-VALIDATION.md)
+- [`docs/archive/PJE-ADVOGADO-FIRST-VALIDATION.md`](../archive/PJE-ADVOGADO-FIRST-VALIDATION.md)
 
 ## Fora de escopo desta task
 

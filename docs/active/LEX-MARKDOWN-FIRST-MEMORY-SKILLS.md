@@ -298,8 +298,8 @@ Entregas:
 
 Docs relacionados:
 
-- [`docs/future-tasks/PJE-ADVOGADO-FIRST-VALIDATION.md`](./PJE-ADVOGADO-FIRST-VALIDATION.md)
-- [`docs/future-tasks/PJE-UNIVERSALIZATION-SPRINT.md`](./PJE-UNIVERSALIZATION-SPRINT.md)
+- [`docs/archive/PJE-ADVOGADO-FIRST-VALIDATION.md`](../archive/PJE-ADVOGADO-FIRST-VALIDATION.md)
+- [`docs/active/PJE-UNIVERSALIZATION-SPRINT.md`](./PJE-UNIVERSALIZATION-SPRINT.md)
 
 ### Fase 2 - Evoluir Habilidades para painel vivo
 
