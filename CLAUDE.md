@@ -1,300 +1,125 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repo. Fonte de
+verdade arquitetural: [docs/CURRENT-ARCHITECTURE.md](docs/CURRENT-ARCHITECTURE.md).
 
-## Current Sprint Memory
+Idioma: responda em português do Brasil, direto e técnico. Sem over-engineering —
+o projeto está em modo "fechar MVP".
 
-- Brain/Dream/Replay sprint status is recorded in `docs/BRAIN-DREAM-REPLAY-SPRINT.md`.
-- Automated phases are complete: `test:brain`, `test:brain:e2e`, `test:brain:renderer`, and `type-check` passed on 2026-04-19.
-- Remaining item before declaring the sprint 100% closed: assisted real TJPA flow test in the open app, including replay preview/execute/cancel, vision fallback, and patterns export privacy check.
+## Gotcha crítica — launcher do Electron
 
-## Commands
+VSCode seta `ELECTRON_RUN_AS_NODE=1`. O script
+[scripts/launch-electron.js](scripts/launch-electron.js) deleta essa env var antes
+de spawnar o Electron. **Nunca chamar `electron` direto** — sempre via
+`npm run electron:start` ou `npm run electron:dev`.
+
+## Comandos
 
 ```bash
-# Desenvolvimento (watch TS + inicia Electron)
-npm run electron:dev
-
-# Só iniciar o app (sem watch)
-npm run electron:start
-
-# Compilar TypeScript
-npm run build          # renderer (tsconfig.json)
-tsc -p tsconfig.electron.json   # processo principal
-
-# Type-check sem emitir
-npm run type-check
+npm run electron:dev    # watch TS + inicia Electron
+npm run electron:start  # só inicia (sem watch)
+npm run build           # compila pra dist-electron/
+npm run type-check      # tsc --noEmit (tsconfig.electron.json, sem strict)
 ```
 
-> **CRÍTICO:** VSCode seta `ELECTRON_RUN_AS_NODE=1`. O script `scripts/launch-electron.js` deleta essa variável antes de spawnar o Electron. **Nunca chamar `electron` diretamente** — sempre via `npm run electron:start`.
+> Existem dois tsconfigs no repo. `tsconfig.electron.json` é o build real.
+> `tsconfig.json` é mais estrito e nenhum script o usa — IDE pega ele e mostra
+> erros que o build aceita. Dívida técnica conhecida, não bloqueia produto.
 
-## Arquitetura
+## Arquitetura em um parágrafo
 
-**Estado atual em 2026-05-09:**
+LEX tem duas metades conectadas por MCP/HTTP local:
 
-- Lex Desktop/Electron e produto Windows, executor PJe/arquivos/Brain,
-  confirmacoes, auditoria e UI.
-- Lex Engine/Hermes e o cerebro: raciocinio, chat inline, planner,
-  multiagentes, tools, scheduler e workflows.
-- MCP/HTTP/JSON local e o contrato supervisionado entre Engine e Desktop.
-- Agora e a superficie para workflows duraveis, massivos, retomaveis,
-  auditaveis e com checkpoints humanos.
-- Lotes/batch antigo nao e arquitetura nova; nao expandir esse caminho.
-- `electron/agent` e legado/transicional. Novas capacidades de orquestracao
-  devem ir para o Engine/Hermes e cruzar para o Desktop por MCP/HTTP/JSON.
+- **Lex Engine / Hermes** (Python no WSL, em [engine/lex-engine/](engine/lex-engine/))
+  é o cérebro: raciocina, planeja, usa subagentes, agenda jobs, gerencia skills.
+  Roda dentro do terminal "Console Lex" do Electron.
+- **Lex Desktop** (Electron + TypeScript) é a superfície do produto: mostra UI,
+  segura sessão PJe no Chrome, executa ações Windows/arquivo, pede confirmação
+  humana, registra auditoria, e mantém memória operacional (Brain).
 
-### Engine/Hermes e Agora
+Quando o Hermes precisa agir em PJe/Windows/arquivos, ele chama o MCP `lex-desktop`
+(registrado em `~/.hermes/config.yaml`), que spawna
+[scripts/lex-desktop-mcp-server.mjs](scripts/lex-desktop-mcp-server.mjs), que
+encaminha HTTP pra ponte em
+[electron/lex-desktop-bridge.ts](electron/lex-desktop-bridge.ts), que chama
+handlers RPC em [electron/backend/server.ts](electron/backend/server.ts), que usa
+módulos em [electron/pje/](electron/pje/) pra controlar Chrome via Playwright/CDP.
 
-- Runtime padrao: `LEX_ENGINE_MODE=repo-wsl`.
-- Fallback preservado: `LEX_ENGINE_MODE=external-wsl`.
-- Board Agora compartilhado: `LEX_AGORA_BOARD_PATH`.
-- Tool Engine: `agora`.
-- UI Agora: `src/renderer/js/agora.js` e `src/renderer/styles/agora.css`.
+## Onde as coisas vivem (caminho ativo)
 
-### Processos Electron
-- **Main:** `electron/main.ts` — janela, IPC handlers, inicialização de serviços
-- **Renderer:** `src/renderer/index.html` + `src/renderer/js/app.js` (JS puro, sem framework)
-- **Preload:** `electron/preload.ts` — expõe API segura ao renderer via `contextBridge`
+**Electron (TypeScript):**
+- [electron/main.ts](electron/main.ts) — janela, IPC, terminal, auth, updater, plugins
+- [electron/preload.ts](electron/preload.ts) — APIs expostas ao renderer
+- [electron/lex-engine.ts](electron/lex-engine.ts) — ponte pro Hermes via WSL
+- [electron/lex-desktop-bridge.ts](electron/lex-desktop-bridge.ts) — servidor HTTP que o MCP `lex-desktop` consome
+- [electron/backend/server.ts](electron/backend/server.ts) — RPC server com handlers PJe
+- [electron/pje/](electron/pje/) — módulos canônicos PJe (filler, clicker, reader, downloader, etc.)
+- [electron/browser-manager.ts](electron/browser-manager.ts) — Chrome via Playwright CDP
+- [electron/brain/](electron/brain/) — memória operacional: replay, dream, selector/route memory
+- [electron/agora/](electron/agora/) — Kanban (parqueado pós-MVP, mas wired)
+- [electron/terminal/](electron/terminal/) — node-pty pra view Console Lex
+- [electron/plugins/](electron/plugins/) — integrações externas (Gmail, Slack, Notion, etc.)
+- [electron/agent/](electron/agent/) — biblioteca compartilhada (types, memory, session, executor, retry, doc-index, legislacao-downloader) — **NÃO é mais um cérebro**, é só infra que skills/backend/RAG consomem
 
-### Agent Loop legado (`electron/agent/`)
+**Renderer (JS puro):**
+- [src/renderer/index.html](src/renderer/index.html) — markup principal
+- [src/renderer/js/app.js](src/renderer/js/app.js) — settings, brain, skills, plugins, navegação
+- [src/renderer/js/terminal.js](src/renderer/js/terminal.js) — xterm.js do Console Lex
+- [src/renderer/js/agora.js](src/renderer/js/agora.js) — UI Ágora
+- [src/renderer/js/file-manager.js](src/renderer/js/file-manager.js) — view de arquivos
 
-> Historico do loop TypeScript. A arquitetura atual usa Hermes/Lex Engine como
-> cerebro; manter este caminho apenas por compatibilidade ate migracao/limpeza.
+**Engine (Python):**
+- [engine/lex-engine/](engine/lex-engine/) — Hermes (planner, tools, kanban, gateway, MCP client/server)
+- [engine/lex-pje-mcp/](engine/lex-pje-mcp/) — MCP PJe dedicado em Python, em construção, ainda **não plugado** em `~/.hermes/config.yaml`
 
-Padrão: **Objetivo → LOOP(Think → Act → Observe) → Resposta**
+## Caminho canônico PJe
 
-| Arquivo | Papel |
-|---|---|
-| `loop.ts` | Orquestrador do loop único; emite eventos para a UI via `agentEmitter`. Aceita `AgentSpec` opcional para especialização |
-| `think.ts` | Chama o LLM para decidir a próxima skill. Aceita `AgentSpec` para filtrar skills e injetar prompt extra |
-| `critic.ts` | Avalia se a resposta final está boa o suficiente |
-| `executor.ts` | Despacha para a skill correta. `getSkillsForPrompt()` aceita `allowedCategories` para filtrar por agente |
-| `session.ts` | Persistência de sessões/histórico de conversa |
-| `memory.ts` | Memória TF-IDF para contexto de processos jurídicos |
-
-### Planning & Multi-Agent legado (Phase 1 AIOS — `electron/agent/`)
-
-> Historico do planner TS. A arquitetura atual usa Hermes/Lex Engine para
-> raciocinio e multiagentes; Agora recebe workflow duravel.
-
-Camada acima do Agent Loop que decompõe objetivos complexos em subtasks paralelas.
-
-**Fluxo:** `Goal → Planner → SubTask[] (DAG) → Orchestrator → AgentPool → Blackboard → Síntese Final`
-
-| Arquivo | Papel |
-|---|---|
-| `planner.ts` | LLM decompõe objetivo em subtasks com dependências. `shouldUsePlanner()` detecta objetivos compostos |
-| `orchestrator.ts` | Coordena execução: cria plano, executa batches topológicos, sintetiza resposta final. **Checkpointing automático** a cada batch |
-| `agent-pool.ts` | Spawn/parallel de agentes com concurrency limit. Respeita `maxConcurrent` e `requiresBrowser` do AgentSpec |
-| `agent-types.ts` | Registry de 6 tipos: `general`, `pje`, `document`, `research`, `browser`, `os`. Cada tipo define `maxConcurrent` e `requiresBrowser` |
-| `blackboard.ts` | Shared context — agentes postam resultados via `set()`, outros lêem via `get()` |
-| `checkpoint-store.ts` | Persiste estado de Plans em disco (`~/.lex/checkpoints/`). Permite retomar planos interrompidos. `saveCheckpoint()` a cada batch, `findCheckpointByGoal()` para retomada, `removeCheckpoint()` ao completar |
-| `validator-agent.ts` | Dual-agent validation (padrão MassGen) para ações de alto risco. 2 chamadas LLM independentes confirmam antes de executar. Integrado no `applyCritic()` do loop.ts |
-| `types.ts` | `AgentSpec`, `SubTask`, `Plan`, `OrchestratorEvent`, `AgentTypeId` |
-
-**IPC:** `ai-plan-execute` no preload → handler no main.ts → `Orchestrator.execute()`.
-**Checkpoints IPC:** `checkpointApi` no preload — `listPending`, `resume`, `remove`.
-**Backward compat:** `runAgentLoop` sem `agentSpec` funciona exatamente como antes.
-
-### Browser Automation (`electron/browser-manager.ts`)
-Controla Chrome externo via Playwright CDP. O browser **só inicia quando uma skill PJe é executada** — `ensureBrowser()` é chamado internamente.
-
-API pública:
-- `ensureBrowser()` — garante init (lazy); usar em toda skill antes de `getActivePage()`
-- `runBrowserTask(instruction, maxSteps, onStep)` — executa tarefa via agent autônomo
-- `injectOverlay(text, done?)` — overlay visual no Chrome
-- `closeBrowser()` — mata Chrome e limpa estado
-- `reInitBrowser()` — fecha e reinicia (usado ao trocar provider/modelo)
-
-Heartbeat: `startHeartbeat()` roda a cada 6h, faz `fetch(url)` com cookies para manter sessão PJe. Timeout de 30s evita travamento em CDP hang.
-
-### Browser Infra (`electron/browser/`)
-
-| Arquivo | Status | Papel |
-|---|---|---|
-| `validation.ts` | ✅ Integrado | Post-action DOM snapshot (antes/depois). Executado automaticamente pelo executor para skills de categoria `browser`/`pje` |
-| `selector-memory.ts` | ✅ Integrado | Cache tribunal→seletor com success/failure tracking. Persistido em disco |
-| `selector-discovery.ts` | ✅ Integrado | Heurística de scoring para encontrar elementos sem LLM |
-| `resolve-selector.ts` | ✅ Integrado | Waterfall de 3 tiers (learned → hardcoded → discovery). Usado por 4 skills PJe: consultar, preencher, documentos, movimentacoes |
-| `captcha.ts` | ✅ Integrado | Detecção de CAPTCHA (DOM heuristics) + auto-solve via vision model. PJe → pausa para usuário, gov → auto-solve |
-
-### MCP — Model Context Protocol (`electron/mcp-manager.ts`)
-
-Carrega servers MCP externos (stdio) a partir de `~/.lex/mcp.json` e multiplexa tools:
-- `init()` — spawna servers declarados (idempotente)
-- `listTools()` — agrega tools prefixadas (`server__tool_name`)
-- `callTool(name, args)` — roteia para o server correto
-
-**Provider-agnóstico:** tools MCP são convertidos para formato Vercel AI SDK e funcionam com qualquer provider que suporte tool-calling.
-
-**Config:** `~/.lex/mcp.json` (template criado em `~/.lex/mcp.example.json` pelo `scripts/setup-mcp-deps.js`).
-
-**Importante:** MCP tools NÃO são injetados no think loop (que tem seu próprio sistema de skills). Só são usados quando `callAI({ useMcpTools: true })` é passado explicitamente.
-
-### CLI (`electron/cli/`)
-
-CLI standalone que roda como processo separado, conecta no backend via WebSocket. Funciona dentro do terminal embutido do Electron ou em terminal externo do SO.
-
-| Arquivo | Papel |
-|---|---|
-| `index.ts` | Entry point: parseia args, roda REPL ou one-shot. Aceita `--in-electron` |
-| `repl.ts` | REPL interativo com Ink/React |
-| `one-shot.ts` | Modo single-command (`lex "pergunta"`) |
-| `commands.ts` | Comandos `/model`, `/provider`, `/key`, `/schedule`, etc. |
-| `output.ts` | Formatação: markdown, spinner, bullet points, streaming |
-| `args.ts` | Parser de argumentos CLI |
-| `config.ts` | Config de provider/modelo para CLI |
-| `message-bus.ts` | EventEmitter para comunicação interna CLI |
-| `prompt-select.ts` | Seleção interativa de prompts |
-| `schedule.ts` | Comandos de scheduling via CLI |
-| `ui-bridge.ts` | Helper `uiNavigate(tab, payload?)` para controlar o Electron |
-| `ui/App.tsx` | UI principal Ink/React (welcome box, streaming, events) |
-| `ui/Header.tsx` | Header com logo LEX |
-| `ui/EventItem.tsx` | Renderização de eventos do agente |
-| `ui/Spinner.tsx` | Spinner animado |
-
-### Terminal Embutido (`src/renderer/js/terminal.js`)
-
-Terminal xterm.js integrado no Electron como view padrão (chat widget está oculto).
-
-**Boot order crítico:**
-1. `main.ts` registra IPC handlers (`terminal-create-lex`, `terminal-resize`, etc.) **logo após `createWindow()`**, antes de plugins/scheduler
-2. `app.js` agenda `initTerminalView()` com `setTimeout(200ms)` — o `typeof` check está **dentro** do callback (terminal.js carrega depois de app.js)
-3. `terminal.js` usa `ResizeObserver` no wrapper para fit quando container ganha dimensões reais
-
-**Sessões:** múltiplas tabs (LEX CLI ou shell do SO). PTY via `node-pty` no main process.
-
-### Ágora (`electron/agora/`, `src/renderer/js/agora.js`)
-
-Quadro de workflow durável para tarefas complexas/massivas que não devem ficar
-presas a uma execução conversacional inline.
-
-Fluxo mental:
-
-```text
-pedido complexo -> Hermes cria/atualiza cards via tool agora ->
-Electron observa board compartilhado -> UI Ágora mostra progresso/checkpoints
+```
+Hermes (Console Lex) → lex-desktop MCP (scripts/lex-desktop-mcp-server.mjs)
+                     → HTTP bridge porta 32179 (electron/lex-desktop-bridge.ts)
+                     → backend RPC (electron/backend/server.ts)
+                     → módulos em electron/pje/
+                     → browser-manager → Chrome via CDP
 ```
 
-Use Ágora para:
+Não introduzir caminhos paralelos que ignorem essa cadeia. Tudo de PJe novo
+deve passar por aqui ou pelo `engine/lex-pje-mcp/` quando ele for plugado.
 
-- dezenas de processos PJe;
-- muitas petições;
-- protocolo supervisionado;
-- etapas com dependências, pausa e retomada;
-- auditoria e comentários por card.
+## Engine/Hermes — config runtime
 
-Não usar Lotes como base nova. `electron/batch` pode existir como legado, mas a
-UI de produto agora é Ágora.
-
-### Skills (`electron/skills/`)
-```
-skills/
-  pje/        browser-use (MCP canonical), abrir, agir, consultar, movimentacoes,
-              documentos, navegar, preencher (legacy — auto-detecta via hasMcpBrowser())
-  os/         arquivos, clipboard, escrever, fetch, listar, sistema
-  pc/         agir (nut-js: mouse/teclado)
-  documentos/ analisar, gerar
-  browser/    get-state, extract, scroll, click, navigate, type, screenshot, close-tab, switch-tab
-  pesquisa/   jurisprudencia
-```
-Cada skill exporta `{ nome, descricao, execute(params, ctx) }`. O `executor.ts` as registra e despacha.
-
-**PJe auto-routing:** `electron/skills/pje/index.ts` detecta se MCP browser-use está configurado. Se sim, registra apenas `pje_browser_use` + utilitários. Se não, registra as 8 skills Playwright legacy.
-
-### Providers / BYOK (`electron/provider-config.ts`)
-Suporte a Anthropic, OpenAI, OpenRouter, Google AI, Groq. A config ativa é lida por `getActiveConfig()` / `getActiveVisionModel()`. Chaves são armazenadas criptografadas via `electron/crypto-store.ts`.
-
-### Auth / License (`electron/auth/`)
-> **Em desenvolvimento.** `checkLicense()` retorna `{ status: 'pro', daysLeft: 999 }` hardcoded — paywall e trial ainda não implementados. A infra de auth (signIn/signUp/signOut via Supabase) já funciona, falta conectar a verificação de plano.
-
-### IPC — `ai-plan-execute`
-`ai-plan-execute` está exposto no preload e tem handler no main.ts. Recebe `{ goal, sessionId? }`, instancia `Orchestrator`, emite eventos `orchestrator` para o renderer e retorna `{ success, result }`.
-
-### PJe Utilities
-- `electron/pje/tribunal-urls.ts` — mapa tribunal → URL de login/painel
-- `electron/pje/route-memory.ts` — cache de rotas aprendidas
-- `electron/crawler.ts` — crawler de login para extrair dados de processo
-
-### Telegram Bot (`electron/telegram-bot.ts`)
-Bot opcional; auto-inicia na `app.whenReady()` se estava ativo na sessão anterior.
-
-### Scheduler & Autonomia (Phase 2 AIOS — `electron/scheduler/`)
-
-Sistema de agendamento autônomo que executa goals sem interação do usuário.
-
-**Fluxo:** `Goal Store → Scheduler (cron/once/interval/trigger) → Job Runner → Orchestrator → Notifications`
-
-| Arquivo | Papel |
-|---|---|
-| `types.ts` | `ScheduledGoal`, `JobRun`, `ScheduleConfig`, `TriggerConfig`, `NotificationPayload` |
-| `goal-store.ts` | CRUD persistente de goals + histórico de runs via electron-store |
-| `scheduler.ts` | Motor: tick 60s para cron, timers para once/interval, triggers para eventos. Cron matcher inline (5-field) |
-| `job-runner.ts` | Executa goals via `Orchestrator.execute()`. Prevent overlap (1 run/goal), notificações, analytics |
-| `triggers.ts` | File watcher (fs.watch), PJe movimentação (polling), manual, webhook (stub) |
-| `index.ts` | `initScheduler()` / `stopScheduler()` — chamados no boot e quit do app |
-
-**Notification Layer** (`electron/notifications.ts`): toast (Electron Notification), Telegram (via bot existente), badge (IPC para renderer).
-
-**IPC:** `schedulerApi` no preload — `listGoals`, `addGoal`, `updateGoal`, `removeGoal`, `pauseGoal`, `resumeGoal`, `runNow`, `getRuns`, `getStatus`, `setAutoLaunch`, `getAutoLaunch`.
-
-**Auto-launch:** `app.setLoginItemSettings()` com flag `--background` para iniciar minimizado.
-
-### Plugins & Integrações (Phase 3 AIOS — `electron/plugins/`)
-
-Sistema extensível de plugins para integrações externas com OAuth 2.0 e gerenciamento de tokens.
-
-**Fluxo:** `PluginManager.loadAll() → registerPlugin → OAuth → connectPlugin → registerSkills + registerAgentType`
-
-| Arquivo | Papel |
-|---|---|
-| `types.ts` | `LexPlugin`, `LexPluginManifest`, `PluginTokens`, `PluginState`, `PluginAuthConfig` |
-| `plugin-manager.ts` | Singleton: registro, lifecycle, OAuth tokens (criptografados), connect/disconnect. Integra com executor (registerSkill) e agent-types (registerAgentType) |
-| `oauth-flow.ts` | OAuth 2.0 genérico para Electron: loopback HTTP server, BrowserWindow, PKCE, token exchange e refresh |
-| `index.ts` | `initPlugins()` — registra plugins built-in e carrega estado persistido |
-
-**Plugins Built-in (22):**
-
-| Plugin | Dir | Skills | Auth |
-|---|---|---|---|
-| Gmail | `gmail/` | `gmail_listar`, `gmail_ler`, `gmail_enviar`, `gmail_buscar`, `gmail_responder` | OAuth2 Google |
-| Google Calendar | `gcalendar/` | `gcal_listar`, `gcal_buscar`, `gcal_criar`, `gcal_atualizar`, `gcal_deletar` | OAuth2 Google |
-| Google Drive | `gdrive/` | `gdrive_listar`, `gdrive_baixar`, `gdrive_upload`, `gdrive_buscar`, `gdrive_compartilhar` | OAuth2 Google |
-| Google Docs | `gdocs/` | `gdocs_criar`, `gdocs_ler`, `gdocs_escrever`, `gdocs_exportar` | OAuth2 Google |
-| Google Contacts | `gcontacts/` | `gcontacts_listar`, `gcontacts_buscar`, `gcontacts_criar`, `gcontacts_atualizar` | OAuth2 Google |
-| Outlook | `outlook/` | `outlook_listar`, `outlook_ler`, `outlook_enviar`, `outlook_buscar`, `outlook_responder` | OAuth2 Microsoft |
-| Microsoft Teams | `teams/` | `teams_enviar`, `teams_listar_canais`, `teams_buscar`, `teams_agendar_reuniao` | OAuth2 Microsoft |
-| OneDrive/SharePoint | `onedrive/` | `onedrive_listar`, `onedrive_upload`, `onedrive_download`, `onedrive_buscar`, `onedrive_compartilhar` | OAuth2 Microsoft |
-| WhatsApp | `whatsapp/` | `whatsapp_enviar`, `whatsapp_template`, `whatsapp_notificar_cliente` | API Key (Meta) |
-| Slack | `slack/` | `slack_enviar`, `slack_listar_canais`, `slack_buscar`, `slack_ler_canal` | OAuth2 Slack |
-| DocuSign | `docusign/` | `docusign_enviar_envelope`, `docusign_listar`, `docusign_status`, `docusign_baixar_assinado` | OAuth2 DocuSign |
-| Dropbox | `dropbox/` | `dropbox_listar`, `dropbox_upload`, `dropbox_download`, `dropbox_buscar`, `dropbox_compartilhar` | OAuth2 Dropbox |
-| Notion | `notion/` | `notion_buscar`, `notion_ler`, `notion_criar`, `notion_escrever`, `notion_listar` | OAuth2 Notion |
-| Trello | `trello/` | `trello_boards`, `trello_listar`, `trello_criar`, `trello_mover`, `trello_atualizar` | API Key |
-| Todoist | `todoist/` | `todoist_listar`, `todoist_criar`, `todoist_completar`, `todoist_atualizar`, `todoist_projetos` | API Key |
-| Zapier | `zapier/` | `zapier_trigger`, `zapier_listar`, `zapier_salvar_webhook` | Nenhuma (webhook URLs) |
-| Apify | `apify/` | `apify_listar`, `apify_executar`, `apify_resultado`, `apify_buscar` | API Key |
-| PDF Tools | `pdf-tools/` | `pdf_merge`, `pdf_split`, `pdf_ler`, `pdf_info` | Nenhuma (local) |
-| Screenshot | `screenshot/` | `screenshot_capturar`, `screenshot_ocr`, `screenshot_info` | Nenhuma (local) |
-| Excel | `excel/` | `excel_ler`, `excel_criar`, `excel_info`, `excel_para_csv` | Nenhuma (local) |
-| Desktop | `desktop/` | `desktop_abrir`, `desktop_janelas`, `desktop_focar`, `desktop_processos` | Nenhuma (local) |
-| Clipboard | `clipboard/` | `clipboard_ler`, `clipboard_escrever`, `clipboard_imagem` | Nenhuma (local) |
-
-**Arquitetura de cada plugin:**
-- `*-client.ts` — wrapper REST API (fetch, sem SDK)
-- `skills/*.ts` — skills no padrão LEX (`{ nome, descricao, categoria, execute }`)
-- `index.ts` — implementa `LexPlugin`, exporta manifest + skills
-
-**IPC:** `pluginsApi` no preload — `list`, `getStatus`, `getAuthConfig`, `startOAuth`, `disconnect`.
-
-**Extensibilidade:** `AgentTypeId` e `Skill.categoria` são `string` (não union), permitindo que plugins registrem novos tipos dinamicamente via `registerAgentType()` e `registerSkill()`. O Planner usa `getAgentTypeIds()` para descobrir tipos disponíveis em runtime.
+- Runtime padrão: `LEX_ENGINE_MODE=repo-wsl` (usa o monorepo em
+  `engine/lex-engine/`)
+- Fallback: `LEX_ENGINE_MODE=external-wsl` (usa `/home/eder/lex_engine/`)
+- Kanban compartilhado: `HERMES_KANBAN_HOME` / `kanban.db`
+- Spawn de workers Ágora requer `LEX_AGORA_ENABLE_WORKERS=1`
 
 ## Padrões importantes
 
-- **`ensureBrowser()` antes de qualquer uso do browser** — o Chrome inicia lazy, só na primeira skill PJe.
-- **`keepAlive: true`** — impede kill prematuro do Chrome em Electron. `killPreviousChrome()` mata instâncias anteriores pelo PID salvo em `chrome.pid`.
-- **IPC:** renderer → main via `window.electronAPI.*` (exposto no preload). Main → renderer via `mainWindow.webContents.send(...)`.
-- **Build separado:** `tsconfig.json` compila o renderer para `dist/`; `tsconfig.electron.json` compila o processo principal para `dist-electron/`.
-- **Boot order no main.ts:** `createWindow()` → terminal IPC handlers → backend → plugins → scheduler. Terminal DEVE ser registrado antes de qualquer init async pesado, pois o renderer chama `terminal-create-lex` ~200ms após carregar.
-- **Script load order no renderer:** `app.js` carrega ANTES de `terminal.js`. Qualquer referência a funções de `terminal.js` em `app.js` deve estar dentro de callbacks (setTimeout, event handlers), não no top-level.
-- **MCP tools e think loop:** NÃO injetar MCP tools no think loop. O think loop espera resposta XML (`<pensamento>`, `<resposta>`). MCP tools devem ser usados via `callAI({ useMcpTools: true })` apenas em paths que NÃO passam pelo think loop.
-- **Retry 529:** `electron/agent/retry.ts` inclui status 529 (Anthropic overloaded) e string "overloaded" nos retryable. `withAIRetry` é usado em todas as chamadas LLM.
+- **Lazy browser**: `ensureBrowser()` em [electron/browser-manager.ts](electron/browser-manager.ts). Chrome só sobe quando uma ação PJe é realmente invocada.
+- **MCP em duas configs distintas**: `~/.lex/mcp.json` (consumido pelo Electron — hoje tem `filesystem` e `browser`/browser-use); `~/.hermes/config.yaml` seção `mcp_servers` (consumido pelo Hermes — hoje tem `lex-desktop`).
+- **Retry de LLM**: `withAIRetry` em [electron/agent/retry.ts](electron/agent/retry.ts), inclui status 529 (Anthropic overloaded) e "overloaded" string.
+- **Boot order** em main.ts: `createWindow()` → handlers IPC do terminal (imediato) → backend → plugins. Terminal handlers DEVEM estar registrados antes do renderer disparar `terminal-create-engine` (~200ms depois do load).
+- **IPC convention**: renderer → main via `window.lexApi.*` / `window.lexEngineApi.*` / `window.brainApi.*` etc. Main → renderer via `mainWindow.webContents.send(...)`.
+- **Provider/BYOK**: chaves criptografadas via [electron/crypto-store.ts](electron/crypto-store.ts). Provider ativo via `getActiveConfig()` em [electron/provider-config.ts](electron/provider-config.ts). Mudança de provider re-sincroniza com Hermes.
+
+## O que foi removido em 2026-05 (não procure no código)
+
+Após o cleanup pré-MVP:
+
+- Agent Loop TS inteiro (`loop`, `think`, `critic`, `planner`, `orchestrator`, `agent-pool`, `blackboard`, `validator-agent`, `action-queue`, `cache`, `context-budget`, `os-intent-router`, `prompt-layer`, `usage-tracker`, `confirmation-policy`, `training-*` em `electron/agent/`)
+- Chat UI do renderer (chat-wrapper, conv-section, multi-conversation, Plan Card UI, suggestion-cards)
+- Pipeline Batch/Lotes (`electron/batch/`)
+- Scheduler local (`electron/scheduler/`, `electron/notifications.ts`)
+- 8 skills Playwright PJe (`pje/abrir`, `pje/agir`, `pje/consultar`, `pje/movimentacoes`, `pje/documentos`, `pje/navegar`, `pje/preencher`, `pje/bulk-coletar`)
+- IPC handlers: `agent-*`, `ai-plan-execute`, `orchestrator-*`, `checkpoint-*`, `scheduler-*`, `batch-*`, `ai-chat-send`, `training-*`, `session-seed`
+- `electron/eval/` (benchmarks do agent loop)
+
+Telegram bot (`electron/telegram-bot.ts`) sobrevive como shell mas comandos
+do agent foram neutralizados — settings ainda mostra a aba.
+
+## Docs referência
+
+- [docs/CURRENT-ARCHITECTURE.md](docs/CURRENT-ARCHITECTURE.md) — fonte de verdade
+- [docs/LEX-LAUNCH-READINESS.md](docs/LEX-LAUNCH-READINESS.md) — gates de lançamento
+- [docs/BRAIN-DREAM-REPLAY-SPRINT.md](docs/BRAIN-DREAM-REPLAY-SPRINT.md) — sprint atual
+- Outros docs em `docs/` podem ter referências a código removido — preferir o código atual em caso de conflito.
