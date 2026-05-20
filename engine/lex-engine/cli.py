@@ -15,6 +15,7 @@ Usage:
 
 import logging
 import os
+import random
 import re
 import shutil
 import sys
@@ -1748,6 +1749,41 @@ def _build_compact_banner() -> str:
     )
 
 
+def _resolve_lex_desktop_honorific(role: str) -> str:
+    normalized = (role or "").strip().lower()
+    if not normalized:
+        return ""
+    if any(token in normalized for token in ("doutora", "dra", "advogada")):
+        return "Dra."
+    if any(token in normalized for token in ("doutor", "dr", "advogado")):
+        return "Dr."
+    return ""
+
+
+def _build_lex_desktop_welcome(default_text: str) -> str:
+    if os.getenv("LEX_DESKTOP") != "1":
+        return default_text
+
+    user_name = (os.getenv("LEX_DESKTOP_USER_NAME") or "").strip()
+    user_role = (os.getenv("LEX_DESKTOP_USER_ROLE") or "").strip()
+    honorific = _resolve_lex_desktop_honorific(user_role)
+    display_name = f"{honorific} {user_name}".strip() if user_name else ""
+
+    generic_messages = [
+        "Bem-vindo ao Lex. Descreva a tarefa e eu sigo daqui.",
+        "Lex pronta para operar. Conte o que voce precisa no processo, no documento ou na pesquisa.",
+        "Bem-vinda ao Console Lex. Se quiser, descreva a tarefa ou use /help para ver os comandos.",
+        "Tudo pronto por aqui. Me diga o objetivo e eu te acompanho passo a passo.",
+    ]
+    named_messages = [
+        f"Bem-vindo, {display_name}. A Lex esta pronta para ajudar no que voce precisar.",
+        f"Ola, {display_name}. Pode me dizer a tarefa que eu sigo com voce.",
+        f"Prazer em te ver por aqui, {display_name}. Me conte o objetivo e eu assumo a operacao.",
+        f"Seja bem-vindo, {display_name}. Estou pronta para ajudar com PJe, documentos e pesquisa.",
+    ]
+    return random.choice(named_messages if display_name else generic_messages)
+
+
 
 # ============================================================================
 # Slash-command detection helper
@@ -2726,7 +2762,7 @@ class HermesCLI:
             term_width = shutil.get_terminal_size().columns
         except Exception:
             term_width = 80
-        prefix = "  [thinking] "
+        prefix = "  [raciocinio] "
         wrap_width = max(30, term_width - len(prefix) - 2)
 
         paragraphs = []
@@ -2740,7 +2776,7 @@ class HermesCLI:
             return
 
         if self.verbose:
-            _cprint(f"  {_DIM}[thinking] {preview_text}{_RST}")
+            _cprint(f"  {_DIM}[raciocinio] {preview_text}{_RST}")
             return
 
         lines = preview_text.splitlines()
@@ -2749,7 +2785,7 @@ class HermesCLI:
             preview += f"\n  ... ({len(lines) - 5} more lines)"
         else:
             preview = preview_text
-        _cprint(f"  {_DIM}[thinking] {preview}{_RST}")
+        _cprint(f"  {_DIM}[raciocinio] {preview}{_RST}")
 
     def _flush_reasoning_preview(self, *, force: bool = False) -> None:
         """Flush buffered reasoning text at natural boundaries.
@@ -2766,7 +2802,7 @@ class HermesCLI:
             term_width = shutil.get_terminal_size().columns
         except Exception:
             term_width = 80
-        target_width = max(40, term_width - len("  [thinking] ") - 4)
+        target_width = max(40, term_width - len("  [raciocinio] ") - 4)
 
         flush_text = ""
 
@@ -4429,10 +4465,10 @@ class HermesCLI:
 
         try:
             from hermes_cli.skin_engine import get_active_help_header
-            header = get_active_help_header("(^_^)? Available Commands")
+            header = get_active_help_header("(^_^)? Comandos Disponíveis")
         except Exception:
-            header = "(^_^)? Available Commands"
-        header = (header or "").strip() or "(^_^)? Available Commands"
+            header = "(^_^)? Comandos Disponíveis"
+        header = (header or "").strip() or "(^_^)? Comandos Disponíveis"
         inner_width = 55
         if len(header) > inner_width:
             header = header[:inner_width]
@@ -4448,19 +4484,19 @@ class HermesCLI:
                 ChatConsole().print(f"    [bold {_accent_hex()}]{cmd:<15}[/] [dim]-[/] {_escape(desc)}")
 
         if _skill_commands:
-            _cprint(f"\n  ⚡ {_BOLD}Skill Commands{_RST} ({len(_skill_commands)} installed):")
+            _cprint(f"\n  ⚡ {_BOLD}Comandos de Skills{_RST} ({len(_skill_commands)} instaladas):")
             for cmd, info in sorted(_skill_commands.items()):
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{cmd:<22}[/] [dim]-[/] {_escape(info['description'])}"
                 )
 
-        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Lex.{_RST}")
-        _cprint(f"  {_DIM}Multi-line: Alt+Enter for a new line{_RST}")
-        _cprint(f"  {_DIM}Draft editor: Ctrl+G (Alt+G in VSCode/Cursor){_RST}")
+        _cprint(f"\n  {_DIM}Dica: digite sua mensagem para conversar com a Lex.{_RST}")
+        _cprint(f"  {_DIM}Múltiplas linhas: Alt+Enter para nova linha{_RST}")
+        _cprint(f"  {_DIM}Editor de rascunho: Ctrl+G (Alt+G no VSCode/Cursor){_RST}")
         if _is_termux_environment():
-            _cprint(f"  {_DIM}Attach image: /image {_termux_example_image_path()} or start your prompt with a local image path{_RST}\n")
+            _cprint(f"  {_DIM}Anexar imagem: /image {_termux_example_image_path()} ou inicie o prompt com um caminho local{_RST}\n")
         else:
-            _cprint(f"  {_DIM}Paste image: Alt+V (or /paste){_RST}\n")
+            _cprint(f"  {_DIM}Colar imagem: Alt+V (ou /paste){_RST}\n")
     
     def show_tools(self):
         """Display available tools with kawaii ASCII art."""
@@ -6311,7 +6347,7 @@ class HermesCLI:
             parts = cmd_original.split(None, 1)
             payload = parts[1].strip() if len(parts) > 1 else ""
             if not payload:
-                _cprint("  Usage: /queue <prompt>")
+                _cprint("  Uso: /queue <mensagem>")
             else:
                 self._pending_input.put(payload)
                 if self._agent_running:
@@ -6327,7 +6363,7 @@ class HermesCLI:
             parts = cmd_original.split(None, 1)
             payload = parts[1].strip() if len(parts) > 1 else ""
             if not payload:
-                _cprint("  Usage: /steer <prompt>")
+                _cprint("  Uso: /steer <mensagem>")
             elif self._agent_running and self.agent is not None and hasattr(self.agent, "steer"):
                 try:
                     accepted = self.agent.steer(payload)
@@ -8247,14 +8283,14 @@ class HermesCLI:
         selected = state.get("selected", 0)
         show_full = state.get("show_full", False)
 
-        title = "⚠️  Dangerous Command"
+        title = "Atencao: comando sensivel"
         cmd_display = command if show_full or len(command) <= 70 else command[:70] + '...'
         choice_labels = {
-            "once": "Allow once",
-            "session": "Allow for this session",
-            "always": "Add to permanent allowlist",
-            "deny": "Deny",
-            "view": "Show full command",
+            "once": "Aceitar uma vez",
+            "session": "Aceitar nesta sessao",
+            "always": "Aceitar sempre",
+            "deny": "Negar",
+            "view": "Ver comando completo",
         }
 
         preview_lines = _wrap_panel_text(description, 60)
@@ -8447,7 +8483,7 @@ class HermesCLI:
 
         # Initialize agent if needed
         if self.agent is None:
-            _cprint(f"{_DIM}Initializing agent...{_RST}")
+            _cprint(f"{_DIM}Iniciando agente...{_RST}")
         if not self._init_agent(
             model_override=turn_route["model"],
             runtime_override=turn_route["runtime"],
@@ -9243,10 +9279,12 @@ class HermesCLI:
         try:
             from hermes_cli.skin_engine import get_active_skin
             _welcome_skin = get_active_skin()
-            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Lex. Type your message or /help for commands.")
+            _welcome_text = _build_lex_desktop_welcome(
+                _welcome_skin.get_branding("welcome", "Welcome to Lex. Type your message or /help for commands.")
+            )
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
-            _welcome_text = "Welcome to Lex. Type your message or /help for commands."
+            _welcome_text = _build_lex_desktop_welcome("Welcome to Lex. Type your message or /help for commands.")
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
         # First-time OpenClaw-residue banner — fires once if ~/.openclaw/ exists
@@ -9281,7 +9319,7 @@ class HermesCLI:
                 _tip_color = _welcome_skin.get_color("banner_dim", "#B8860B")
             except Exception:
                 _tip_color = "#B8860B"
-            self._console_print(f"[dim {_tip_color}]✦ Tip: {_tip}[/]")
+            self._console_print(f"[dim {_tip_color}]✦ Dica: {_tip}[/]")
         except Exception:
             pass  # Tips are non-critical — never break startup
         if self.preloaded_skills and not self._startup_skills_line_shown:
@@ -10184,7 +10222,7 @@ class HermesCLI:
                 status = cli_ref._command_status or "Processing command..."
                 return f"{frame} {status}"
             if cli_ref._agent_running:
-                return "msg=interrupt · /queue · /bg · /steer · Ctrl+C cancel"
+                return "msg=interrompe · /queue fila · /bg segundo plano · /steer orientar · Ctrl+C cancelar"
             if cli_ref._voice_mode:
                 return "type or Ctrl+B to record"
             return ""
