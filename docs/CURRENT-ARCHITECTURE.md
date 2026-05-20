@@ -115,7 +115,7 @@ multiagente do zero — a base é o Kanban da Nous/Hermes. Mapa em
 
 ```
 electron/
-  main.ts                 janela, IPC, terminal, auth, updater, plugins
+  main.ts                 janela, IPC, terminal, auth, updater
   preload.ts              APIs expostas ao renderer
   lex-engine.ts           ponte pro Hermes (spawn console, ask, provider sync, runtime)
   lex-desktop-bridge.ts   servidor HTTP que o MCP lex-desktop consome
@@ -123,14 +123,15 @@ electron/
   pje/                    módulos canônicos PJe (filler, clicker, readers, downloader, inspector)
   browser-manager.ts      Chrome via Playwright CDP (lazy: só sobe na 1ª ação PJe)
   brain/                  memória operacional (replay, dream, selectors, routes, flows)
+  observer/               sanitização + escrita de observações no Brain
   agora/                  ponte Kanban (pós-MVP)
   terminal/               node-pty pro Console Lex
-  plugins/                integrações externas (Gmail, Slack, Notion, etc.)
   privacy/                PII Vault, consent, audit log (LGPD)
+  legal/                  base de dados jurídica (doc schemas/examples, store)
   provider-config.ts      BYOK; chaves cifradas em crypto-store.ts
   agent/                  biblioteca compartilhada (types, memory, session,
-                          executor, retry, doc-index, legislacao-downloader)
-                          — NÃO é mais cérebro; só infra que skills/backend usam
+                          retry, doc-index, legislacao-downloader)
+                          — NÃO é mais cérebro; só infra que backend/RAG usam
 
 src/renderer/             JS puro: index.html, app.js (settings/brain/skills),
                           terminal.js (Console Lex), agora.js, file-manager.js
@@ -158,8 +159,16 @@ Removido no cleanup pré-MVP de 2026-05:
   caminho MCP/`electron/pje/*`.
 - **IPC handlers**: `agent-*`, `ai-plan-execute`, `orchestrator-*`,
   `checkpoint-*`, `scheduler-*`, `batch-*`, `ai-chat-send`, `training-*`,
-  `session-seed`.
+  `session-seed`, `plugins-*`.
 - `electron/eval/` (benchmarks do agent loop).
+- **Ecossistema de skills/plugins** (2ª leva, era duplicata do Hermes):
+  `electron/skills/` (os, pc, browser, documentos, pesquisa), `electron/plugins/`
+  (22 plugins + OAuth), `electron/browser/` (validation, captcha, selector-memory,
+  resolve-selector, browser-use-*), `agent/{executor,agent-types,checkpoint-store}`,
+  `agent-events.ts`, `computer-manager.ts`, `pje-manager.ts`,
+  `anthropic-mcp-runner.ts`, `legal/{style-rules,legal-language-engine}`. O Hermes
+  já faz mensageria/arquivos/browser/terminal/OAuth nativo. Exclusivos do Desktop
+  catalogados em [backlog/DESKTOP-EXCLUSIVE-CAPABILITIES.md](backlog/DESKTOP-EXCLUSIVE-CAPABILITIES.md).
 
 Telegram bot ([electron/telegram-bot.ts](../electron/telegram-bot.ts)) ainda
 existe como shell, mas os comandos de agente foram neutralizados (sem caminho

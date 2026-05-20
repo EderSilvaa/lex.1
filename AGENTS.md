@@ -49,7 +49,7 @@ módulos em [electron/pje/](electron/pje/) pra controlar Chrome via Playwright/C
 ## Onde as coisas vivem (caminho ativo)
 
 **Electron (TypeScript):**
-- [electron/main.ts](electron/main.ts) — janela, IPC, terminal, auth, updater, plugins
+- [electron/main.ts](electron/main.ts) — janela, IPC, terminal, auth, updater
 - [electron/preload.ts](electron/preload.ts) — APIs expostas ao renderer
 - [electron/lex-engine.ts](electron/lex-engine.ts) — ponte pro Hermes via WSL
 - [electron/lex-desktop-bridge.ts](electron/lex-desktop-bridge.ts) — servidor HTTP que o MCP `lex-desktop` consome
@@ -59,12 +59,11 @@ módulos em [electron/pje/](electron/pje/) pra controlar Chrome via Playwright/C
 - [electron/brain/](electron/brain/) — memória operacional: replay, dream, selector/route memory
 - [electron/agora/](electron/agora/) — Kanban (parqueado pós-MVP, mas wired)
 - [electron/terminal/](electron/terminal/) — node-pty pra view Console Lex
-- [electron/plugins/](electron/plugins/) — integrações externas (Gmail, Slack, Notion, etc.)
-- [electron/agent/](electron/agent/) — biblioteca compartilhada (types, memory, session, executor, retry, doc-index, legislacao-downloader) — **NÃO é mais um cérebro**, é só infra que skills/backend/RAG consomem
+- [electron/agent/](electron/agent/) — biblioteca compartilhada (types, memory, session, retry, doc-index, legislacao-downloader) — **NÃO é mais um cérebro**, é só infra que backend/RAG consomem
 
 **Renderer (JS puro):**
 - [src/renderer/index.html](src/renderer/index.html) — markup principal
-- [src/renderer/js/app.js](src/renderer/js/app.js) — settings, brain, skills, plugins, navegação
+- [src/renderer/js/app.js](src/renderer/js/app.js) — settings, brain, skills (catálogo Hermes), navegação
 - [src/renderer/js/terminal.js](src/renderer/js/terminal.js) — xterm.js do Console Lex
 - [src/renderer/js/agora.js](src/renderer/js/agora.js) — UI Ágora
 - [src/renderer/js/file-manager.js](src/renderer/js/file-manager.js) — view de arquivos
@@ -99,7 +98,7 @@ deve passar por aqui ou pelo `engine/lex-pje-mcp/` quando ele for plugado.
 - **Lazy browser**: `ensureBrowser()` em [electron/browser-manager.ts](electron/browser-manager.ts). Chrome só sobe quando uma ação PJe é realmente invocada.
 - **MCP em duas configs distintas**: `~/.lex/mcp.json` (consumido pelo Electron — hoje tem `filesystem` e `browser`/browser-use); `~/.hermes/config.yaml` seção `mcp_servers` (consumido pelo Hermes — hoje tem `lex-desktop`).
 - **Retry de LLM**: `withAIRetry` em [electron/agent/retry.ts](electron/agent/retry.ts), inclui status 529 (Anthropic overloaded) e "overloaded" string.
-- **Boot order** em main.ts: `createWindow()` → handlers IPC do terminal (imediato) → backend → plugins. Terminal handlers DEVEM estar registrados antes do renderer disparar `terminal-create-engine` (~200ms depois do load).
+- **Boot order** em main.ts: `createWindow()` → handlers IPC do terminal (imediato) → backend. Terminal handlers DEVEM estar registrados antes do renderer disparar `terminal-create-engine` (~200ms depois do load).
 - **IPC convention**: renderer → main via `window.lexApi.*` / `window.lexEngineApi.*` / `window.brainApi.*` etc. Main → renderer via `mainWindow.webContents.send(...)`.
 - **Provider/BYOK**: chaves criptografadas via [electron/crypto-store.ts](electron/crypto-store.ts). Provider ativo via `getActiveConfig()` em [electron/provider-config.ts](electron/provider-config.ts). Mudança de provider re-sincroniza com Hermes.
 
@@ -112,8 +111,9 @@ Após o cleanup pré-MVP:
 - Pipeline Batch/Lotes (`electron/batch/`)
 - Scheduler local (`electron/scheduler/`, `electron/notifications.ts`)
 - 8 skills Playwright PJe (`pje/abrir`, `pje/agir`, `pje/consultar`, `pje/movimentacoes`, `pje/documentos`, `pje/navegar`, `pje/preencher`, `pje/bulk-coletar`)
-- IPC handlers: `agent-*`, `ai-plan-execute`, `orchestrator-*`, `checkpoint-*`, `scheduler-*`, `batch-*`, `ai-chat-send`, `training-*`, `session-seed`
+- IPC handlers: `agent-*`, `ai-plan-execute`, `orchestrator-*`, `checkpoint-*`, `scheduler-*`, `batch-*`, `ai-chat-send`, `training-*`, `session-seed`, `plugins-*`
 - `electron/eval/` (benchmarks do agent loop)
+- **Ecossistema de skills/plugins** (2ª leva): `electron/skills/` (os, pc, browser, documentos, pesquisa), `electron/plugins/` (22 plugins + OAuth), `electron/browser/` (validation, captcha, selector-memory, resolve-selector, browser-use-*), `agent/executor.ts`, `agent/agent-types.ts`, `agent/checkpoint-store.ts`, `agent-events.ts`, `computer-manager.ts`, `pje-manager.ts`, `anthropic-mcp-runner.ts`, `legal/{style-rules,legal-language-engine}.ts`. Eram duplicata do que o Hermes já faz nativo (mensageria/arquivos/browser/terminal/OAuth). Exclusivos do Desktop catalogados em [docs/backlog/DESKTOP-EXCLUSIVE-CAPABILITIES.md](docs/backlog/DESKTOP-EXCLUSIVE-CAPABILITIES.md).
 
 Telegram bot (`electron/telegram-bot.ts`) sobrevive como shell mas comandos
 do agent foram neutralizados — settings ainda mostra a aba.
