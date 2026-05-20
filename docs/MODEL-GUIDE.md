@@ -1,6 +1,11 @@
 # Guia de Modelos — LEX
 
-Última atualização: Março 2026
+Guia de orientação para o usuário final (BYOK): quais modelos escolher, preços
+aproximados e onde obter chaves. **Não é fonte de verdade técnica** — os modelos
+realmente selecionáveis e os defaults estão em
+[electron/provider-config.ts](../electron/provider-config.ts) (`PROVIDER_PRESETS`).
+Preços e disponibilidade de modelos mudam com frequência; trate as tabelas abaixo
+como referência aproximada, não contrato.
 
 ## Uso Gratuito (OpenRouter)
 

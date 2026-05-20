@@ -1,191 +1,174 @@
 # Arquitetura Atual da Lex
 
-Atualizado em 2026-05-09.
+Fonte de verdade da arquitetura. Descreve o estado **atual** do código — não o
+histórico. Docs de decisões antigas estão em [`archive/`](archive/) e não devem
+ser usados como referência de "como é hoje". Em conflito, vale o código.
 
-Nota de escopo de lancamento em 2026-05-12: a direcao de arquitetura continua
-reconhecendo a Agora como superficie de workflow duravel, mas a feature foi
-postergada para depois do lancamento. Para o MVP, o foco ativo passa a ser
-Console Lex + bridge local + PJe/TJ + analise assistida. Em paralelo, a
-superficie MCP da Lex passa a ser tratada como parte importante da estrategia
-de distribuicao do MVP.
+## Princípio central
 
-Este documento e a fonte rapida de verdade para a arquitetura atual. Os planos em
-`docs/future-tasks/` preservam historico de decisao, mas devem ser lidos a partir
-deste estado.
+A Lex tem duas metades, conectadas por um contrato local (MCP/HTTP):
 
-## Principio Central
+- **Lex Engine / Hermes** é o cérebro. Pensa, planeja, usa subagentes, agenda
+  jobs, gerencia skills e memória de agente. É Python, roda no WSL.
+- **Lex Desktop / Electron** é a superfície do produto. Mostra UI, segura a
+  sessão PJe no Chrome, executa ações Windows/arquivo, pede confirmação humana,
+  registra auditoria, e guarda memória operacional (Brain).
 
-```text
-Lex Desktop = produto Windows, supervisao humana, PJe, arquivos, Brain e UI
-Lex Engine/Hermes = motor de raciocinio, chat inline, multiagentes e workflows
-MCP/HTTP local = contrato entre Engine e Desktop
-Agora = superficie de workflows duraveis e complexos
-Console Lex = interface operacional/power user do Engine
+Regra dura: **o Electron não é um segundo cérebro.** Raciocínio, planejamento,
+multiagentes e orquestração ficam no Hermes. O Desktop executa, supervisiona e
+audita. Capacidade nova de raciocínio vai pro Engine e cruza pro Desktop por
+tool/MCP — nunca como um novo loop de agente dentro do Electron.
+
+## Como o usuário fala com a Lex
+
+A interface ativa é o **Console Lex** — um terminal xterm.js que **é o próprio
+Hermes rodando interativo**. Quando o renderer abre, dispara o IPC
+`terminal-create-engine` ([electron/main.ts](../electron/main.ts)), que chama
+`getLexEngineConsoleSpawn()` em [electron/lex-engine.ts](../electron/lex-engine.ts).
+O spawn resultante é, no Windows:
+
+```
+wsl.exe -d <distro> -- bash -lc "cd <projeto-wsl> && <env> <python-wsl> hermes"
 ```
 
-O Electron nao deve virar outro cerebro. O Engine/Hermes e a fonte de
-raciocinio, planejamento, uso de tools, multiagentes, memoria do agente e
-scheduler. O Desktop executa as acoes Windows/PJe, exibe estado, pede
-confirmacao e registra auditoria.
+Ou seja: digitar no Console Lex = falar direto com o Hermes. O env injeta
+`LEX_DESKTOP=1`, `HERMES_KANBAN_HOME`, `LEX_AGORA_BOARD_PATH` e
+`LEX_DESKTOP_REQUIRED_TOOLSETS` (web, browser, terminal, file, vision, skills,
+todo, memory, session_search, clarify, delegation, cronjob).
+
+Há também um caminho one-shot: `lexEngineApi.ask(prompt)` →
+`askLexEngine()` → `hermes chat -Q --max-turns 1 --source lex-desktop -q <prompt>`.
+Mesmo Hermes, modo não-interativo.
+
+## Caminho canônico PJe
+
+Quando o Hermes precisa agir no PJe, ele chama o MCP `lex-desktop`. A cadeia
+completa:
+
+```
+Hermes (Console Lex)
+  → MCP lex-desktop (registrado em ~/.hermes/config.yaml)
+  → scripts/lex-desktop-mcp-server.mjs   (Node, stdio MCP)
+  → HTTP bridge porta 32179               (electron/lex-desktop-bridge.ts)
+  → backend RPC                           (electron/backend/server.ts)
+  → módulos electron/pje/*.ts
+  → electron/browser-manager.ts → Chrome via Playwright/CDP
+```
+
+O bridge expõe endpoints HTTP `/pje/*` (`status`, `abrir-consulta`,
+`preencher-numero`, `clicar-consultar`, `ler-resultados`, `abrir-resultado`,
+`ler-autos`, `baixar-documento-atual`, `analisar-documento-baixado`,
+`inspecionar-contexto`, `explorar-intencao`, `executar-candidato-intencao`,
+`executar-intencao-incremental`) mais `/brain/*` e `/confirm`. Cada um vira um
+`rpcCall(...)` que o backend resolve com um módulo em
+[electron/pje/](../electron/pje/) (ex: `pje-fill-process-number` →
+`process-number-filler.ts`, `pje-click-search` → `search-clicker.ts`,
+`pje-read-autos` → `autos-reader.ts`).
+
+Não criar caminhos PJe paralelos que pulem essa cadeia. O MCP PJe dedicado em
+Python ([engine/lex-pje-mcp/](../engine/lex-pje-mcp/)) está em construção e ainda
+não está registrado em `~/.hermes/config.yaml` — quando entrar, é a evolução
+natural desse caminho.
+
+## Fronteira de memória
+
+Duas camadas, papéis distintos, não competem:
+
+- **Hermes** — memória de agente: persistência entre sessões, preferências,
+  fatos de ambiente, memória procedural por skill, e (direção atual) conhecimento
+  durável `Markdown-first` (notas, playbooks, skills).
+- **Brain** ([electron/brain/](../electron/brain/)) — memória operacional do
+  Desktop: `page_state`, seletores, rotas, evidências do browser/PJe, replay de
+  micro-flows, dream/consolidação. É aceleração situada, não memória geral.
+
+Regra: não duplicar no Electron uma segunda memória geral de agente. Brain =
+know-how operacional; Hermes = memória de agente de alto nível.
 
 ## Runtime do Engine
 
-O Engine foi importado para o monorepo em:
+Resolvido em `resolveLexEngineRuntime()` ([electron/lex-engine.ts](../electron/lex-engine.ts)):
 
-```text
-C:\Users\EDER\lex-test1\engine\lex-engine
+- `LEX_ENGINE_MODE=repo-wsl` (**padrão**) — usa o monorepo em
+  `engine/lex-engine/`, comando `<python-wsl> hermes`.
+- `LEX_ENGINE_MODE=external-wsl` (fallback/rollback) — usa
+  `/home/<user>/lex_engine/`, comando `hermes`.
+- `repo-windows` — declarado mas **não suportado**.
+
+## Configs MCP (duas, distintas)
+
+- `~/.lex/mcp.json` — consumido pelo **Electron** ([electron/mcp-manager.ts](../electron/mcp-manager.ts)).
+  Hoje: `filesystem` e `browser` (browser-use via CDP).
+- `~/.hermes/config.yaml`, seção `mcp_servers` — consumido pelo **Hermes**.
+  Hoje: `lex-desktop` (o caminho canônico PJe acima).
+
+## Agora (workflow durável)
+
+Quadro Kanban para tarefas duráveis/massivas/retomáveis. **Postergada para
+pós-MVP** — direção arquitetural válida, mas fora do escopo ativo. Wiring atual:
+[electron/agora/kanban-bridge.ts](../electron/agora/kanban-bridge.ts) chama o
+Kanban oficial do Hermes (`hermes_cli/kanban_db.py`) via `HERMES_KANBAN_HOME`/
+`kanban.db`. UI em `src/renderer/js/agora.js`. Não reconstruir orquestração de
+multiagente do zero — a base é o Kanban da Nous/Hermes. Mapa em
+[backlog/NOUS-KANBAN-INTEGRATION-MAP.md](backlog/NOUS-KANBAN-INTEGRATION-MAP.md).
+
+## Mapa de pastas (caminho ativo)
+
+```
+electron/
+  main.ts                 janela, IPC, terminal, auth, updater, plugins
+  preload.ts              APIs expostas ao renderer
+  lex-engine.ts           ponte pro Hermes (spawn console, ask, provider sync, runtime)
+  lex-desktop-bridge.ts   servidor HTTP que o MCP lex-desktop consome
+  backend/server.ts       RPC server (handlers PJe/brain/session via WebSocket)
+  pje/                    módulos canônicos PJe (filler, clicker, readers, downloader, inspector)
+  browser-manager.ts      Chrome via Playwright CDP (lazy: só sobe na 1ª ação PJe)
+  brain/                  memória operacional (replay, dream, selectors, routes, flows)
+  agora/                  ponte Kanban (pós-MVP)
+  terminal/               node-pty pro Console Lex
+  plugins/                integrações externas (Gmail, Slack, Notion, etc.)
+  privacy/                PII Vault, consent, audit log (LGPD)
+  provider-config.ts      BYOK; chaves cifradas em crypto-store.ts
+  agent/                  biblioteca compartilhada (types, memory, session,
+                          executor, retry, doc-index, legislacao-downloader)
+                          — NÃO é mais cérebro; só infra que skills/backend usam
+
+src/renderer/             JS puro: index.html, app.js (settings/brain/skills),
+                          terminal.js (Console Lex), agora.js, file-manager.js
+
+engine/
+  lex-engine/             Hermes (planner, tools, kanban, gateway, MCP)
+  lex-pje-mcp/            MCP PJe dedicado em Python (em construção, não plugado)
 ```
 
-O runtime padrao atual e:
+## O que NÃO existe mais (não procure no código)
 
-```text
-LEX_ENGINE_MODE=repo-wsl
-/mnt/c/Users/EDER/lex-test1/engine/lex-engine
-```
+Removido no cleanup pré-MVP de 2026-05:
 
-O fallback preservado e:
+- **Agent Loop TS** — todo o cérebro paralelo que vivia em `electron/agent/`
+  (`loop`, `think`, `critic`, `planner`, `orchestrator`, `agent-pool`,
+  `blackboard`, `validator-agent`, `action-queue`, `cache`, `context-budget`,
+  `os-intent-router`, `prompt-layer`, `usage-tracker`, `confirmation-policy`,
+  `training-*`).
+- **Chat UI** do renderer (chat-wrapper, multi-conversation, Plan Card,
+  suggestion-cards). O Console Lex substituiu.
+- **Batch/Lotes** (`electron/batch/`).
+- **Scheduler local** (`electron/scheduler/`, `electron/notifications.ts`).
+- **8 skills Playwright PJe** (`pje/abrir`, `agir`, `consultar`, `movimentacoes`,
+  `documentos`, `navegar`, `preencher`, `bulk-coletar`) — substituídas pelo
+  caminho MCP/`electron/pje/*`.
+- **IPC handlers**: `agent-*`, `ai-plan-execute`, `orchestrator-*`,
+  `checkpoint-*`, `scheduler-*`, `batch-*`, `ai-chat-send`, `training-*`,
+  `session-seed`.
+- `electron/eval/` (benchmarks do agent loop).
 
-```text
-LEX_ENGINE_MODE=external-wsl
-/home/eder/lex_engine
-```
+Telegram bot ([electron/telegram-bot.ts](../electron/telegram-bot.ts)) ainda
+existe como shell, mas os comandos de agente foram neutralizados (sem caminho
+novo ligado).
 
-Detalhe transicional: `repo-wsl` ainda usa o Python/venv saudavel do fallback
-(`/home/eder/lex_engine/venv/bin/python`) para executar o launcher do Engine
-importado. Isso evita reinstalar dependencias durante esta etapa.
+## Onde aprofundar
 
-## Chat Inline vs Agora
-
-A diferenca nao e "simples vs multiagente". O chat inline tambem pode usar
-planner, subagentes, pesquisa, PJe, documentos e ferramentas em paralelo.
-
-Para o escopo de lancamento, a regra pratica agora e:
-
-- chat/Console e o caminho principal do MVP;
-- Agora sai do caminho critico e volta apenas no pos-lancamento.
-
-Use chat inline quando o trabalho cabe numa execucao conversacional:
-
-- analisar um processo;
-- buscar jurisprudencia em paralelo;
-- consultar um processo;
-- resumir um documento;
-- gerar uma minuta isolada;
-- responder com resultado final na mesma sessao.
-
-Use Agora quando o trabalho vira operacao duravel:
-
-- analisar uma pasta PJe com dezenas de processos;
-- produzir muitas peticoes;
-- preparar/protocolar um lote com checkpoints humanos;
-- coordenar varias etapas com dependencias;
-- retomar depois de pausa/restart;
-- acompanhar progresso, eventos e comentarios por card/workflow.
-
-## Agora
-
-Agora e o quadro de workflow duravel do Hermes/Lex Engine.
-
-Importante para produto: embora a direcao arquitetural continue valida, a Agora
-nao faz parte do escopo ativo do MVP de lancamento neste momento. O objetivo
-imediato e nao abrir nova frente antes de fechar o fluxo principal de PJe/TJ.
-
-Regra critica: nao reconstruir o sistema de multiagentes/workflow do zero. A
-base deve vir da atualizacao Nous/Hermes `v2026.5.7` / `v0.13.0`, que trouxe
-o Kanban multiagente oficial. O mapa de integracao esta em
-[`future-tasks/NOUS-KANBAN-INTEGRATION-MAP.md`](future-tasks/NOUS-KANBAN-INTEGRATION-MAP.md).
-
-A fundacao upstream a reaproveitar inclui:
-
-- `tools/delegate_tool.py` para subagentes, execucao paralela, arvore de spawn,
-  limites de concorrencia, interrupcao e eventos de progresso;
-- `tools/todo_tool.py` para planejamento e estado de tarefas dentro da sessao;
-- `hermes_cli/kanban_db.py`, `hermes_cli/kanban.py`, `tools/kanban_tools.py`
-  e `plugins/kanban/dashboard/*` para workflow duravel em SQLite, dispatcher,
-  workers, eventos e dashboard;
-- `cron/` e `tools/cronjob_tools.py` para rotinas/agendamentos;
-- `tools/approval.py` e callbacks do gateway/TUI para aprovacoes e comandos
-  sensiveis;
-- eventos `subagent.*`, `tool.*`, `approval.*` e historico de spawn ja usados
-  pela TUI Hermes.
-
-O papel da Agora e adaptar essa fundacao para o produto Lex: cards, timeline,
-checkpoints humanos, retomada visual e auditoria juridica. Ela deve consumir e
-espelhar o estado/eventos do Engine, nao competir com `delegate_task`, `todo`,
-cron ou o gateway da Nous.
-
-Estado atual:
-
-- UI dedicada em `src/renderer/js/agora.js` e `src/renderer/styles/agora.css`;
-- nav `nav-agora`;
-- IPC `window.agoraApi`;
-- ponte Electron `electron/agora/kanban-bridge.ts` chama o Kanban oficial do
-  Engine (`hermes_cli/kanban_db.py`) e grava em `kanban.db`;
-- `HERMES_KANBAN_HOME` e compartilhado com o Console Lex para alinhar UI e
-  workers;
-- dispatcher leve no Electron chama `kanban_db.dispatch_once()` no startup e a
-  cada 60s; spawn de workers fica protegido por `LEX_AGORA_ENABLE_WORKERS=1`;
-- board JSON/tool `agora` seguem apenas como fallback transicional;
-- watcher no Electron emite `agora-event` quando o `kanban.db` muda.
-
-Esse estado e transicional. A proxima etapa e migrar a fonte de verdade da
-Agora completamente para o Kanban oficial da Nous/Hermes (`kanban.db`,
-`kanban_*`, dispatcher e eventos), removendo o fallback JSON/tool `agora` em
-uma limpeza dedicada.
-
-Decisao importante: Agora nao e mais uma skin sobre Lotes. A superficie antiga
-de Lotes saiu do renderer da Agora. O backend batch antigo pode permanecer como
-codigo historico ate uma limpeza dedicada, mas nao deve guiar a arquitetura nova.
-
-## Contrato Engine/Desktop
-
-O caminho padrao e:
-
-```text
-Usuario -> Desktop/Console/Chat -> Lex Engine -> tool/MCP -> Desktop -> Windows/PJe/Arquivo
-```
-
-Regras:
-
-- Engine planeja e pede acoes.
-- Desktop decide se a acao pode acontecer.
-- PJe, certificado, Chrome controlado, file picker e confirmacoes ficam no
-  Desktop.
-- Acoes sensiveis exigem confirmacao visual no Desktop.
-- Brain registra observacoes, sucesso/falha, seletores e know-how operacional.
-
-## MCP Como Superficie de Produto
-
-Para o MVP, MCP nao deve ser tratado apenas como detalhe interno do Engine. Ele
-tambem pode ser parte da oferta comercial da Lex.
-
-Leitura pratica:
-
-- `lex-desktop` ja e um servidor MCP local util para clientes que querem usar a
-  capacidade da Lex a partir de outro agente compatível;
-- isso reduz friccao comercial porque nem todo cliente precisa migrar de chat ou
-  interface no primeiro contato;
-- ao mesmo tempo, `MCP local` e `produto app completo` nao sao a mesma coisa e
-  precisam de onboarding e promessa diferentes.
-
-Decisao de MVP:
-
-- tratar Claude + MCP local como trilha mais proxima;
-- tratar ChatGPT como trilha que pode exigir superficie remota, auth e setup
-  dedicado;
-- nao vender "qualquer cliente MCP funciona igual" antes de validar isso de
-  ponta a ponta.
-
-## O Que E Legado
-
-Legado ou transicional:
-
-- `electron/agent/*` como cerebro principal;
-- provider/BYOK duplicado no Electron como fonte de verdade;
-- scheduler generico duplicado no Electron;
-- Lotes como superficie de produto;
-- agent loop TS competindo com Hermes.
-
-Ainda pode existir codigo legado no repo. A regra e nao expandir esse caminho:
-novas capacidades de raciocinio/workflow devem ir para o Engine/Hermes e ser
-expostas ao Desktop por contrato.
+- [LEX-LAUNCH-READINESS.md](LEX-LAUNCH-READINESS.md) — gates e escopo do MVP
+- [PJE-SKILLS-APPARATUS.md](PJE-SKILLS-APPARATUS.md) — aparato PJe (centro do MVP)
+- [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) — PII Vault, consent, audit, LGPD
+- [BRAIN-DREAM-REPLAY-SPRINT.md](BRAIN-DREAM-REPLAY-SPRINT.md) — memória operacional
+- [README.md](README.md) — índice de todos os docs
