@@ -60,7 +60,7 @@ interface LegacyAIConfig {
 // MCP Tools — provider-agnóstico
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BROWSER_TOOL_PREFIXES = ['browser__', 'browseruse__', 'browser-use__'];
+const BROWSER_TOOL_PREFIXES = ['browser__'];
 
 function isBrowserTool(name: string): boolean {
     return BROWSER_TOOL_PREFIXES.some((p) => name.startsWith(p));

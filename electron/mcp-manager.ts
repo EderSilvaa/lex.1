@@ -139,7 +139,7 @@ class McpManager {
             }
         }
 
-        // Sidecar com exemplos (filesystem + browser-use).
+        // Sidecar com exemplo (filesystem).
         const examplePath = path.join(dir, 'mcp.example.json');
         if (!fs.existsSync(examplePath)) {
             try {
@@ -154,10 +154,6 @@ class McpManager {
                                 path.join(os.homedir(), 'Desktop'),
                                 os.homedir(),
                             ],
-                        },
-                        browser: {
-                            command: 'uvx',
-                            args: ['browser-use-mcp-server', '--mcp', '--cdp-url', 'http://localhost:19222'],
                         },
                     },
                 };
