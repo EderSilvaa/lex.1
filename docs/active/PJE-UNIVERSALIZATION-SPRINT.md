@@ -4,14 +4,97 @@
 > evolucao estrutural da Lex. O objetivo nao e trocar o aparato atual por mais
 > flows fixos, e sim fazer a Lex entender em que ambiente PJe ela esta,
 > aprender rotas por contexto e reaproveitar esse know-how com Brain/replay.
+>
+> **Atualizacao em 2026-05-16:** a task deixou de ser apenas conceitual.
+> Ja existe implementacao relevante em `environment context`, `replay`
+> contextual, `route-memory` contextual, `selector-memory` contextual,
+> `action-guidance`, `exploration learning` e `next best action` contextual
+> para `pje_browser_use`. O foco imediato deixa de ser "inventar mais camada"
+> e passa a ser validar o comportamento no PJe real de advogado, sem perder
+> `server-readiness`.
+>
+> **Releitura em 2026-05-16 (fim do dia):** a universalizacao continua
+> importante, mas agora sob uma otica `Markdown-first`. Isso significa que
+> nem toda aprendizagem de alto nivel deve continuar descendo para o Brain.
+> O Brain fica com memoria operacional/situada; conhecimento duravel, playbooks
+> e skills tendem a subir para `Hermes + markdown`.
 
-**Status:** planejado.  
+**Status:** em implementacao e validacao assistida.  
 **Discussao:** 2026-05-12.  
 **Contexto relacionado:** [`docs/PJE-SKILLS-APPARATUS.md`](../PJE-SKILLS-APPARATUS.md),
 [`docs/BRAIN-DREAM-REPLAY-SPRINT.md`](../BRAIN-DREAM-REPLAY-SPRINT.md),
 [`electron/brain/replay-engine.ts`](../../electron/brain/replay-engine.ts),
 [`electron/pje/route-memory.ts`](../../electron/pje/route-memory.ts),
 [`electron/observer/enrichers/browser.ts`](../../electron/observer/enrichers/browser.ts).
+
+## Estado atual resumido
+
+- `Sprint 1`: base implementada.
+  - contexto de ambiente PJe ja e inferido e propagado para bridge, status,
+    Brain e observabilidade.
+- `Sprint 2`: base implementada.
+  - replay, route-memory e selector-memory ja consideram contexto de ambiente,
+    com testes de compatibilidade e mismatch.
+- `Sprint 3`: em implementacao avancada.
+  - `pje_browser_use` ja usa guidance contextual, `execution style`,
+    aprendizado de exploracao, `next best action` e promocao de variantes.
+- `Sprint 4`: pendente.
+  - ainda precisamos fechar narracao de produto, breadcrumbs, guardrails finais
+    e validacao manual mais forte no PJe real.
+
+## Reenquadramento desta task
+
+Esta task nao foi invalidada. Ela so mudou de lugar na arquitetura.
+
+Continua valendo para:
+
+- perceber contexto do PJe;
+- orientar exploracao;
+- gravar variantes operacionais;
+- melhorar replay e fallback.
+
+Mas deixa de assumir que toda aprendizagem relevante deve ficar concentrada no
+Brain.
+
+Nova regra:
+
+- o que for `execucao situada` pode continuar no Brain;
+- o que virar `conhecimento duravel` deve tender a subir para Hermes/markdown;
+- a UI deve expor isso ao usuario na secao `Habilidades`.
+
+## Fronteira Hermes x Brain
+
+Esta task nao deve criar uma segunda pilha de memoria autonoma competindo com o
+Hermes.
+
+O que o Hermes ja traz e deve continuar sendo a camada principal de memoria e
+autoaprendizagem do agente:
+
+- memoria persistente entre sessoes;
+- salvamento de preferencias, correcoes e fatos de ambiente;
+- memoria procedural por skill;
+- criacao/evolucao de skills como forma de autoaperfeicoamento.
+
+O papel do Brain nesta task e outro:
+
+- registrar observacoes operacionais do Desktop/PJe/browser;
+- aprender `page states`, seletores, rotas e variantes por contexto;
+- decidir se faz `replay`, `partial next action` ou exploracao;
+- fornecer know-how de execucao situado para o Hermes consumir.
+
+O que essa task nao deve fazer:
+
+- transformar o Brain em base principal de aprendizagem juridica;
+- tratar traces tecnicos como se fossem conhecimento duravel de produto;
+- competir com `skills`, memoria persistente ou autocuragem do Hermes.
+
+Regra arquitetural:
+
+- `Hermes` continua sendo a camada de raciocinio, memoria semantica e memoria
+  procedural de agente;
+- `Brain` continua sendo a memoria operacional/situada do executor Desktop;
+- quando houver sobreposicao, devemos integrar e promover know-how do Brain
+  para o Hermes, nao duplicar conceitos no Electron.
 
 ## Problema
 
@@ -163,6 +246,12 @@ Objetivo: transformar exploracao bem-sucedida em know-how reutilizavel.
 **Criterio de aprovacao:** depois de 2-3 execucoes bem-sucedidas em um ambiente
 novo, a Lex reaproveita esse caminho como replay contextualizado.
 
+Nota de reescopo:
+
+- o reaproveitamento tecnico continua no Brain;
+- a promocao para conhecimento mais duravel deve virar item proprio na trilha
+  `Markdown-first`, nao crescer indefinidamente aqui.
+
 ### Sprint 4 - UX, guardrails e validacao real
 
 Objetivo: fazer essa universalizacao aparecer como comportamento de produto, nao
@@ -177,6 +266,16 @@ so como melhoria interna.
 
 **Criterio de aprovacao:** um usuario consegue entender por que a Lex escolheu
 uma rota, quando reutilizou aprendizado e quando decidiu explorar de novo.
+
+### Ponte de validacao atual
+
+Enquanto o acesso real de PJe disponivel for predominantemente de `advogado`,
+esta sprint deve ser validada em modo `advogado-first`, com `server-readiness`
+como trilha estrutural paralela.
+
+Plano de execucao relacionado:
+
+- [`docs/future-tasks/PJE-ADVOGADO-FIRST-VALIDATION.md`](./PJE-ADVOGADO-FIRST-VALIDATION.md)
 
 ## Fora de escopo desta task
 
@@ -197,6 +296,13 @@ Esta task e importante, mas precisa ser fatiada com disciplina:
 
 Ou seja: universalizacao nao substitui o MVP atual; ela expande a area
 conquistada do PJe sem voltar a depender de fluxo fixo para tudo.
+
+Tambem nao substitui a trilha `Hermes + skills + markdown`. Ela precisa operar
+como base operacional complementar.
+
+Plano relacionado:
+
+- [`docs/future-tasks/LEX-MARKDOWN-FIRST-MEMORY-SKILLS.md`](./LEX-MARKDOWN-FIRST-MEMORY-SKILLS.md)
 
 ## Criterio final da task
 

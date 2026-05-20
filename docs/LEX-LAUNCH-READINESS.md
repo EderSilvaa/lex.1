@@ -2,6 +2,12 @@
 
 Atualizado em 2026-05-12.
 
+Atualizacao de direcao em 2026-05-16: o roadmap de memoria e aprendizagem da
+Lex foi reenquadrado para `Markdown-first`, com `Hermes + skills + markdown`
+como memoria principal e `Brain` como camada opcional de execucao/replay. Isso
+nao muda o escopo do MVP, mas muda a ordem de implementacao e a forma de
+consolidar o que a Lex aprende.
+
 Este documento transforma o estado tecnico atual da Lex em um plano pratico de
 lancamento. A ideia nao e inventar roadmap novo, e sim consolidar o que ja esta
 pronto, o que ainda bloqueia e em que ordem devemos fechar a operacao.
@@ -39,7 +45,7 @@ com foco no caminho vendavel minimo ja provado:
 
 Referencia principal:
 
-- [docs/future-tasks/LEX-PRODUCT-SPRINT-1.md](./future-tasks/LEX-PRODUCT-SPRINT-1.md)
+- [docs/archive/LEX-PRODUCT-SPRINT-1.md](./archive/LEX-PRODUCT-SPRINT-1.md)
 - [docs/CURRENT-ARCHITECTURE.md](./CURRENT-ARCHITECTURE.md)
 - [docs/PJE-SKILLS-APPARATUS.md](./PJE-SKILLS-APPARATUS.md)
 - [docs/BRAIN-DREAM-REPLAY-SPRINT.md](./BRAIN-DREAM-REPLAY-SPRINT.md)
@@ -229,6 +235,8 @@ Nao prometer no v1:
 3. Proibir expansao de feature fora do caminho vendavel minimo.
 4. Tirar a Agora do caminho critico do lancamento.
 5. Definir a narrativa `app completo` versus `Lex MCP`.
+6. Alinhar a narrativa de memoria do produto: `Habilidades + markdown` como
+   base principal, `Brain` como aceleracao opcional.
 
 ### Fase 2 - Fechar readiness tecnico
 
@@ -237,6 +245,7 @@ Nao prometer no v1:
 3. Corrigir configuracao real de publicacao/update.
 4. Revisar onboarding e textos de privacidade.
 5. Fechar a historia MVP de integracao com Claude e a estrategia de ChatGPT.
+6. Validar a base operacional atual antes de expandir mais autonomia no Brain.
 
 ### Fase 3 - Preparar operacao
 
@@ -244,6 +253,23 @@ Nao prometer no v1:
 2. Criar checklist de smoke test pre-release.
 3. Criar checklist de go/no-go no dia do lancamento.
 4. Definir canal de feedback e triagem de bugs.
+5. Evoluir `Habilidades` para painel vivo de skills e memoria, se isso nao
+   atrasar os gates P0 do MVP.
+
+## Roadmap de memoria alinhado ao lancamento
+
+O caminho recomendado para nao desperdiçar o que ja foi feito e ao mesmo tempo
+ajustar a direcao e:
+
+1. validar o motor atual no PJe real de advogado;
+2. usar essa validacao para corrigir replay/exploracao onde necessario;
+3. evoluir `Habilidades` para observabilidade real de skills e memoria;
+4. promover aprendizagem operacional relevante para `markdown/skills`;
+5. so depois ampliar de novo a autonomia do Brain.
+
+Plano relacionado:
+
+- [`docs/active/LEX-MARKDOWN-FIRST-MEMORY-SKILLS.md`](./active/LEX-MARKDOWN-FIRST-MEMORY-SKILLS.md)
 
 ## Checklist de go/no-go
 
