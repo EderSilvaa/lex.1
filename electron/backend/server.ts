@@ -25,7 +25,6 @@ import { readPjeAutos } from '../pje/autos-reader';
 import { downloadPjeCurrentDocument } from '../pje/document-downloader';
 import { analyzePjeDownloadedDocument } from '../pje/document-analyzer';
 import { executePjeIntentCandidate } from '../pje/intent-candidate-executor';
-import { initCheckpointStore } from '../agent/checkpoint-store';
 import { initSessionManager } from '../agent/session';
 import { execSync } from 'child_process';
 import { createHash, randomUUID } from 'crypto';
@@ -48,7 +47,6 @@ if (!USER_DATA_DIR) {
 setUserDataDir(USER_DATA_DIR);
 initMemoryDir(USER_DATA_DIR);
 initRouteMemory(USER_DATA_DIR);
-initCheckpointStore(USER_DATA_DIR);
 initSessionManager(USER_DATA_DIR);
 
 void attemptPassiveBrowserReconnect()

@@ -189,16 +189,6 @@ contextBridge.exposeInMainWorld('datajudApi', {
     offSyncEvent: () => ipcRenderer.removeAllListeners('datajud-sync-event'),
 });
 
-contextBridge.exposeInMainWorld('pluginsApi', {
-    list: () => ipcRenderer.invoke('plugins-list'),
-    getStatus: (pluginId: string) => ipcRenderer.invoke('plugins-get-status', pluginId),
-    getAuthConfig: (pluginId: string) => ipcRenderer.invoke('plugins-get-auth-config', pluginId),
-    startOAuth: (pluginId: string, apiKey?: string) =>
-        ipcRenderer.invoke('plugins-start-oauth', { pluginId, apiKey }),
-    disconnect: (pluginId: string) => ipcRenderer.invoke('plugins-disconnect', pluginId),
-    onReady: (cb: () => void) => ipcRenderer.on('plugins-ready', () => cb()),
-});
-
 contextBridge.exposeInMainWorld('skillsApi', {
     listCatalog: () => ipcRenderer.invoke('skills-catalog-list'),
     getRuntimeSnapshot: () => ipcRenderer.invoke('skills-runtime-snapshot'),

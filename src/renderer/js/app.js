@@ -828,7 +828,6 @@ function getConnectorStatusMeta(item, type) {
 
 function renderSkillsConnectorsSummary(payload) {
     const snapshot = payload?.snapshot || null;
-    const plugins = Array.isArray(payload?.plugins) ? payload.plugins : [];
     const mcpServers = Array.isArray(snapshot?.mcpServers) ? snapshot.mcpServers : [];
     const gatewayPlatforms = Array.isArray(snapshot?.gatewayPlatforms) ? snapshot.gatewayPlatforms : [];
     const total = mcpServers.length + gatewayPlatforms.length;
@@ -857,12 +856,10 @@ function renderSkillsConnectorsSummary(payload) {
     const runtimeLabel = runtime?.running
         ? `gateway em execucao via ${runtime.manager || 'runtime local'}`
         : `gateway parado (${runtime?.manager || 'sem manager detectado'})`;
-    const desktopConnected = plugins.filter((plugin) => plugin?.status === 'connected').length;
 
     noteEl.textContent =
         `${enabledMcp}/${mcpServers.length} MCP habilitados, ` +
-        `${connectedGateway}/${gatewayPlatforms.length} plataformas de gateway conectadas e ` +
-        `${desktopConnected}/${plugins.length} integracoes visuais do desktop prontas; ${runtimeLabel}.`;
+        `${connectedGateway}/${gatewayPlatforms.length} plataformas de gateway conectadas; ${runtimeLabel}.`;
 }
 
 function renderSkillsConnectorsRuntime(snapshot) {
@@ -1000,7 +997,6 @@ async function loadSkillsConnectors(force = false) {
         renderSkillsConnectorsSummary(skillsState.connectors);
         renderSkillsConnectorsRuntime(skillsState.connectors.snapshot);
         renderSkillsConnectorsGroups(skillsState.connectors.snapshot);
-        await initPluginsUI(skillsState.connectors.plugins || []);
         return;
     }
 
@@ -1009,27 +1005,20 @@ async function loadSkillsConnectors(force = false) {
     if (noteEl) noteEl.textContent = 'Lendo MCP, gateway e integracoes herdadas do Hermes...';
 
     try {
-        const [snapshotResult, plugins] = await Promise.all([
-            window.skillsApi?.getConnectorsSnapshot?.(),
-            window.pluginsApi?.list ? window.pluginsApi.list() : Promise.resolve([]),
-        ]);
+        const snapshotResult = await window.skillsApi?.getConnectorsSnapshot?.();
         const snapshot = snapshotResult?.success ? snapshotResult.snapshot : {
             available: false,
             error: snapshotResult?.error || 'Falha ao consultar snapshot de connectors.',
             mcpServers: [],
             gatewayPlatforms: [],
         };
-        const payload = {
-            snapshot,
-            plugins: Array.isArray(plugins) ? plugins : [],
-        };
+        const payload = { snapshot };
 
         skillsState.connectors = payload;
         skillsState.connectorsLoaded = true;
         renderSkillsConnectorsSummary(payload);
         renderSkillsConnectorsRuntime(snapshot);
         renderSkillsConnectorsGroups(snapshot);
-        await initPluginsUI(payload.plugins);
     } catch (error) {
         console.error('[Skills] Erro ao carregar connectors:', error);
         const message = escapeSkillsHtml(error?.message || 'Falha ao carregar connectors.');
@@ -2730,21 +2719,6 @@ document.addEventListener('DOMContentLoaded', () => {
 // PLUGINS / INTEGRACOES UI
 // ============================================================================
 
-const PLUGIN_ICONS = {
-    gmail: '📧', gcalendar: '📅', gdrive: '📁', gdocs: '📝',
-    outlook: '📨', whatsapp: '💬', notion: '📓', trello: '📋',
-    todoist: '✅', zapier: '⚡', apify: '🕷️',
-    'pdf-tools': '📄', screenshot: '📸', excel: '📊', desktop: '🖥️', clipboard: '📋',
-    gcontacts: '👥', teams: '💼', docusign: '✍️', dropbox: '📦', onedrive: '☁️', slack: '💬',
-};
-
-const PLUGIN_STATUS_LABELS = {
-    not_installed: 'Nao instalado',
-    installed: 'Nao conectado',
-    connected: 'Conectado',
-    error: 'Erro',
-};
-
 async function loadProfileCard() {
     if (!window.authApi?.getProfile) return;
     try {
@@ -2817,177 +2791,6 @@ function initSettingsTabs() {
             if (tab === 'perfil') loadProfileCard();
         });
     });
-}
-
-async function initPluginsUI(pluginsOverride) {
-    console.log('[Plugins UI] Iniciando...');
-    if (!window.pluginsApi) {
-        const grid = document.getElementById('desktop-plugins-grid');
-        if (grid) {
-            grid.innerHTML = '<div class="skills-empty-state">Integracoes visuais indisponiveis nesta build.</div>';
-        }
-        return;
-    }
-
-    const grid = document.getElementById('desktop-plugins-grid');
-    if (!grid) {
-        return;
-    }
-
-    try {
-        const plugins = Array.isArray(pluginsOverride) ? pluginsOverride : await window.pluginsApi.list();
-        grid.innerHTML = '';
-
-        for (const plugin of plugins) {
-            const card = document.createElement('div');
-            card.className = `plugin-card${plugin.status === 'connected' ? ' connected' : ''}`;
-            card.id = `plugin-card-${plugin.id}`;
-
-            const icon = PLUGIN_ICONS[plugin.id] || '🔌';
-            const statusClass = plugin.status === 'connected' ? 'connected' : (plugin.status === 'error' ? 'error' : '');
-            const statusText = PLUGIN_STATUS_LABELS[plugin.status] || plugin.status;
-
-            const isConnected = plugin.status === 'connected';
-            const btnText = isConnected ? 'Desconectar' : 'Conectar';
-            const btnClass = isConnected ? 'plugin-btn disconnect' : 'plugin-btn';
-
-            card.innerHTML = `
-                <div class="plugin-icon">${icon}</div>
-                <div class="plugin-info">
-                    <div class="plugin-name">${plugin.name}</div>
-                    <div class="plugin-status ${statusClass}">${statusText}</div>
-                </div>
-                <button class="${btnClass}" data-plugin-id="${plugin.id}" data-connected="${isConnected}">${btnText}</button>
-            `;
-
-            const btn = card.querySelector('.plugin-btn');
-            btn.addEventListener('click', () => {
-                if (btn.dataset.connected === 'true') {
-                    disconnectPlugin(plugin.id);
-                } else {
-                    openPluginModal(plugin.id, plugin.name);
-                }
-            });
-
-            grid.appendChild(card);
-        }
-    } catch (err) {
-        grid.innerHTML = '<div style="font-size:12px;color:var(--danger-color)">Erro ao carregar plugins: ' + err.message + '</div>';
-    }
-}
-
-async function openPluginModal(pluginId, pluginName) {
-    const modal = document.getElementById('plugin-modal');
-    const title = document.getElementById('plugin-modal-title');
-    const body = document.getElementById('plugin-modal-body');
-    const closeBtn = document.getElementById('plugin-modal-close');
-
-    if (!modal || !body) return;
-
-    title.textContent = 'Conectar ' + pluginName;
-
-    try {
-        const config = await window.pluginsApi.getAuthConfig(pluginId);
-        const auth = config.auth;
-
-        if (!auth) {
-            // Plugin local sem auth — ativar direto
-            body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
-                'Este plugin nao requer autenticacao.</p>' +
-                '<button class="plugin-connect-btn" id="plugin-connect-go">Ativar ' + pluginName + '</button>';
-
-            document.getElementById('plugin-connect-go').addEventListener('click', async () => {
-                await window.pluginsApi.startOAuth(pluginId);
-                modal.classList.add('hidden');
-                skillsState.connectorsLoaded = false;
-                initPluginsUI();
-                void loadSkillsConnectors(true);
-            });
-
-        } else if (auth.type === 'oauth2') {
-            if (config.embedded) {
-                // Credenciais embarcadas — usuario so loga
-                body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
-                    'Clique abaixo para fazer login e autorizar o LEX.</p>' +
-                    '<button class="plugin-connect-btn" id="plugin-connect-go" style="width:100%">Conectar com ' + pluginName + '</button>' +
-                    '<div id="plugin-connect-error" style="display:none;margin-top:8px;font-size:12px;color:var(--danger-color)"></div>';
-            } else {
-                // Sem credenciais embarcadas — integracao ainda nao disponivel
-                body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
-                    'Esta integracao ainda nao esta disponivel. Em breve!</p>';
-            }
-
-            var connectBtn = document.getElementById('plugin-connect-go');
-            if (connectBtn) {
-                connectBtn.addEventListener('click', async () => {
-                    var errorEl = document.getElementById('plugin-connect-error');
-                    errorEl.style.display = 'none';
-                    connectBtn.textContent = 'Aguardando login...';
-                    connectBtn.disabled = true;
-
-                    var result = await window.pluginsApi.startOAuth(pluginId);
-                    if (result.success) {
-                        modal.classList.add('hidden');
-                        skillsState.connectorsLoaded = false;
-                        initPluginsUI();
-                        void loadSkillsConnectors(true);
-                    }
-                    else {
-                        errorEl.textContent = result.error || 'Falha na autorizacao.';
-                        errorEl.style.display = 'block';
-                        connectBtn.textContent = 'Conectar com ' + pluginName;
-                        connectBtn.disabled = false;
-                    }
-                });
-            }
-
-        } else if (auth.type === 'api_key') {
-            var instructions = (auth.apiKey && auth.apiKey.instructions) || 'Insira sua chave de API.';
-            var url = (auth.apiKey && auth.apiKey.url) || '';
-
-            body.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' + instructions + '</p>' +
-                (url ? '<p style="font-size:12px;margin-bottom:12px"><a href="' + url + '" target="_blank" style="color:var(--accent-color)">' + url + '</a></p>' : '') +
-                '<div class="settings-field"><label class="settings-label">Chave / Token</label>' +
-                '<input class="settings-input" type="password" id="plugin-api-key" placeholder="Cole a chave aqui"></div>' +
-                '<button class="plugin-connect-btn" id="plugin-connect-go">Conectar ' + pluginName + '</button>' +
-                '<div id="plugin-connect-error" style="display:none;margin-top:8px;font-size:12px;color:var(--danger-color)"></div>';
-
-            document.getElementById('plugin-connect-go').addEventListener('click', async () => {
-                var apiKey = document.getElementById('plugin-api-key').value.trim();
-                var errorEl = document.getElementById('plugin-connect-error');
-
-                if (!apiKey) { errorEl.textContent = 'Chave obrigatoria.'; errorEl.style.display = 'block'; return; }
-
-                var result = await window.pluginsApi.startOAuth(pluginId, apiKey);
-                if (result.success) {
-                    modal.classList.add('hidden');
-                    skillsState.connectorsLoaded = false;
-                    initPluginsUI();
-                    void loadSkillsConnectors(true);
-                }
-                else { errorEl.textContent = result.error || 'Falha ao conectar.'; errorEl.style.display = 'block'; }
-            });
-        }
-
-        modal.classList.remove('hidden');
-        closeBtn.onclick = () => modal.classList.add('hidden');
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
-
-    } catch (err) {
-        body.innerHTML = '<p style="color:var(--danger-color);font-size:13px">Erro: ' + err.message + '</p>';
-        modal.classList.remove('hidden');
-    }
-}
-
-async function disconnectPlugin(pluginId) {
-    if (!confirm('Desconectar este plugin? As credenciais serao removidas.')) return;
-    try {
-        await window.pluginsApi.disconnect(pluginId);
-        skillsState.connectorsLoaded = false;
-        initPluginsUI();
-        void loadSkillsConnectors(true);
-    }
-    catch (err) { console.error('[Plugins] Erro ao desconectar:', err); }
 }
 
 

@@ -5,25 +5,9 @@
  * store dinâmico e extrator de citações.
  */
 
-// Engine (funções principais)
-export { detectLegalArea, detectSubAreas, getRelevantTerms, buildLegalContextBlock } from './legal-language-engine';
-export type { BudgetTier } from './legal-language-engine';
-
 // Glossário
 export { LEGAL_GLOSSARY, getTermsByArea, searchTerms, getGlossaryStats } from './glossary';
 export type { LegalTerm } from './glossary';
-
-// Regras de estilo
-export {
-    getTreatmentFor, getAllTreatments,
-    getTribunalTreatment, getAllTribunalTreatments,
-    getVerbsFor, getAllVerbs,
-    getConnectives, getConnectivesByFunction,
-    getExpressionsFor,
-    getCitationFormats, CITATION_FORMATS,
-    getFullStyleBlock,
-} from './style-rules';
-export type { TreatmentRule, TribunalTreatment, VerbPreference, Connective, DocTypeExpressions } from './style-rules';
 
 // Store dinâmico (súmulas, artigos, teses em JSON)
 export {

@@ -7,7 +7,6 @@ import { closeBrowser, ensureBrowser, getActivePage, reInitBrowser, setUserDataD
 import { initMemoryDir, getMemory } from './agent/memory';
 import { initBrain, getBrain, getBrainSafe, closeBrain } from './brain';
 import { initRouteMemory, flush as flushRouteMemory } from './pje/route-memory';
-import { initSelectorMemory, flushSelectorMemory } from './browser';
 import { startBackend, stopBackend, rpcCall, backendEvents, syncConfigToBackend, isBackendAlive } from './backend-client';
 import { encryptApiKey, safeDecrypt, isEncrypted, initCryptoStoreSalt } from './crypto-store';
 import { getDocIndex } from './agent/doc-index';
@@ -1347,7 +1346,6 @@ app.whenReady().then(async () => {
     }
 
     initRouteMemory(userData);
-    initSelectorMemory(userData);
 
     // Brain (SQLite FTS5 + grafo de conhecimento)
     try {
@@ -1428,16 +1426,6 @@ app.whenReady().then(async () => {
         console.error('[Telegram] Falha ao auto-iniciar:', e);
     }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
 
-    // Phase 3 AIOS: Inicializa plugins ANTES do scheduler
-    // (scheduler pode executar goals que usam skills de plugins)
-    try {
-        const { initPlugins } = await import('./plugins');
-        await initPlugins();
-        if (mainWindow) mainWindow.webContents.send('plugins-ready');
-    } catch (err: any) {
-        console.error('[Plugins] Falha ao inicializar:', err.message);
-    }
-
 
     // Legal Store — base jurídica dinâmica (seed no primeiro uso)
     try {
@@ -1475,14 +1463,6 @@ app.whenReady().then(async () => {
         const { initPythonEnv, getPythonEnv } = await import('./python');
         initPythonEnv();
         getPythonEnv().setup()
-            .then(() => {
-                // Instala browser-use em background após Python estar pronto
-                import('./browser/browser-use-setup').then(({ ensureBrowserUseInstalled }) =>
-                    ensureBrowserUseInstalled().catch((err: any) =>
-                        console.warn('[BrowserUse] Instalação falhou:', err.message)
-                    )
-                ).catch(() => { /* módulo não disponível */ });
-            })
             .catch((err: any) =>
                 console.warn('[Python] Setup falhou:', err.message)
             );
@@ -1595,7 +1575,6 @@ app.on('window-all-closed', async function () {
 
     // Fallback local caso backend não estivesse rodando
     flushRouteMemory();
-    flushSelectorMemory();
     closeBrain();
     await closeBrowser();
     if (process.platform !== 'darwin') app.quit();
@@ -2936,98 +2915,6 @@ ipcMain.handle('agora-get-runs', async (_event, id: string) => {
     return { runs: [], log: '' };
 });
 
-
-// ============================================================================
-// IPC: Plugins (Phase 3 AIOS — Integrações Externas)
-// ============================================================================
-
-ipcMain.handle('plugins-list', async () => {
-    const { getPluginManager } = await import('./plugins');
-    return getPluginManager().listPlugins();
-});
-
-ipcMain.handle('plugins-get-status', async (_event, pluginId: string) => {
-    const { getPluginManager } = await import('./plugins');
-    return getPluginManager().getPluginStatus(pluginId);
-});
-
-ipcMain.handle('plugins-get-auth-config', async (_event, pluginId: string) => {
-    const { getPluginManager } = await import('./plugins');
-    return getPluginManager().getPluginAuthConfig(pluginId);
-});
-
-ipcMain.handle('plugins-start-oauth', async (_event, { pluginId, apiKey }: { pluginId: string; apiKey?: string }) => {
-    try {
-        const { getPluginManager } = await import('./plugins');
-        const pm = getPluginManager();
-        const plugin = pm.getPlugin(pluginId);
-        if (!plugin) return { success: false, error: 'Plugin não encontrado' };
-
-        const auth = plugin.manifest.auth;
-
-        // Desktop plugins sem auth — ativar direto
-        if (!auth) {
-            try {
-                await pm.connectPlugin(pluginId, { accessToken: 'local' });
-                return { success: true };
-            } catch (e: any) {
-                return { success: false, error: `Erro ao ativar plugin local: ${e.message}` };
-            }
-        }
-
-        // API Key auth — apiKey contém a chave
-        if (auth.type === 'api_key') {
-            if (!apiKey) return { success: false, error: 'API key obrigatória' };
-            await pm.connectPlugin(pluginId, { accessToken: apiKey });
-            return { success: true };
-        }
-
-        // OAuth2 — usa credenciais embarcadas do providerGroup
-        if (!auth.oauth2) return { success: false, error: 'Plugin não suporta OAuth' };
-
-        const { getEmbeddedCredentials } = await import('./plugins/credentials');
-        const group = plugin.manifest.providerGroup;
-        const embedded = group ? getEmbeddedCredentials(group) : null;
-
-        const clientId = embedded?.clientId || auth.oauth2.clientId || '';
-        const clientSecret = embedded?.clientSecret;
-
-        if (!clientId) {
-            return { success: false, error: `Credenciais não configuradas para o provedor "${group || pluginId}". Contate o desenvolvedor.` };
-        }
-
-        const { runOAuthFlow } = await import('./plugins/oauth-flow');
-        const oauthOpts: import('./plugins/oauth-flow').OAuthFlowOptions = {
-            authorizationUrl: auth.oauth2.authorizationUrl,
-            tokenUrl: auth.oauth2.tokenUrl,
-            clientId,
-            scopes: auth.oauth2.scopes,
-        };
-        if (clientSecret) oauthOpts.clientSecret = clientSecret;
-        if (auth.oauth2.pkce != null) oauthOpts.pkce = auth.oauth2.pkce;
-        if (auth.oauth2.additionalParams) oauthOpts.additionalParams = auth.oauth2.additionalParams;
-        const result = await runOAuthFlow(oauthOpts);
-
-        if (!result.success || !result.tokens) {
-            return { success: false, error: result.error || 'OAuth falhou' };
-        }
-
-        await pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
-        return { success: true };
-    } catch (err: any) {
-        return { success: false, error: err.message };
-    }
-});
-
-ipcMain.handle('plugins-disconnect', async (_event, pluginId: string) => {
-    try {
-        const { getPluginManager } = await import('./plugins');
-        await getPluginManager().disconnectPlugin(pluginId);
-        return { success: true };
-    } catch (err: any) {
-        return { success: false, error: err.message };
-    }
-});
 
 ipcMain.handle('skills-catalog-list', async () => {
     try {
