@@ -101,6 +101,14 @@ deve passar por aqui ou pelo `engine/lex-pje-mcp/` quando ele for plugado.
 - **Boot order** em main.ts: `createWindow()` → handlers IPC do terminal (imediato) → backend. Terminal handlers DEVEM estar registrados antes do renderer disparar `terminal-create-engine` (~200ms depois do load).
 - **IPC convention**: renderer → main via `window.lexApi.*` / `window.lexEngineApi.*` / `window.brainApi.*` etc. Main → renderer via `mainWindow.webContents.send(...)`.
 - **Provider/BYOK**: chaves criptografadas via [electron/crypto-store.ts](electron/crypto-store.ts). Provider ativo via `getActiveConfig()` em [electron/provider-config.ts](electron/provider-config.ts). Mudança de provider re-sincroniza com Hermes.
+- **Gotcha de HITL**: a Console Lex aberta pelo Electron roda o Hermes em
+  [engine/lex-engine/cli.py](engine/lex-engine/cli.py), nao `ui-tui`/`tui_gateway`.
+  Se a aprovacao precisa aparecer dentro da Console, ela deve usar o callback da
+  TUI Python. Ajustes so em `ui-tui` nao corrigem o produto atual.
+- **PJe sensível**: `pje_abrir_resultado(dryRun=false, aceitarAviso=true)` e
+  `pje_baixar_documento_atual(dryRun=false)` precisam abrir aprovacao na Console
+  Lex e seguir apenas com atestacao efemera validada no bridge. Nao use
+  `lex_confirm` como etapa principal desse fluxo.
 
 ## O que foi removido em 2026-05 (não procure no código)
 

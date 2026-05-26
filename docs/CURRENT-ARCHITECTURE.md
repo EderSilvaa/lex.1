@@ -36,6 +36,12 @@ Ou seja: digitar no Console Lex = falar direto com o Hermes. O env injeta
 `LEX_DESKTOP_REQUIRED_TOOLSETS` (web, browser, terminal, file, vision, skills,
 todo, memory, session_search, clarify, delegation, cronjob).
 
+Gotcha importante: o Electron abre a TUI Python do Hermes em
+[engine/lex-engine/cli.py](../engine/lex-engine/cli.py), nao a TUI React/Ink de
+`engine/lex-engine/ui-tui/`. Portanto, qualquer HITL visivel na Console Lex
+precisa passar pelo callback de aprovacao da `cli.py`; mexer so em `ui-tui` ou
+`tui_gateway` nao corrige o fluxo que o usuario enxerga hoje.
+
 Há também um caminho one-shot: `lexEngineApi.ask(prompt)` →
 `askLexEngine()` → `hermes chat -Q --max-turns 1 --source lex-desktop -q <prompt>`.
 Mesmo Hermes, modo não-interativo.
@@ -69,6 +75,20 @@ Não criar caminhos PJe paralelos que pulem essa cadeia. O MCP PJe dedicado em
 Python ([engine/lex-pje-mcp/](../engine/lex-pje-mcp/)) está em construção e ainda
 não está registrado em `~/.hermes/config.yaml` — quando entrar, é a evolução
 natural desse caminho.
+
+Para acoes sensiveis de PJe, o fluxo principal hoje e:
+
+```
+Hermes (cli.py na Console Lex)
+  -> tools.mcp_tool.request_human_approval(...)
+  -> callback de aprovacao da TUI Python
+  -> lex-desktop MCP com atestacao efemera
+  -> bridge valida a capacidade e so entao executa
+```
+
+Em especial, `pje_abrir_resultado` com `dryRun=false` e `aceitarAviso=true`
+deve abrir o HITL dentro da Console Lex. Nao depender de popup Windows e nao
+tratar `lex_confirm` como etapa principal desse fluxo.
 
 ## Fronteira de memória
 

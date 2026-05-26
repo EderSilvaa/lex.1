@@ -36,7 +36,7 @@ Cada endpoint do bridge mapeia para um RPC do backend, que chama um módulo:
 | `pje-download-current-document` | [document-downloader.ts](../electron/pje/document-downloader.ts) | baixa o documento atual |
 | `pje-analyze-downloaded-document` | [document-analyzer.ts](../electron/pje/document-analyzer.ts) | analisa o documento baixado (texto → resumo jurídico) |
 
-## HITL — confirmação humana embutida no bridge
+## HITL — confirmacao humana na Console Lex
 
 Toda ação que altera estado segue o mesmo protocolo, dentro do
 [lex-desktop-bridge.ts](../electron/lex-desktop-bridge.ts):
@@ -52,6 +52,21 @@ Toda ação que altera estado segue o mesmo protocolo, dentro do
 Consequência prática: a Lex nunca pratica ato no PJe sem o advogado ver o que vai
 acontecer e confirmar. Leitura (`inspect`, `read-*`) é segura; ação
 (`fill`, `click`, `open`, `download`) passa por confirmação.
+
+Hoje a superficie visivel dessa confirmacao e a Console Lex do Electron, que
+roda a TUI Python de [engine/lex-engine/cli.py](../engine/lex-engine/cli.py),
+nao `ui-tui`.
+
+Regras operacionais do fluxo atual:
+
+- `pje_ler_resultados` pode encerrar o pedido sozinho quando a ultima
+  movimentacao ja esta visivel. Nesse caso a Lex responde e apenas oferece
+  abrir os autos se o usuario pedir.
+- `pje_abrir_resultado` com `dryRun=false` e `aceitarAviso=true` e o caminho
+  oficial para abrir autos com HITL na Console Lex.
+- `lex_confirm` nao e a etapa principal desse fluxo; ficou apenas como legado
+  opt-in.
+- `Ctrl+C` enquanto o overlay de aprovacao estiver aberto equivale a `Negar`.
 
 ## Agente situado por contexto
 
