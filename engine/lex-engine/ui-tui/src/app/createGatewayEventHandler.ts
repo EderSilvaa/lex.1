@@ -410,10 +410,17 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
 
         return
       case 'approval.request': {
-        const description = String(ev.payload.description ?? 'dangerous command')
+        const description = String(ev.payload.description ?? 'acao sensivel')
 
-        patchOverlayState({ approval: { command: String(ev.payload.command ?? ''), description } })
-        setStatus('approval needed')
+        patchOverlayState({
+          approval: {
+            allowPermanent: ev.payload.allow_permanent !== false,
+            approvalId: ev.payload.approval_id,
+            command: String(ev.payload.command ?? ''),
+            description
+          }
+        })
+        setStatus('aprovacao necessaria')
 
         return
       }

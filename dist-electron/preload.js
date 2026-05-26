@@ -22,7 +22,6 @@ electron_1.contextBridge.exposeInMainWorld('lexEngineApi', {
 electron_1.contextBridge.exposeInMainWorld('lexApi', {
     saveHistory: (mensagens) => electron_1.ipcRenderer.invoke('save-history', mensagens),
     getHistory: () => electron_1.ipcRenderer.invoke('get-history'),
-    sendChat: (message, context) => electron_1.ipcRenderer.invoke('ai-chat-send', { message, context }),
     savePreferences: (prefs) => electron_1.ipcRenderer.invoke('save-preferences', prefs),
     getPreferences: () => electron_1.ipcRenderer.invoke('get-preferences'),
     // Provider / API Keys — BYOK multi-provider
@@ -30,25 +29,15 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     getProvider: () => electron_1.ipcRenderer.invoke('store-get-provider'),
     setApiKey: (providerId, key) => electron_1.ipcRenderer.invoke('store-set-api-key', { providerId, key }),
     getApiKeyStatus: (providerId) => electron_1.ipcRenderer.invoke('store-get-api-key-status', providerId),
+    testApiKey: (providerId, key) => electron_1.ipcRenderer.invoke('store-test-api-key', { providerId, key }),
     getProviderPresets: () => electron_1.ipcRenderer.invoke('store-get-provider-presets'),
+    getLexEngineProviderState: () => electron_1.ipcRenderer.invoke('lex-engine-provider-snapshot'),
     // Aliases legados (retrocompat)
     setAnthropicKey: (key) => electron_1.ipcRenderer.invoke('store-set-anthropic-key', key),
     getAnthropicKeyStatus: () => electron_1.ipcRenderer.invoke('store-get-anthropic-key-status'),
     checkPje: () => electron_1.ipcRenderer.invoke('check-pje'),
     focusBrowser: () => electron_1.ipcRenderer.invoke('browser-focus'),
-    executePlan: (plan) => electron_1.ipcRenderer.invoke('ai-plan-execute', plan),
     searchJurisprudence: (query) => electron_1.ipcRenderer.invoke('crawler-search', query),
-    // Agent Loop API
-    runAgent: (objetivo, config, sessionId) => electron_1.ipcRenderer.invoke('agent-run', objetivo, config, sessionId),
-    respondAgent: (runId, response, sessionId) => electron_1.ipcRenderer.invoke('agent-respond', { runId, response, sessionId }),
-    shouldUseAgent: (objetivo) => electron_1.ipcRenderer.invoke('agent-should-handle', objetivo),
-    cancelAgent: () => electron_1.ipcRenderer.invoke('agent-cancel'),
-    onAgentEvent: (cb) => {
-        electron_1.ipcRenderer.on('agent-event', (_, event) => cb(event));
-    },
-    offAgentEvent: () => {
-        electron_1.ipcRenderer.removeAllListeners('agent-event');
-    },
     onBackendLog: (cb) => {
         electron_1.ipcRenderer.on('backend-log', (_, entry) => cb(entry));
     },
@@ -68,7 +57,6 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     loadConversation: (id) => electron_1.ipcRenderer.invoke('conversations-load', id),
     saveConversation: (conv) => electron_1.ipcRenderer.invoke('conversations-save', conv),
     deleteConversation: (id) => electron_1.ipcRenderer.invoke('conversations-delete', id),
-    seedSession: (sessionId, messages) => electron_1.ipcRenderer.invoke('session-seed', sessionId, messages),
     onConversationsUpdated: (cb) => {
         electron_1.ipcRenderer.on('conversations-updated', (_, summary) => cb(summary));
     },
@@ -120,56 +108,15 @@ electron_1.contextBridge.exposeInMainWorld('lexApi', {
     privacyRevokeAll: () => electron_1.ipcRenderer.invoke('privacy-revoke-all'),
     privacyGetEffectiveLevel: (providerId) => electron_1.ipcRenderer.invoke('privacy-get-effective-level', providerId),
     privacyGetAuditSummary: (days) => electron_1.ipcRenderer.invoke('privacy-get-audit-summary', days),
-    // Training (PJe-Model dataset)
-    trainingStats: () => electron_1.ipcRenderer.invoke('training-stats'),
-    trainingExport: (options) => electron_1.ipcRenderer.invoke('training-export', options),
 });
 electron_1.contextBridge.exposeInMainWorld('authApi', {
     signIn: (email, password) => electron_1.ipcRenderer.invoke('auth-sign-in', { email, password }),
     signUp: (email, password) => electron_1.ipcRenderer.invoke('auth-sign-up', { email, password }),
-    signInWithGoogle: () => electron_1.ipcRenderer.invoke('auth-google'),
+    signInWithGoogle: (opts) => electron_1.ipcRenderer.invoke('auth-google', opts || {}),
     signOut: () => electron_1.ipcRenderer.invoke('auth-sign-out'),
     checkLicense: () => electron_1.ipcRenderer.invoke('auth-check-license'),
     refreshLicense: () => electron_1.ipcRenderer.invoke('auth-refresh-license'),
     getProfile: () => electron_1.ipcRenderer.invoke('auth-get-profile'),
-});
-electron_1.contextBridge.exposeInMainWorld('orchestratorApi', {
-    /** Retorna snapshot do plano ativo (subtasks + status). Null se nenhum plano rodando. */
-    getState: () => electron_1.ipcRenderer.invoke('orchestrator-get-state'),
-    /** Cancela o plano em execução. Progresso é salvo em checkpoint. */
-    cancel: () => electron_1.ipcRenderer.invoke('orchestrator-cancel'),
-    /** Pausa a execução (agentes em andamento terminam; novos não iniciam). */
-    pause: () => electron_1.ipcRenderer.invoke('orchestrator-pause'),
-    /** Retoma execução pausada. */
-    resume: () => electron_1.ipcRenderer.invoke('orchestrator-resume'),
-    /** Retorna se o plano está pausado. */
-    isPaused: () => electron_1.ipcRenderer.invoke('orchestrator-is-paused'),
-    /** Escuta eventos de orquestração (plan_created, subtask_started, etc.) */
-    onEvent: (cb) => electron_1.ipcRenderer.on('agent-event', (_, e) => { if (e.type === 'orchestrator')
-        cb(e.data); }),
-    offEvent: () => electron_1.ipcRenderer.removeAllListeners('agent-event'),
-});
-electron_1.contextBridge.exposeInMainWorld('checkpointApi', {
-    listPending: () => electron_1.ipcRenderer.invoke('checkpoint-list-pending'),
-    resume: (planId) => electron_1.ipcRenderer.invoke('checkpoint-resume', { planId }),
-    remove: (planId) => electron_1.ipcRenderer.invoke('checkpoint-remove', { planId }),
-});
-electron_1.contextBridge.exposeInMainWorld('schedulerApi', {
-    listGoals: () => electron_1.ipcRenderer.invoke('scheduler-list-goals'),
-    addGoal: (goal) => electron_1.ipcRenderer.invoke('scheduler-add-goal', goal),
-    updateGoal: (id, updates) => electron_1.ipcRenderer.invoke('scheduler-update-goal', { id, updates }),
-    removeGoal: (id) => electron_1.ipcRenderer.invoke('scheduler-remove-goal', id),
-    pauseGoal: (id) => electron_1.ipcRenderer.invoke('scheduler-pause-goal', id),
-    resumeGoal: (id) => electron_1.ipcRenderer.invoke('scheduler-resume-goal', id),
-    runNow: (id) => electron_1.ipcRenderer.invoke('scheduler-run-now', id),
-    getRuns: (goalId, limit) => electron_1.ipcRenderer.invoke('scheduler-get-runs', { goalId, limit }),
-    getStatus: () => electron_1.ipcRenderer.invoke('scheduler-get-status'),
-    setAutoLaunch: (enabled) => electron_1.ipcRenderer.invoke('scheduler-set-auto-launch', enabled),
-    getAutoLaunch: () => electron_1.ipcRenderer.invoke('scheduler-get-auto-launch'),
-    onSchedulerEvent: (cb) => electron_1.ipcRenderer.on('scheduler-event', (_, e) => cb(e)),
-    offSchedulerEvent: () => electron_1.ipcRenderer.removeAllListeners('scheduler-event'),
-    onNotificationBadge: (cb) => electron_1.ipcRenderer.on('notification-badge', (_, d) => cb(d)),
-    offNotificationBadge: () => electron_1.ipcRenderer.removeAllListeners('notification-badge'),
 });
 electron_1.contextBridge.exposeInMainWorld('brainApi', {
     getGraph: () => electron_1.ipcRenderer.invoke('brain-get-graph'),
@@ -186,6 +133,9 @@ electron_1.contextBridge.exposeInMainWorld('brainApi', {
     renderMarkdown: () => electron_1.ipcRenderer.invoke('brain-render-markdown'),
     // Observer dashboard & aprendizado
     getDashboard: (opts) => electron_1.ipcRenderer.invoke('brain-dashboard', opts),
+    getPromotionPreview: (flowId, target) => electron_1.ipcRenderer.invoke('brain-promotion-preview', { flowId, target }),
+    savePromotionDraft: (flowId, target) => electron_1.ipcRenderer.invoke('brain-promotion-save-draft', { flowId, target }),
+    curatePromotion: (flowId, action) => electron_1.ipcRenderer.invoke('brain-promotion-curate', { flowId, action }),
     getTrace: (traceId) => electron_1.ipcRenderer.invoke('brain-trace', traceId),
     detectFlows: () => electron_1.ipcRenderer.invoke('brain-detect-flows'),
     getPreference: (key, fallback) => electron_1.ipcRenderer.invoke('brain-get-preference', key, fallback),
@@ -213,13 +163,11 @@ electron_1.contextBridge.exposeInMainWorld('datajudApi', {
     onSyncEvent: (cb) => electron_1.ipcRenderer.on('datajud-sync-event', (_, e) => cb(e)),
     offSyncEvent: () => electron_1.ipcRenderer.removeAllListeners('datajud-sync-event'),
 });
-electron_1.contextBridge.exposeInMainWorld('pluginsApi', {
-    list: () => electron_1.ipcRenderer.invoke('plugins-list'),
-    getStatus: (pluginId) => electron_1.ipcRenderer.invoke('plugins-get-status', pluginId),
-    getAuthConfig: (pluginId) => electron_1.ipcRenderer.invoke('plugins-get-auth-config', pluginId),
-    startOAuth: (pluginId, apiKey) => electron_1.ipcRenderer.invoke('plugins-start-oauth', { pluginId, apiKey }),
-    disconnect: (pluginId) => electron_1.ipcRenderer.invoke('plugins-disconnect', pluginId),
-    onReady: (cb) => electron_1.ipcRenderer.on('plugins-ready', () => cb()),
+electron_1.contextBridge.exposeInMainWorld('skillsApi', {
+    listCatalog: () => electron_1.ipcRenderer.invoke('skills-catalog-list'),
+    getRuntimeSnapshot: () => electron_1.ipcRenderer.invoke('skills-runtime-snapshot'),
+    getConnectorsSnapshot: () => electron_1.ipcRenderer.invoke('skills-connectors-snapshot'),
+    readSkillFile: (skillPath) => electron_1.ipcRenderer.invoke('skills-read-file', skillPath),
 });
 electron_1.contextBridge.exposeInMainWorld('agoraApi', {
     listCards: () => electron_1.ipcRenderer.invoke('agora-list-cards'),
@@ -232,32 +180,6 @@ electron_1.contextBridge.exposeInMainWorld('agoraApi', {
     getRuns: (id) => electron_1.ipcRenderer.invoke('agora-get-runs', id),
     onAgoraEvent: (cb) => electron_1.ipcRenderer.on('agora-event', (_, e) => cb(e)),
     offAgoraEvent: () => electron_1.ipcRenderer.removeAllListeners('agora-event'),
-});
-electron_1.contextBridge.exposeInMainWorld('batchApi', {
-    // Lote CRUD
-    listLotes: () => electron_1.ipcRenderer.invoke('batch-list-lotes'),
-    getLote: (id) => electron_1.ipcRenderer.invoke('batch-get-lote', id),
-    removeLote: (id) => electron_1.ipcRenderer.invoke('batch-remove-lote', id),
-    // Pipeline initiation
-    createLote: (input) => electron_1.ipcRenderer.invoke('batch-create-lote', input),
-    // HITL approvals
-    approveStrategy: (loteId) => electron_1.ipcRenderer.invoke('batch-approve-strategy', loteId),
-    approveWave: (loteId, waveIndex, redraftIds) => electron_1.ipcRenderer.invoke('batch-approve-wave', { loteId, waveIndex, redraftIds }),
-    approveProtocol: (loteId) => electron_1.ipcRenderer.invoke('batch-approve-protocol', loteId),
-    // Controls
-    pauseLote: (loteId) => electron_1.ipcRenderer.invoke('batch-pause', loteId),
-    resumeLote: (loteId) => electron_1.ipcRenderer.invoke('batch-resume', loteId),
-    cancelLote: (loteId) => electron_1.ipcRenderer.invoke('batch-cancel', loteId),
-    // Petição editor
-    readPeticao: (filePath) => electron_1.ipcRenderer.invoke('batch-read-peticao', filePath),
-    savePeticao: (filePath, content) => electron_1.ipcRenderer.invoke('batch-save-peticao', { filePath, content }),
-    openFolder: (folderPath) => electron_1.ipcRenderer.invoke('batch-open-folder', folderPath),
-    // Export
-    exportDocx: (filePath) => electron_1.ipcRenderer.invoke('batch-export-docx', filePath),
-    exportPdf: (filePath) => electron_1.ipcRenderer.invoke('batch-export-pdf', filePath),
-    // Events
-    onBatchEvent: (cb) => electron_1.ipcRenderer.on('batch-event', (_, e) => cb(e)),
-    offBatchEvent: () => electron_1.ipcRenderer.removeAllListeners('batch-event'),
 });
 electron_1.contextBridge.exposeInMainWorld('docKnowledgeApi', {
     // Schemas
@@ -280,7 +202,6 @@ electron_1.contextBridge.exposeInMainWorld('docKnowledgeApi', {
 });
 electron_1.contextBridge.exposeInMainWorld('terminalApi', {
     create: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create', { sessionId, ...opts }),
-    createLex: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create-lex', { sessionId, ...opts }),
     createEngine: (sessionId, opts) => electron_1.ipcRenderer.invoke('terminal-create-engine', { sessionId, ...opts }),
     write: (sessionId, data, opts) => electron_1.ipcRenderer.invoke('terminal-write', { sessionId, data, ...opts }),
     resize: (sessionId, cols, rows) => electron_1.ipcRenderer.invoke('terminal-resize', { sessionId, cols, rows }),
@@ -291,6 +212,13 @@ electron_1.contextBridge.exposeInMainWorld('terminalApi', {
     offEvents: () => {
         electron_1.ipcRenderer.removeAllListeners('terminal-data');
         electron_1.ipcRenderer.removeAllListeners('terminal-exit');
+    },
+});
+electron_1.contextBridge.exposeInMainWorld('userInputApi', {
+    resolve: (answer) => electron_1.ipcRenderer.invoke('user-input-resolve', { answer }),
+    onRequested: (cb) => electron_1.ipcRenderer.on('user-input-requested', (_, payload) => cb(payload)),
+    offRequested: () => {
+        electron_1.ipcRenderer.removeAllListeners('user-input-requested');
     },
 });
 electron_1.contextBridge.exposeInMainWorld('updaterApi', {

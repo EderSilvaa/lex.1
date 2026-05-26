@@ -449,7 +449,12 @@ export async function syncLexEngineProviderConfig(config: {
         commands.push(`${runtime.command} config set ${envVar} ${bashQuote(envValue)}`);
     }
 
-    await execLexEngineCommand(commands.join(' && '), PROVIDER_SYNC_TIMEOUT_MS);
+    try {
+        await execLexEngineCommand(commands.join(' && '), PROVIDER_SYNC_TIMEOUT_MS);
+    } catch {
+        // The command contains provider credentials; never propagate its text to logs.
+        throw new Error('Falha ao sincronizar configuracao do provider com o Hermes.');
+    }
 }
 
 export async function getLexEngineProviderSnapshot(): Promise<LexEngineProviderSnapshot> {
@@ -927,6 +932,7 @@ export function getLexEngineConsoleSpawn(sessionId: string, extraEnv: Record<str
         LEX_STATUS_PJE: 'verifique pelo indicador do Desktop',
         LEX_STATUS_TRIBUNAL: 'preferido no Desktop',
         LEX_STATUS_URL: '',
+        LEX_DESKTOP_REQUIRED_TOOLSETS: 'web,browser,terminal,file,vision,skills,todo,memory,session_search,clarify,delegation,cronjob',
         ...extraEnv,
     };
 
@@ -937,10 +943,13 @@ export function getLexEngineConsoleSpawn(sessionId: string, extraEnv: Record<str
     if (process.platform === 'win32') {
         const wslAgoraBoardPath = windowsPathToWslPath(agoraBoardPath);
         const wslKanbanHomePath = windowsPathToWslPath(kanbanHomePath);
+        const inheritedWslEnv = String(process.env['WSLENV'] || '').trim();
+        const hitlWslEnv = 'LEX_DESKTOP_HITL_CAPABILITY/w';
         const commandEnv = {
             ...env,
             LEX_AGORA_BOARD_PATH: wslAgoraBoardPath,
             HERMES_KANBAN_HOME: wslKanbanHomePath,
+            WSLENV: inheritedWslEnv ? `${inheritedWslEnv}:${hitlWslEnv}` : hitlWslEnv,
         };
         const envPrefix = buildBashEnvPrefix(commandEnv);
         return {

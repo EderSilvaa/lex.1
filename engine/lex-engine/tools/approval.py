@@ -459,6 +459,134 @@ def is_approved(session_key: str, pattern_key: str) -> bool:
         return any(alias in session_approvals for alias in aliases)
 
 
+def request_human_approval(action_key: str, description: str, detail: str,
+                           allow_permanent: bool = False) -> dict:
+    """Request TUI/gateway approval for a sensitive non-terminal action.
+
+    Desktop/PJe tools use this path so their HITL prompt is rendered by the
+    Hermes UI instead of writing directly into the terminal buffer.
+    """
+    session_key = get_current_session_key()
+    if is_approved(session_key, action_key):
+        return {"approved": True, "message": None, "session_approved": True}
+
+    is_gateway = os.getenv("HERMES_GATEWAY_SESSION")
+    is_ask = os.getenv("HERMES_EXEC_ASK")
+    with _lock:
+        notify_cb = _gateway_notify_cbs.get(session_key)
+
+    # The registered callback is the authoritative signal that the native
+    # Console Lex overlay is available. Runtime flags may be reloaded while
+    # an Electron-hosted TUI session remains alive.
+    if is_gateway or is_ask or notify_cb is not None:
+
+        if notify_cb is None:
+            return {
+                "approved": False,
+                "status": "approval_unavailable",
+                "message": "BLOCKED: A aprovacao nao foi exibida na Console Lex.",
+                "pattern_key": action_key,
+                "description": description,
+            }
+
+        approval_data = {
+            "command": detail,
+            "pattern_key": action_key,
+            "pattern_keys": [action_key],
+            "approval_id": action_key,
+            "description": description,
+            "allow_permanent": allow_permanent,
+        }
+        entry = _ApprovalEntry(approval_data)
+        with _lock:
+            _gateway_queues.setdefault(session_key, []).append(entry)
+
+        try:
+            notify_cb(approval_data)
+        except Exception as exc:
+            logger.warning("Gateway action approval notify failed: %s", exc)
+            with _lock:
+                queue = _gateway_queues.get(session_key, [])
+                if entry in queue:
+                    queue.remove(entry)
+                if not queue:
+                    _gateway_queues.pop(session_key, None)
+            return {
+                "approved": False,
+                "status": "approval_unavailable",
+                "message": "BLOCKED: Falha ao exibir aprovacao na Console Lex.",
+                "pattern_key": action_key,
+                "description": description,
+            }
+
+        timeout = _get_approval_config().get("gateway_timeout", 300)
+        try:
+            timeout = int(timeout)
+        except (ValueError, TypeError):
+            timeout = 300
+
+        deadline = time.monotonic() + max(timeout, 0)
+        resolved = False
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if entry.event.wait(timeout=min(1.0, remaining)):
+                resolved = True
+                break
+
+        with _lock:
+            queue = _gateway_queues.get(session_key, [])
+            if entry in queue:
+                queue.remove(entry)
+            if not queue:
+                _gateway_queues.pop(session_key, None)
+
+        choice = entry.result
+        if not resolved or not choice or choice == "deny":
+            reason = "timeout" if not resolved else "negada pelo usuario"
+            return {
+                "approved": False,
+                "status": "timeout" if not resolved else "denied",
+                "message": f"BLOCKED: Aprovacao {reason}. Nao repita automaticamente.",
+                "pattern_key": action_key,
+                "description": description,
+            }
+
+        if choice in ("session", "always"):
+            # Sensitive PJe actions never gain permanent approval.
+            approve_session(session_key, action_key)
+        return {
+            "approved": True,
+            "message": None,
+            "user_approved": True,
+            "choice": "session" if choice == "always" and not allow_permanent else choice,
+            "description": description,
+        }
+
+    # Desktop launches the prompt_toolkit CLI (`hermes`) rather than the
+    # gateway UI. Reuse its registered overlay callback exactly as terminal
+    # approvals do, instead of falling back to raw stdin behind the TUI.
+    approval_callback = None
+    try:
+        from tools.terminal_tool import _get_approval_callback
+        approval_callback = _get_approval_callback()
+    except Exception:
+        pass
+
+    choice = prompt_dangerous_approval(
+        detail,
+        description,
+        allow_permanent=allow_permanent,
+        approval_callback=approval_callback,
+    )
+    if choice == "deny":
+        return {"approved": False, "status": "denied", "message": "BLOCKED: User denied."}
+    if choice in ("session", "always"):
+        approve_session(session_key, action_key)
+    return {"approved": True, "message": None, "choice": choice}
+
+
 def approve_permanent(pattern_key: str):
     """Add a pattern to the permanent allowlist."""
     with _lock:

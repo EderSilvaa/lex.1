@@ -36,13 +36,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const crypto_1 = require("crypto");
 const tribunal_urls_1 = require("./pje/tribunal-urls");
 const browser_manager_1 = require("./browser-manager");
 const memory_1 = require("./agent/memory");
 const brain_1 = require("./brain");
 const route_memory_1 = require("./pje/route-memory");
-const browser_1 = require("./browser");
 const backend_client_1 = require("./backend-client");
 const crypto_store_1 = require("./crypto-store");
 const doc_index_1 = require("./agent/doc-index");
@@ -53,6 +51,7 @@ const license_1 = require("./auth/license");
 const analytics_1 = require("./analytics");
 const lex_desktop_bridge_1 = require("./lex-desktop-bridge");
 const lex_engine_1 = require("./lex-engine");
+const hermes_skills_catalog_1 = require("./hermes-skills-catalog");
 const electron_updater_1 = require("electron-updater");
 const privacy_1 = require("./privacy");
 const ollama_manager_1 = require("./ollama-manager");
@@ -64,11 +63,6 @@ process.stderr.on('error', (err) => { if (err.code === 'EPIPE')
 // Desabilita GPU do Electron para evitar conflito com Chrome externo e sandbox issues
 electron_1.app.disableHardwareAcceleration();
 electron_1.app.commandLine.appendSwitch('disable-gpu-sandbox');
-// Agent module loaded dynamically after app ready
-let agentModule = null;
-const AGENT_SESSION_ID = (0, crypto_1.randomUUID)();
-let _activeOrchestratorState = null;
-let _activeOrchestratorRef = null;
 // Enable Hot Reload in Development
 // electron-reload removido: bypassava o launch-electron.js (sem deletar ELECTRON_RUN_AS_NODE)
 // causando Electron a subir em modo Node.js e congelar o renderer ao detectar mudanças em dist-electron/
@@ -267,143 +261,6 @@ function sanitizeExecutionPlan(plan) {
         }
     };
 }
-// Prompt Engineering Logic (Ported from Extension)
-function detectarTipoConversa(pergunta) {
-    const perguntaLower = pergunta.toLowerCase();
-    // Cumprimento
-    if (/^(oi|olá|e aí|tudo bem|como vai)/i.test(pergunta))
-        return 'cumprimento';
-    // Análise técnica
-    if (perguntaLower.includes('analisar') || perguntaLower.includes('análise'))
-        return 'analise_tecnica';
-    // Prazos
-    if (perguntaLower.includes('prazo') || perguntaLower.includes('quando'))
-        return 'prazos';
-    // Explicação
-    if (perguntaLower.includes('o que é') || perguntaLower.includes('explique'))
-        return 'explicacao';
-    // Estratégia
-    if (perguntaLower.includes('próximos passos') || perguntaLower.includes('estratégia') || perguntaLower.includes('como proceder'))
-        return 'estrategia';
-    // Automação
-    if (perguntaLower.includes('consultar') || perguntaLower.includes('abrir') || perguntaLower.includes('navegar') || perguntaLower.includes('preencher') || perguntaLower.includes('processo') || perguntaLower.includes('acesse') || perguntaLower.includes('acessar') || perguntaLower.includes('vá para') || perguntaLower.includes('entrar'))
-        return 'automacao';
-    return 'conversa_geral';
-}
-function obterPromptBase(tipo) {
-    const prompts = {
-        cumprimento: `Você é Lex, uma assistente jurídica amigável e acessível. Responda de forma calorosa e natural, como uma colega experiente.`,
-        analise_tecnica: `Você é Lex, especialista em análise processual. Faça uma análise técnica mas acessível, como se estivesse explicando para um colega.`,
-        prazos: `Você é Lex, especialista em prazos processuais. Seja precisa com datas e artigos de lei, mas mantenha um tom acessível e prático.`,
-        explicacao: `Você é Lex, educadora jurídica. Explique conceitos de forma didática, usando exemplos práticos quando possível.`,
-        estrategia: `Você é Lex, consultora estratégica. Apresente opções e recomendações como uma mentora experiente daria conselhos.`,
-        automacao: `Você é Lex, uma agente de automação capaz de operar o sistema PJe. Seu objetivo é traduzir o pedido do usuário em um plano de execução JSON preciso.`,
-        conversa_geral: `Você é Lex, assistente jurídica conversacional. Responda de forma natural e útil, adaptando seu tom ao contexto da pergunta.`
-    };
-    return prompts[tipo] || prompts['conversa_geral'] || '';
-}
-function obterInstrucoesEspecificas(tipo) {
-    const instrucoes = {
-        cumprimento: `Responda de forma amigável e pergunte como posso ajudar com o processo. Máximo 2-3 linhas.`,
-        analise_tecnica: `• <strong>Análise:</strong> O que identifiquei no documento
-• <strong>Próximos passos:</strong> O que precisa ser feito
-• <strong>Observações:</strong> Pontos de atenção
-Máximo 300 palavras, use HTML simples.
-
-IMPORTANTE: Antes de responder, pense passo a passo sobre sua análise. Coloque seu pensamento dentro de tags <thinking>...</thinking>.
-
-OBS: Se você precisar buscar jurisprudência ou pesquisar algo na web, adicione o campo 'search_query' ao JSON de resposta com o termo de busca.`,
-        prazos: `• <strong>Prazo:</strong> Data/período exato
-• <strong>Fundamento:</strong> Artigo de lei aplicável  
-• <strong>Consequência:</strong> O que acontece se não cumprir
-• <strong>Dica:</strong> Como se organizar
-Use HTML simples, máximo 250 palavras.
-
-IMPORTANTE: Antes de responder, pense passo a passo sobre sua análise. Coloque seu pensamento dentro de tags <thinking>...</thinking>.`,
-        explicacao: `Explique de forma didática:
-• <strong>Conceito:</strong> O que significa
-• <strong>Na prática:</strong> Como funciona no dia a dia
-• <strong>Exemplo:</strong> Situação concreta (se aplicável)
-Use linguagem acessível, máximo 300 palavras.`,
-        estrategia: `Apresente opções estruturadas:
-• <strong>Cenário atual:</strong> Situação identificada
-• <strong>Opções:</strong> Caminhos possíveis
-• <strong>Recomendação:</strong> Sua sugestão e por quê
-Tom consultivo, máximo 300 palavras.`,
-        automacao: `Para realizar automações no PJe, você deve responder ESTRITAMENTE com um objeto JSON contendo o plano de execução.
-        
-O formato deve ser:
-\`\`\`json
-{
-  "intent": {
-    "type": "automation",
-    "description": "Texto curto descrevendo o que será feito (ex: Navegando para o processo...)"
-  },
-  "steps": [
-    {
-      "order": 1,
-      "type": "navigate | click | fill | read | wait",
-      "description": "Descrição do passo",
-      "url": "URL se for navegação",
-      "selector": "CSS Selector do elemento",
-      "value": "Valor para preencher (se type=fill)",
-      "duration": 1000 (ms, se type=wait)
-    }
-  ]
-}
-\`\`\`
-
-URLs Úteis do PJe TJPA:
-- Login: https://pje.tjpa.jus.br/pje/login.seam
-- Painel: https://pje.tjpa.jus.br/pje/Processo/ConsultaProcesso/listView.seam
-- Consulta: https://pje.tjpa.jus.br/pje/Processo/ConsultaProcesso/listView.seam
-
-SEMPRE use seletores genéricos ou visuais quando possível, ou IDs específicos se souber.
-      
-      IMPORTANTE (LOGIN 2FA):
-      O sistema PJe exige 2FA (Token/Certificado). NÃO tente preencher senha ou clicar em 'Entrar'.
-      Se a tarefa exigir login (ex: consultar processo), seu plano deve:
-      1. Navegar para a página de login.
-      2. Adicionar um passo do tipo 'wait' com mensagem para o usuário logar.
-      3. ENCERRAR o plano ali, ou continuar assumindo que o usuário fará o login.
-      
-      Responda APENAS com o bloco JSON.`,
-        conversa_geral: `- Se for dúvida: seja didática
-- Se for urgente: seja direta e prática  
-- Se for complexa: quebre em partes
-Use HTML simples, máximo 300 palavras.
-
-IMPORTANTE: Antes de responder, pense passo a passo sobre sua resposta dentro de tags <thinking>...</thinking>.
-
-OBS: Se o usuário pedir para pesquisar algo (ex: "busque decisões sobre X"), adicione o campo 'search_query' ao JSON de resposta com o termo de busca e defina intent.type = 'search_jurisprudence'.`
-    };
-    return instrucoes[tipo] || instrucoes['conversa_geral'] || '';
-}
-function criarPromptJuridico(contexto, pergunta) {
-    const tipoConversa = detectarTipoConversa(pergunta);
-    // Usa o prompt-layer para personalidade e comportamento (mesmo sistema do agent loop)
-    let systemPrompt;
-    try {
-        const tenantConfig = agentModule?.getDefaultTenantConfig?.();
-        if (tenantConfig) {
-            const { buildPromptLayerSystem } = require('./agent/prompt-layer');
-            systemPrompt = buildPromptLayerSystem(tenantConfig);
-        }
-        else {
-            systemPrompt = obterPromptBase(tipoConversa);
-        }
-    }
-    catch {
-        systemPrompt = obterPromptBase(tipoConversa);
-    }
-    // Contexto do processo (se houver)
-    const contextStr = contexto && Object.keys(contexto).length > 0
-        ? `\n\nCONTEXTO DO PROCESSO:\n${JSON.stringify(contexto, null, 2)}`
-        : '';
-    // Instruções específicas do tipo (mantém para automação)
-    const instrucoes = tipoConversa === 'automacao' ? `\n\n${obterInstrucoesEspecificas(tipoConversa)}` : '';
-    return `${systemPrompt}${contextStr}${instrucoes}`;
-}
 /**
  * Sincroniza o provider ativo no runtime (ai-handler + env vars).
  */
@@ -421,6 +278,39 @@ async function syncProvider(providerId, apiKey, agentModel, visionModel) {
     initAI(config);
     // Sincroniza config com o backend (se conectado)
     (0, backend_client_1.syncConfigToBackend)(config);
+    try {
+        await (0, lex_engine_1.syncLexEngineProviderConfig)(config);
+    }
+    catch (error) {
+        console.warn('[Provider] Falha ao sincronizar com Hermes; credenciais omitidas do log.');
+    }
+}
+function normalizeProviderSelection(providerId, agentModel, visionModel) {
+    const preset = provider_config_1.PROVIDER_PRESETS[providerId];
+    return {
+        providerId,
+        agentModel: (agentModel || '').trim() || preset.defaultAgentModel,
+        visionModel: (visionModel || '').trim() || preset.defaultVisionModel,
+    };
+}
+async function resolveCanonicalProviderSelectionFromHermes(fallback) {
+    const normalizedFallback = normalizeProviderSelection(fallback.providerId, fallback.agentModel, fallback.visionModel);
+    try {
+        const snapshot = await (0, lex_engine_1.getLexEngineProviderSnapshot)();
+        if (snapshot?.available && snapshot.desktopProviderId) {
+            return {
+                ...normalizeProviderSelection(snapshot.desktopProviderId, snapshot.agentModel, snapshot.visionModel),
+                source: 'hermes',
+            };
+        }
+    }
+    catch (error) {
+        console.warn('[Provider] Nao foi possivel ler snapshot canonico do Hermes no boot:', error?.message || error);
+    }
+    return {
+        ...normalizedFallback,
+        source: 'fallback',
+    };
 }
 /**
  * Reaplica estado do browser após alteração de provider/chave.
@@ -451,7 +341,7 @@ function loadApiKey(providerId) {
     }
     const apiKeys = store.get('apiKeys', {});
     const raw = String(apiKeys[providerId] || '').trim();
-    console.log(`[loadApiKey] provider=${providerId}, raw=${raw ? raw.slice(0, 20) + '...' : 'EMPTY'}, encrypted=${(0, crypto_store_1.isEncrypted)(raw)}`);
+    console.log(`[loadApiKey] provider=${providerId}, configured=${Boolean(raw)}, encrypted=${(0, crypto_store_1.isEncrypted)(raw)}`);
     if (!raw)
         return '';
     if (!(0, crypto_store_1.isEncrypted)(raw)) {
@@ -459,7 +349,7 @@ function loadApiKey(providerId) {
         return raw;
     }
     const decrypted = (0, crypto_store_1.safeDecrypt)(raw);
-    console.log(`[loadApiKey] decrypted=${decrypted ? decrypted.slice(0, 8) + '...' : 'EMPTY (decrypt failed)'}`);
+    console.log(`[loadApiKey] decrypted=${Boolean(decrypted)}`);
     return decrypted;
 }
 /**
@@ -471,6 +361,84 @@ function saveApiKey(providerId, key) {
     const apiKeys = store.get('apiKeys', {});
     apiKeys[providerId] = key ? (0, crypto_store_1.encryptApiKey)(key) : '';
     store.set('apiKeys', apiKeys);
+}
+function getProviderRuntimeEnv(providerId, apiKey) {
+    const key = String(apiKey || '').trim();
+    if (!key)
+        return {};
+    switch (providerId) {
+        case 'anthropic':
+            return {
+                ANTHROPIC_API_KEY: key,
+                ANTHROPIC_TOKEN: '',
+            };
+        case 'openai':
+            return { OPENAI_API_KEY: key };
+        case 'openrouter':
+            return { OPENROUTER_API_KEY: key };
+        case 'google':
+            return { GOOGLE_API_KEY: key };
+        case 'groq':
+            return { GROQ_API_KEY: key };
+        case 'ollama':
+            return { OPENAI_API_KEY: 'ollama' };
+        default:
+            return {};
+    }
+}
+async function testProviderApiKey(providerId, key) {
+    const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
+    if (providerId === 'ollama') {
+        const status = await (0, ollama_manager_1.getOllamaStatus)();
+        return status.running
+            ? { success: true }
+            : { success: false, error: status.error || 'Ollama nao esta rodando.' };
+    }
+    if (!normalizedKey)
+        return { success: false, error: 'Cole uma chave antes de testar.' };
+    const signal = AbortSignal.timeout(15000);
+    let url = '';
+    const headers = {};
+    if (providerId === 'anthropic') {
+        url = 'https://api.anthropic.com/v1/models';
+        headers['x-api-key'] = normalizedKey;
+        headers['anthropic-version'] = '2023-06-01';
+    }
+    else if (providerId === 'openai') {
+        url = 'https://api.openai.com/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    }
+    else if (providerId === 'openrouter') {
+        url = 'https://openrouter.ai/api/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    }
+    else if (providerId === 'groq') {
+        url = 'https://api.groq.com/openai/v1/models';
+        headers['Authorization'] = `Bearer ${normalizedKey}`;
+    }
+    else if (providerId === 'google') {
+        url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(normalizedKey)}`;
+    }
+    else {
+        return { success: false, error: `Provider nao suportado: ${providerId}` };
+    }
+    try {
+        const response = await fetch(url, { headers, signal });
+        if (response.ok)
+            return { success: true };
+        let body = '';
+        try {
+            body = await response.text();
+        }
+        catch {
+            body = '';
+        }
+        const compact = body.replace(/\s+/g, ' ').slice(0, 220);
+        return { success: false, error: `HTTP ${response.status}${compact ? `: ${compact}` : ''}` };
+    }
+    catch (error) {
+        return { success: false, error: error?.message || String(error) };
+    }
 }
 function normalizeConversationContent(content) {
     if (typeof content === 'string')
@@ -542,9 +510,8 @@ async function initStore() {
     }
     // ── Carrega config do provider ──
     const savedProvider = store.get('aiProvider', null);
-    const providerId = savedProvider?.providerId ?? 'anthropic';
-    const apiKey = loadApiKey(providerId);
-    const preset = provider_config_1.PROVIDER_PRESETS[providerId];
+    const savedProviderId = savedProvider?.providerId ?? 'anthropic';
+    const preset = provider_config_1.PROVIDER_PRESETS[savedProviderId];
     // Migra modelos removidos/legacy para defaults atuais
     const LEGACY_VISION_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
     const REMOVED_OPENROUTER_MODELS = [
@@ -557,7 +524,7 @@ async function initStore() {
     ];
     const savedVision = savedProvider?.visionModel ?? preset.defaultVisionModel;
     const savedAgent = savedProvider?.agentModel ?? preset.defaultAgentModel;
-    const visionModel = (providerId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
+    const visionModel = (savedProviderId === 'anthropic' && LEGACY_VISION_MODELS.includes(savedVision))
         ? preset.defaultVisionModel
         : REMOVED_OPENROUTER_MODELS.includes(savedVision)
             ? preset.defaultVisionModel
@@ -568,7 +535,18 @@ async function initStore() {
     if (visionModel !== savedVision || agentModel !== savedAgent) {
         console.log(`[Provider] Migrado modelos removidos: agent=${savedAgent}->${agentModel}, vision=${savedVision}->${visionModel}`);
     }
-    await syncProvider(providerId, apiKey, agentModel, visionModel);
+    const canonical = await resolveCanonicalProviderSelectionFromHermes({
+        providerId: savedProviderId,
+        agentModel,
+        visionModel,
+    });
+    const apiKey = loadApiKey(canonical.providerId);
+    store.set('aiProvider', {
+        providerId: canonical.providerId,
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
+    await syncProvider(canonical.providerId, apiKey, canonical.agentModel, canonical.visionModel);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // IPC — Configuração de Provider/API Keys
@@ -577,16 +555,42 @@ async function initStore() {
 electron_1.ipcMain.handle('store-set-provider', async (_event, cfg) => {
     if (!store)
         return { error: 'Store not initialized' };
-    store.set('aiProvider', cfg);
-    const apiKey = loadApiKey(cfg.providerId);
-    console.log(`[Provider] setProvider: ${cfg.providerId}, key=${apiKey ? apiKey.slice(0, 8) + '...' : 'EMPTY'}, agent=${cfg.agentModel}, vision=${cfg.visionModel}`);
-    await syncProvider(cfg.providerId, apiKey, cfg.agentModel, cfg.visionModel);
-    await refreshBrowserRuntime('troca de provider');
-    return { success: true };
+    const desired = normalizeProviderSelection(cfg.providerId, cfg.agentModel, cfg.visionModel);
+    store.set('aiProvider', desired);
+    const apiKey = loadApiKey(desired.providerId);
+    console.log(`[Provider] setProvider: ${desired.providerId}, configured=${Boolean(apiKey)}, agent=${desired.agentModel}, vision=${desired.visionModel}`);
+    await syncProvider(desired.providerId, apiKey, desired.agentModel, desired.visionModel);
+    const canonical = await resolveCanonicalProviderSelectionFromHermes(desired);
+    store.set('aiProvider', {
+        providerId: canonical.providerId,
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
+    (0, provider_config_1.setActiveConfig)({
+        providerId: canonical.providerId,
+        apiKey: loadApiKey(canonical.providerId),
+        agentModel: canonical.agentModel,
+        visionModel: canonical.visionModel,
+    });
+    return { success: true, provider: canonical };
 });
 /** Retorna provider ativo + status da chave. A apiKey nunca é enviada ao renderer. */
 electron_1.ipcMain.handle('store-get-provider', async () => {
-    const cfg = (0, provider_config_1.getActiveConfig)();
+    const current = (0, provider_config_1.getActiveConfig)();
+    const canonical = await resolveCanonicalProviderSelectionFromHermes({
+        providerId: current.providerId,
+        agentModel: current.agentModel,
+        visionModel: current.visionModel,
+    });
+    const cfg = canonical.source === 'hermes'
+        ? {
+            ...current,
+            providerId: canonical.providerId,
+            agentModel: canonical.agentModel,
+            visionModel: canonical.visionModel,
+            apiKey: loadApiKey(canonical.providerId),
+        }
+        : current;
     const hasKey = cfg.apiKey.length > 0;
     const { apiKey: _omit, ...safe } = cfg;
     return { ...safe, hasKey };
@@ -598,11 +602,13 @@ electron_1.ipcMain.handle('store-set-api-key', async (_event, { providerId, key 
     // Remove zero-width chars, BOM, e qualquer non-ASCII que colar junto
     const normalizedKey = String(key || '').replace(/[^\x20-\x7E]/g, '').trim();
     saveApiKey(providerId, normalizedKey);
-    // Se é o provider ativo, re-sincroniza imediatamente
+    // Se é o provider ativo, atualiza a cópia em memória e re-sincroniza.
+    // Sem o setActiveConfig aqui, o spawn do Console Lex (terminal-create-engine)
+    // continuaria injetando a chave antiga no env do Hermes mesmo após restart.
     const current = (0, provider_config_1.getActiveConfig)();
     if (current.providerId === providerId) {
+        (0, provider_config_1.setActiveConfig)({ ...current, apiKey: normalizedKey });
         await syncProvider(providerId, normalizedKey, current.agentModel, current.visionModel);
-        await refreshBrowserRuntime('nova chave API');
     }
     return { success: true, configured: normalizedKey.length > 0 };
 });
@@ -615,8 +621,15 @@ electron_1.ipcMain.handle('store-get-api-key-status', async (_event, providerId)
     };
 });
 /** Retorna catálogo de providers/modelos para a UI de configurações. */
+electron_1.ipcMain.handle('store-test-api-key', async (_event, { providerId, key }) => {
+    const candidate = String(key || '').trim() || loadApiKey(providerId);
+    return await testProviderApiKey(providerId, candidate);
+});
 electron_1.ipcMain.handle('store-get-provider-presets', () => {
     return provider_config_1.PROVIDER_PRESETS;
+});
+electron_1.ipcMain.handle('lex-engine-provider-snapshot', async () => {
+    return await (0, lex_engine_1.getLexEngineProviderSnapshot)();
 });
 // ── Privacy / Consent ──────────────────────────────────────────────────────
 electron_1.ipcMain.handle('privacy-get-config', () => {
@@ -646,27 +659,6 @@ electron_1.ipcMain.handle('privacy-get-effective-level', (_event, providerId) =>
 });
 electron_1.ipcMain.handle('privacy-get-audit-summary', (_event, days) => {
     return (0, privacy_1.getAuditSummary)(days ?? 7);
-});
-// ── Training (PJe-Model dataset) ──────────────────────────────────────────
-electron_1.ipcMain.handle('training-stats', () => {
-    try {
-        const { getStats } = require('./agent/training-collector');
-        return getStats();
-    }
-    catch {
-        return { total: 0, today: 0, bySistema: {}, byTribunal: {}, bySkill: {}, oldestDate: '', newestDate: '' };
-    }
-});
-electron_1.ipcMain.handle('training-export', async (_event, options) => {
-    try {
-        const userData = electron_1.app.getPath('userData');
-        const trainingDir = require('path').join(userData, 'training');
-        const { exportForFineTune } = require('./agent/training-exporter');
-        return await exportForFineTune(trainingDir, options ?? {});
-    }
-    catch (err) {
-        return { success: false, outputPath: '', stats: {}, error: err.message };
-    }
 });
 // ── Ollama (Modelo Local) ──────────────────────────────────────────────────
 electron_1.ipcMain.handle('ollama-status', async () => {
@@ -799,91 +791,6 @@ electron_1.ipcMain.handle('store-get-anthropic-key-status', async () => {
     };
 });
 // AI Chat Handler
-electron_1.ipcMain.handle('ai-chat-send', async (_event, { message, context }) => {
-    if (!store)
-        return { error: 'Store not initialized' };
-    try {
-        console.log('🤖 Sending to Claude (Anthropic)...');
-        const messageStr = message || '';
-        const systemPrompt = criarPromptJuridico(context || {}, messageStr);
-        console.log('🤖 System Prompt Type:', detectarTipoConversa(messageStr));
-        const { callAI } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
-        const fullText = await callAI({
-            system: systemPrompt,
-            user: messageStr
-        });
-        console.log('🤖 Claude response received:', fullText.substring(0, 50) + '...');
-        // PARSE AI RESPONSE (Extract JSON if present)
-        let aiPlan = {
-            intent: {
-                description: fullText || 'Sem resposta da IA.'
-            }
-        };
-        try {
-            // Strategy 1: Look for markdown code block
-            const jsonMatch = fullText.match(/```json\s*([\s\S]*?)\s*```/) || fullText.match(/```\s*([\s\S]*?)\s*```/);
-            let potentialJson = "";
-            if (jsonMatch && jsonMatch[1]) {
-                potentialJson = jsonMatch[1];
-            }
-            else {
-                // Strategy 2: Energetic JSON Search
-                // Find method that handles nested braces effectively? No, simplest is first '{' to last '}'
-                // and try parsing. If it fails, try finding next '{', etc.
-                // Cleanup thinking tags first
-                let cleanText = fullText.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
-                const start = cleanText.indexOf('{');
-                const end = cleanText.lastIndexOf('}');
-                if (start !== -1 && end !== -1 && end > start) {
-                    potentialJson = cleanText.substring(start, end + 1);
-                }
-            }
-            if (potentialJson) {
-                // Fix common LLM format issues:
-                // 1. Remove trailing commas before ']' or '}'
-                let cleanedJson = potentialJson.replace(/,\s*([\]}])/g, '$1');
-                // 2. Fix hallucinated quotes between a number and a comma, e.g. `"order": 6,",` -> `"order": 6,`
-                cleanedJson = cleanedJson.replace(/(\d+)\s*",\s*"/g, '$1, "');
-                // 3. Fix unescaped newlines in middle of strings (basic heuristic)
-                cleanedJson = cleanedJson.replace(/\n(?=[^"]*"\s*:)/g, '\\n');
-                let parsed;
-                try {
-                    parsed = JSON.parse(cleanedJson);
-                }
-                catch (e) {
-                    console.warn('[Validation] JSON parse failed after basic cleanup. Falling back to raw response', e);
-                    throw e; // goes to outer catch
-                }
-                // Normalizing Response
-                aiPlan = {
-                    ...parsed,
-                    intent: {
-                        ...(parsed.intent || {}),
-                        // Use specific 'response' field if available, otherwise description, otherwise raw text
-                        description: parsed.response || parsed.intent?.description || fullText
-                    }
-                };
-                // If the AI just gave a 'response' text but no intent, assume informative
-                if (!aiPlan.intent.type) {
-                    aiPlan.intent.type = 'informative';
-                }
-                if (parsed.search_query) {
-                    aiPlan.search_query = parsed.search_query;
-                    if (!aiPlan.intent.type || aiPlan.intent.type === 'informative')
-                        aiPlan.intent.type = 'search_jurisprudence';
-                }
-            }
-        }
-        catch (e) {
-            console.log('⚠️ Could not parse structured JSON from response, using raw text.', e);
-        }
-        return { plan: aiPlan };
-    }
-    catch (error) {
-        console.error('AI Connection Failed:', error);
-        return { error: error.message };
-    }
-});
 function createTray() {
     tray = new electron_1.Tray(getAppIcon());
     tray.setToolTip('LEX — Assistente Jurídico (24/7)');
@@ -968,8 +875,6 @@ function createWindow() {
     if (!electron_1.app.isPackaged) {
         mainWindow.webContents.openDevTools();
     }
-    // Setup Agent event forwarding to renderer (async, no need to wait)
-    setupAgentEventForwarding().catch(err => console.error('[Agent] Failed to setup events:', err));
     // Deep-link: --view=<tab> abre direto na aba correta (ex: --view=brain)
     const viewArg = process.argv.find(a => a.startsWith('--view='));
     if (viewArg) {
@@ -988,6 +893,7 @@ function createWindow() {
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
+    syncUserInputNotifier();
     // Note: We REMOVED the default injection on mainWindow, because it loads Dashboard.
 }
 // File System Handlers
@@ -1296,10 +1202,36 @@ electron_1.app.whenReady().then(async () => {
         electron_1.ipcMain.handle('terminal-list-sessions', async () => {
             return { success: true, data: ptyMgr.listSessions() };
         });
+        electron_1.ipcMain.handle('user-input-resolve', async (_event, { answer }) => {
+            try {
+                return {
+                    success: true,
+                    resolved: (0, user_input_1.resolveUserInput)(String(answer ?? '')),
+                };
+            }
+            catch (err) {
+                return {
+                    success: false,
+                    error: err?.message || 'Falha ao entregar resposta ao agente.',
+                };
+            }
+        });
         // Sessão especial: roda o LEX CLI dentro do PTY
         electron_1.ipcMain.handle('terminal-create-engine', async (_, opts) => {
             try {
-                const spawn = (0, lex_engine_1.getLexEngineConsoleSpawn)(opts.sessionId);
+                const activeProvider = (0, provider_config_1.getActiveConfig)();
+                const activeProviderKey = activeProvider.apiKey || loadApiKey(activeProvider.providerId);
+                await syncProvider(activeProvider.providerId, activeProviderKey, activeProvider.agentModel, activeProvider.visionModel);
+                const prefs = (store?.get('userPreferences', {}) || {});
+                const desktopUserName = String(prefs['displayName'] || prefs['fullName'] || '').trim();
+                const desktopUserRole = String(prefs['role'] || '').trim();
+                const desktopEnv = {
+                    ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
+                    ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
+                    LEX_DESKTOP_HITL_CAPABILITY: (0, lex_desktop_bridge_1.getLexDesktopHitlCapability)(),
+                    ...getProviderRuntimeEnv(activeProvider.providerId, activeProviderKey),
+                };
+                const spawn = (0, lex_engine_1.getLexEngineConsoleSpawn)(opts.sessionId, desktopEnv);
                 await ptyMgr.createSession(opts.sessionId, {
                     shell: spawn.shell,
                     args: spawn.args,
@@ -1309,30 +1241,6 @@ electron_1.app.whenReady().then(async () => {
                     mode: 'engine',
                     env: {
                         ...spawn.env,
-                        NODE_OPTIONS: '--max-old-space-size=4096',
-                    },
-                });
-                return { success: true };
-            }
-            catch (err) {
-                return { success: false, error: err.message };
-            }
-        });
-        electron_1.ipcMain.handle('terminal-create-lex', async (_, opts) => {
-            try {
-                const path = await Promise.resolve().then(() => __importStar(require('path')));
-                const cliEntry = path.join(electron_1.app.getAppPath(), 'bin', 'lex.js');
-                const shell = process.platform === 'win32' ? 'node.exe' : 'node';
-                await ptyMgr.createSession(opts.sessionId, {
-                    shell,
-                    args: [cliEntry, '--in-electron'],
-                    cwd: electron_1.app.getAppPath(),
-                    cols: opts.cols,
-                    rows: opts.rows,
-                    mode: 'lex',
-                    env: {
-                        LEX_IN_ELECTRON: '1',
-                        LEX_CONVERSATION_ID: opts.sessionId,
                         NODE_OPTIONS: '--max-old-space-size=4096',
                     },
                 });
@@ -1357,7 +1265,6 @@ electron_1.app.whenReady().then(async () => {
         console.error('[Terminal] Falha ao inicializar:', err.message);
     }
     (0, route_memory_1.initRouteMemory)(userData);
-    (0, browser_1.initSelectorMemory)(userData);
     // Brain (SQLite FTS5 + grafo de conhecimento)
     try {
         (0, brain_1.initBrain)(userData);
@@ -1366,12 +1273,6 @@ electron_1.app.whenReady().then(async () => {
     catch (err) {
         console.error('[Main] Falha ao iniciar Brain:', err.message);
     }
-    // Training collector — coleta dados de treino para PJe-model
-    try {
-        const { initTrainingCollector } = require('./agent/training-collector');
-        initTrainingCollector(userData);
-    }
-    catch { /* módulo não disponível */ }
     // Forward de eventos do backend → renderer (inicializa uma vez)
     if (!backendEventWiringReady) {
         backendEventWiringReady = true;
@@ -1435,31 +1336,6 @@ electron_1.app.whenReady().then(async () => {
     initTelegramBotIfConfigured().catch(e => {
         console.error('[Telegram] Falha ao auto-iniciar:', e);
     }).then(() => refreshTrayMenu()); // atualiza status no menu após bot iniciar
-    // Phase 3 AIOS: Inicializa plugins ANTES do scheduler
-    // (scheduler pode executar goals que usam skills de plugins)
-    try {
-        const { initPlugins } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-        await initPlugins();
-        if (mainWindow)
-            mainWindow.webContents.send('plugins-ready');
-    }
-    catch (err) {
-        console.error('[Plugins] Falha ao inicializar:', err.message);
-    }
-    // Phase 2 AIOS: Inicializa scheduler + notifications
-    try {
-        const { initScheduler, setJobRunnerWindow } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const { setNotificationWindow, setTelegramUserId } = await Promise.resolve().then(() => __importStar(require('./notifications')));
-        setNotificationWindow(mainWindow);
-        setJobRunnerWindow(mainWindow);
-        const telegramUserId = store?.get('telegramUserId', 0);
-        if (telegramUserId)
-            setTelegramUserId(telegramUserId);
-        await initScheduler();
-    }
-    catch (err) {
-        console.error('[Scheduler] Falha ao inicializar:', err.message);
-    }
     // Legal Store — base jurídica dinâmica (seed no primeiro uso)
     try {
         const { initLegalStore } = await Promise.resolve().then(() => __importStar(require('./legal/legal-store')));
@@ -1496,10 +1372,6 @@ electron_1.app.whenReady().then(async () => {
         const { initPythonEnv, getPythonEnv } = await Promise.resolve().then(() => __importStar(require('./python')));
         initPythonEnv();
         getPythonEnv().setup()
-            .then(() => {
-            // Instala browser-use em background após Python estar pronto
-            Promise.resolve().then(() => __importStar(require('./browser/browser-use-setup'))).then(({ ensureBrowserUseInstalled }) => ensureBrowserUseInstalled().catch((err) => console.warn('[BrowserUse] Instalação falhou:', err.message))).catch(() => { });
-        })
             .catch((err) => console.warn('[Python] Setup falhou:', err.message));
     }
     catch (err) {
@@ -1582,12 +1454,6 @@ electron_1.app.on('window-all-closed', async function () {
     (0, analytics_1.getAnalytics)().endSession();
     // Flush audit log de privacidade
     await (0, privacy_1.flushAuditLog)();
-    // Phase 2 AIOS: Para scheduler (limpa timers/watchers)
-    try {
-        const { stopScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-        stopScheduler();
-    }
-    catch { /* ignore */ }
     // No modo 24/7 com tray ativo, não encerra o processo
     if (trayModeActive)
         return;
@@ -1598,21 +1464,8 @@ electron_1.app.on('window-all-closed', async function () {
     await (0, backend_client_1.stopBackend)();
     // Fallback local caso backend não estivesse rodando
     (0, route_memory_1.flush)();
-    (0, browser_1.flushSelectorMemory)();
-    try {
-        require('./agent/training-collector').flush();
-    }
-    catch { /* ok */ }
     (0, brain_1.closeBrain)();
     await (0, browser_manager_1.closeBrowser)();
-    try {
-        if (agentModule) {
-            const sm = agentModule.getSessionManager();
-            if (sm?.flush)
-                await sm.flush();
-        }
-    }
-    catch (e) { /* non-critical */ }
     if (process.platform !== 'darwin')
         electron_1.app.quit();
 });
@@ -1663,21 +1516,6 @@ electron_1.ipcMain.handle('conversations-delete', async (_event, id) => {
     const convs = store?.get('conversations', {}) || {};
     delete convs[id];
     store?.set('conversations', convs);
-    return { success: true };
-});
-// Pre-seed agent session with saved messages (for context on conversation reload)
-electron_1.ipcMain.handle('session-seed', async (_event, sessionId, messages) => {
-    if (typeof sessionId !== 'string' || !sessionId)
-        return { success: false, error: 'sessionId inválido.' };
-    if (!Array.isArray(messages))
-        return { success: false, error: 'messages inválido.' };
-    const agent = await loadAgentModule();
-    const sm = agent.getSessionManager();
-    sm.getOrCreate(sessionId);
-    for (const msg of messages.slice(-8)) {
-        const role = msg.role === 'user' ? 'user' : 'assistant';
-        sm.addMessage(sessionId, role, msg.content);
-    }
     return { success: true };
 });
 // ============================================================================
@@ -1842,10 +1680,26 @@ electron_1.ipcMain.handle('check-pje', async () => {
         const mem = (0, memory_1.getMemory)();
         const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
         const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
-        return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+        return {
+            connected: !!url,
+            isPje,
+            url,
+            tribunalAtivo,
+            tribunalPreferido: pref,
+            contextSummary: null,
+            environment: null,
+        };
     }
     catch {
-        return { connected: false, isPje: false, url: null, tribunalAtivo: null, tribunalPreferido: null };
+        return {
+            connected: false,
+            isPje: false,
+            url: null,
+            tribunalAtivo: null,
+            tribunalPreferido: null,
+            contextSummary: null,
+            environment: null,
+        };
     }
 });
 // Tenta trazer a aba de automação do browser para frente.
@@ -1884,7 +1738,15 @@ electron_1.ipcMain.handle('browser-focus', async () => {
             const mem = (0, memory_1.getMemory)();
             const [memoriaData, usuario] = await Promise.all([mem.carregar(), mem.getUsuario()]);
             const pref = memoriaData.preferencias?.['tribunal_preferido'] || usuario.tribunal_preferido || null;
-            return { connected: !!url, isPje, url, tribunalAtivo, tribunalPreferido: pref };
+            return {
+                connected: !!url,
+                isPje,
+                url,
+                tribunalAtivo,
+                tribunalPreferido: pref,
+                contextSummary: null,
+                environment: null,
+            };
         })();
         return { ok: !!page, status };
     }
@@ -1896,302 +1758,6 @@ electron_1.ipcMain.handle('browser-focus', async () => {
 // LEX AGENT LOOP INTEGRATION
 // ============================================================================
 // Initialize agent on app ready
-let agentInitialized = false;
-async function loadAgentModule() {
-    if (!agentModule) {
-        console.log('[Agent] Loading module...');
-        agentModule = await Promise.resolve().then(() => __importStar(require('./agent')));
-        console.log('[Agent] Module loaded');
-    }
-    return agentModule;
-}
-async function ensureAgentInitialized() {
-    const agent = await loadAgentModule();
-    if (!agentInitialized) {
-        await agent.initializeAgent();
-        // Injeta dialog nativo do Electron para confirmação de ações perigosas
-        const confirmFn = async (titulo, detalhe) => {
-            const { response } = await electron_1.dialog.showMessageBox({
-                type: 'warning',
-                buttons: ['Cancelar', 'Executar'],
-                defaultId: 0,
-                cancelId: 0,
-                title: titulo,
-                message: titulo,
-                detail: detalhe,
-                noLink: true
-            });
-            return response === 1;
-        };
-        const { setConfirmDialog } = await Promise.resolve().then(() => __importStar(require('./skills/os/sistema')));
-        setConfirmDialog(confirmFn);
-        agentInitialized = true;
-    }
-    return agent;
-}
-// Forward agent events to renderer (com guard contra listeners duplicados)
-let agentEventForwardingActive = false;
-async function setupAgentEventForwarding() {
-    if (agentEventForwardingActive)
-        return;
-    agentEventForwardingActive = true;
-    const agent = await loadAgentModule();
-    agent.agentEmitter.removeAllListeners('agent-event');
-    agent.agentEmitter.on('agent-event', (event) => {
-        console.log('[Agent Event]', event.type);
-        if (mainWindow) {
-            mainWindow.webContents.send('agent-event', event);
-        }
-    });
-}
-function normalizeIntentText(raw) {
-    return String(raw || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim();
-}
-/**
- * Detects ambiguous objectives (PC vs PJe) and injects a disambiguation
- * instruction directly into the objective text so Claude is forced to ask
- * before acting. This works regardless of system prompt encoding issues.
- */
-function injectDisambiguationIfNeeded(objetivo) {
-    const lower = normalizeIntentText(objetivo);
-    const pjeSignals = ['pje', 'processo', 'tribunal', 'trt', 'trf', 'tj', 'peticao', 'despacho', 'audiencia', 'expediente', 'cnj', 'publicacao', 'intimacao'];
-    const pcSignals = ['download', 'desktop', 'area de trabalho', 'c:', 'd:', 'meu computador', 'minha maquina', '.pdf', '.docx', '.xlsx', '.txt', '.png', '.jpg', 'pasta downloads', 'pasta documentos'];
-    const hasPjeContext = pjeSignals.some(t => lower.includes(t));
-    const hasPcContext = pcSignals.some(t => lower.includes(t));
-    // File/folder/document ambiguity: could be PC or PJe
-    const fileAmbiguous = ['pasta', 'pastas', 'arquivo', 'arquivos', 'documento', 'documentos'];
-    if (fileAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
-        return `[INSTRUCAO OBRIGATORIA: Este pedido contem termo ambiguo. Use tipo=pergunta perguntando ao usuario se quer acessar o PC (computador local, usando os_listar ou os_arquivos) ou o PJe (sistema judicial, usando pje_agir). NAO execute nenhuma skill antes de perguntar.] ${objetivo}`;
-    }
-    // Screen/tela ambiguity: could be PC screen or PJe screen
-    const screenAmbiguous = ['minha tela', 'minha area', 'o que ta na tela', 'o que esta na tela', 'ver a tela', 'ver tela', 'capturar tela'];
-    if (screenAmbiguous.some(t => lower.includes(t)) && !hasPjeContext && !hasPcContext) {
-        return `[INSTRUCAO OBRIGATORIA: Use tipo=pergunta perguntando se o usuario quer ver a tela do computador (pc_agir) ou algo no PJe (pje_agir).] ${objetivo}`;
-    }
-    return objetivo;
-}
-function heuristicRouteForObjective(objetivoRaw, activeUrl) {
-    const objetivo = normalizeIntentText(objetivoRaw);
-    const isPJeActive = Boolean(activeUrl && /pje\./i.test(activeUrl));
-    if (!objetivo)
-        return { decided: true, useAgent: false, reason: 'objetivo_vazio' };
-    const shortConfirmationSignals = new Set([
-        'sim',
-        'ok',
-        'pode',
-        'confirmo',
-        'prosseguir',
-        'continuar',
-        'nao',
-        'cancelar'
-    ]);
-    if (isPJeActive && shortConfirmationSignals.has(objetivo)) {
-        return { decided: true, useAgent: true, reason: 'confirmacao_curta_com_pje_ativo' };
-    }
-    const smallTalkSignals = [
-        'oi',
-        'ola',
-        'bom dia',
-        'boa tarde',
-        'boa noite',
-        'obrigado',
-        'valeu'
-    ];
-    if (smallTalkSignals.includes(objetivo)) {
-        return { decided: true, useAgent: false, reason: 'small_talk' };
-    }
-    const questionOnlySignals = [
-        'o que e',
-        'o que eh',
-        'explique',
-        'como funciona',
-        'qual a diferenca',
-        'resuma',
-        'traduza'
-    ];
-    const actionSignals = [
-        'abrir',
-        'abre',
-        'abra',
-        'acessar',
-        'acesse',
-        'entrar',
-        'entre',
-        'login',
-        'logar',
-        'navegar',
-        'navegue',
-        'ir para',
-        'vai',
-        'vai no',
-        'vai na',
-        'va',
-        'me leva',
-        'leva',
-        'clicar',
-        'clique',
-        'clica',
-        'preencher',
-        'preencha',
-        'digitar',
-        'digite',
-        'selecionar',
-        'selecione',
-        'consultar',
-        'consulte',
-        'buscar',
-        'busque',
-        'pesquisar',
-        'pesquise',
-        'listar',
-        'liste',
-        'anexar',
-        'anexe',
-        'baixar',
-        'baixe',
-        'protocolar',
-        'protocole',
-        'peticionar',
-        'peticione',
-        'gerar documento',
-        'novo processo',
-        'movimentacoes',
-        'movimentacoes do processo'
-    ];
-    const pjeSignals = [
-        'pje',
-        'trt',
-        'trf',
-        'tj',
-        'certificado',
-        'processo',
-        'cnj',
-        'peticionamento',
-        'peticao',
-        'aba'
-    ];
-    const hasQuestionOnly = questionOnlySignals.some(token => objetivo.includes(token));
-    const hasActionSignal = actionSignals.some(token => objetivo.includes(token));
-    const hasCNJNumber = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/.test(objetivoRaw);
-    // Capability questions: "consegue X?", "pode Y?", "tem como Z?" → implicit action requests
-    const capabilitySignals = ['consegue', 'pode ', 'poderia', 'tem como', 'consigo', 'da pra', 'da para', 'e possivel'];
-    const hasCapabilitySignal = capabilitySignals.some(t => objetivo.includes(t));
-    // File/folder/screen queries always go to agent — it handles PC vs PJe disambiguation
-    const ambiguousTerms = ['pasta', 'pastas', 'arquivo', 'arquivos', 'documento', 'documentos', 'tela', 'desktop', 'area de trabalho'];
-    const hasAmbiguousTerm = ambiguousTerms.some(t => objetivo.includes(t));
-    if (hasCNJNumber) {
-        return { decided: true, useAgent: true, reason: 'numero_cnj_detectado' };
-    }
-    // Any action signal → agent (agent decides PJe vs PC vs OS)
-    if (hasActionSignal) {
-        return { decided: true, useAgent: true, reason: 'acao_operacional' };
-    }
-    // Capability questions with ambiguous terms → agent to disambiguate
-    if (hasCapabilitySignal && hasAmbiguousTerm) {
-        return { decided: true, useAgent: true, reason: 'capability_question_needs_agent' };
-    }
-    if (hasQuestionOnly && !hasActionSignal) {
-        return { decided: true, useAgent: false, reason: 'pergunta_informativa' };
-    }
-    // Sem sinal claro: delegar para classificador semântico.
-    return { decided: false, useAgent: false, reason: 'ambiguous' };
-}
-function parseSemanticModeResponse(raw) {
-    const text = String(raw || '').trim();
-    if (!text)
-        return null;
-    const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i)
-        || text.match(/```\s*([\s\S]*?)\s*```/i);
-    const candidate = (fenced && fenced[1])
-        ? fenced[1].trim()
-        : (text.includes('{') && text.includes('}') ? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1) : text);
-    try {
-        const parsed = JSON.parse(candidate);
-        const mode = String(parsed?.mode || '').toLowerCase();
-        const confidenceRaw = Number(parsed?.confidence);
-        const confidence = Number.isFinite(confidenceRaw)
-            ? Math.max(0, Math.min(1, confidenceRaw))
-            : undefined;
-        const reason = String(parsed?.reason || 'semantic_router').trim();
-        if (mode === 'agent') {
-            return { useAgent: true, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
-        }
-        if (mode === 'chat') {
-            return { useAgent: false, reason, source: 'semantic', ...(confidence !== undefined ? { confidence } : {}) };
-        }
-        return null;
-    }
-    catch {
-        return null;
-    }
-}
-async function semanticRouteForObjective(objetivoRaw, activeUrl) {
-    const objective = String(objetivoRaw || '').trim();
-    if (!objective)
-        return null;
-    try {
-        const { callAI } = await Promise.resolve().then(() => __importStar(require('./ai-handler')));
-        const system = `Voce eh um classificador semantico para rotear mensagens de um assistente juridico com acesso ao PJe (sistema judicial), ao Windows/PC e ao sistema de arquivos.
-
-Decida o modo:
-- "agent": quando a mensagem pede ACAO em qualquer sistema — PJe judicial, Windows/PC, arquivos, browser, mouse/teclado. Exemplos: abrir, acessar, navegar, clicar, listar, controlar, executar, ver a tela, mover arquivo, consultar processo, preencher formulario. Inclui perguntas de capacidade ("consegue X?", "pode Y?") quando X e uma acao.
-- "chat": quando a mensagem pede explicacao juridica, opiniao, analise de texto, calculo de prazo, estrategia processual, resumo, conversa geral sem acao em sistema.
-
-Regras:
-- Considere intencao semantica, nao apenas palavras-chave.
-- Se a mensagem parecer pedido de acao em qualquer sistema (nao so PJe), use "agent".
-- Responda APENAS JSON valido:
-{"mode":"agent|chat","confidence":0.0,"reason":"curto"}`;
-        const user = JSON.stringify({
-            objective,
-            activeUrl: activeUrl || null,
-            pjeActive: Boolean(activeUrl && /pje\./i.test(activeUrl || ''))
-        });
-        const response = await callAI({
-            system,
-            user,
-            temperature: 0,
-            maxTokens: 140,
-            // Usa o agentModel do provider ativo (não hardcodar modelo específico)
-        });
-        return parseSemanticModeResponse(response);
-    }
-    catch (error) {
-        console.warn('[Router] Semantic routing failed:', error?.message || error);
-        return null;
-    }
-}
-async function shouldUseAgentLoopForObjective(objetivoRaw, activeUrl) {
-    const heuristic = heuristicRouteForObjective(objetivoRaw, activeUrl);
-    if (heuristic.decided) {
-        return {
-            useAgent: heuristic.useAgent,
-            reason: heuristic.reason,
-            source: 'heuristic'
-        };
-    }
-    const semantic = await semanticRouteForObjective(objetivoRaw, activeUrl);
-    if (semantic) {
-        return semantic;
-    }
-    return {
-        useAgent: false,
-        reason: 'fallback_chat',
-        source: 'fallback'
-    };
-}
-electron_1.ipcMain.handle('agent-should-handle', async (_event, objetivo) => {
-    let activeUrl = null;
-    try {
-        activeUrl = (0, browser_manager_1.getActivePage)()?.url() ?? null;
-    }
-    catch { }
-    return await shouldUseAgentLoopForObjective(objetivo, activeUrl);
-});
 // ============================================================================
 // TELEGRAM BOT (Modo 24/7)
 // ============================================================================
@@ -2210,6 +1776,33 @@ function loadTelegramToken() {
     }
     return (0, crypto_store_1.safeDecrypt)(raw);
 }
+function emitDesktopUserInputRequest(prompt) {
+    if (!mainWindow || mainWindow.isDestroyed())
+        return;
+    mainWindow.webContents.send('user-input-requested', {
+        prompt,
+        createdAt: Date.now(),
+    });
+}
+function syncUserInputNotifier() {
+    (0, user_input_1.setNotifyFn)(async (prompt) => {
+        const normalizedPrompt = String(prompt || '').trim();
+        if (!normalizedPrompt)
+            return;
+        emitDesktopUserInputRequest(normalizedPrompt);
+        const telegramEnabled = Boolean(store?.get('telegramEnabled', false));
+        const userId = Number(store?.get('telegramUserId', 0)) || 0;
+        const token = loadTelegramToken();
+        if (!telegramEnabled || !userId || !token || !(0, telegram_bot_1.isBotRunning)())
+            return;
+        try {
+            await (0, telegram_bot_1.sendMessage)(userId, normalizedPrompt);
+        }
+        catch (error) {
+            console.warn('[UserInput] Falha ao notificar Telegram:', error?.message || error);
+        }
+    });
+}
 async function initTelegramBotIfConfigured() {
     if (!store)
         return;
@@ -2222,26 +1815,20 @@ async function initTelegramBotIfConfigured() {
         return;
     try {
         await (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
-        (0, user_input_1.setNotifyFn)((prompt) => (0, telegram_bot_1.sendMessage)(userId, prompt));
         trayModeActive = true;
         if (!tray)
             createTray();
+        syncUserInputNotifier();
         console.log('[Telegram] Bot iniciado automaticamente (modo 24/7 ativo)');
     }
     catch (e) {
         console.error('[Telegram] Falha ao iniciar bot:', e.message);
     }
 }
-async function runAgentForTelegram(text, sessionId) {
-    const agent = await ensureAgentInitialized();
-    const tenantConfig = agent.getDefaultTenantConfig();
-    const objetivoFinal = injectDisambiguationIfNeeded(text);
-    return await agent.runAgentLoop({
-        objetivo: objetivoFinal,
-        config: { maxIterations: 8, timeoutMs: 120000 },
-        tenantConfig,
-        sessionId,
-    });
+async function runAgentForTelegram(_text, _sessionId) {
+    // Roteamento via Telegram ficou desconectado quando o agent loop legado foi
+    // removido. O caminho novo (Hermes/MCP) ainda nao esta wired ao bot.
+    return 'Telegram desconectado do motor atual. Use o Console Lex no Desktop.';
 }
 /** Retorna config do Telegram (sem o token completo) */
 electron_1.ipcMain.handle('telegram-get-config', () => {
@@ -2279,8 +1866,8 @@ electron_1.ipcMain.handle('telegram-enable', async () => {
     }
     try {
         await (0, telegram_bot_1.startBot)({ token, authorizedUserId: userId }, runAgentForTelegram);
-        (0, user_input_1.setNotifyFn)((prompt) => (0, telegram_bot_1.sendMessage)(userId, prompt));
         store.set('telegramEnabled', true);
+        syncUserInputNotifier();
         refreshTrayMenu();
         return { success: true, running: true };
     }
@@ -2293,6 +1880,7 @@ electron_1.ipcMain.handle('telegram-disable', async () => {
     await (0, telegram_bot_1.stopBot)();
     if (store)
         store.set('telegramEnabled', false);
+    syncUserInputNotifier();
     refreshTrayMenu();
     return { success: true, running: false };
 });
@@ -2302,348 +1890,6 @@ electron_1.ipcMain.handle('telegram-get-status', () => ({
     trayActive: trayModeActive
 }));
 // IPC: Run Agent Loop — proxy para backend (com fallback local)
-electron_1.ipcMain.handle('agent-run', async (_event, objetivo, config, sessionId) => {
-    // Verificar licença antes de executar
-    const license = await (0, license_1.checkLicense)();
-    if (license.status === 'not_authenticated') {
-        return { success: false, error: 'not_authenticated' };
-    }
-    if (license.status === 'trial_expired') {
-        return { success: false, error: 'trial_expired' };
-    }
-    // Normaliza números CNJ sem pontuação (20 dígitos → NNNNNNN-NN.NNNN.N.NN.NNNN)
-    const objetivoNorm = objetivo.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').replace(/\b(\d{20})\b/g, (_, d) => `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16, 20)}`);
-    console.log('[Agent] CNJ normalize:', objetivo, '->', objetivoNorm);
-    const objetivoFinal = injectDisambiguationIfNeeded(objetivoNorm);
-    const maxIter = Math.min(Math.max(Number(config?.maxIterations) || 5, 1), 10);
-    const timeoutMs = Math.min(Math.max(Number(config?.timeoutMs) || 300000, 10000), 600000);
-    // Tenta via backend (processo separado)
-    if ((0, backend_client_1.isBackendAlive)()) {
-        try {
-            const resposta = await (0, backend_client_1.rpcCall)('agent-run', {
-                objetivo: objetivoFinal,
-                config: { maxIterations: maxIter, timeoutMs },
-                sessionId: sessionId || AGENT_SESSION_ID,
-            }, { timeoutMs: timeoutMs + 60000 });
-            return { success: true, resposta };
-        }
-        catch (error) {
-            console.error('[Agent via Backend] Erro:', error.message);
-            return { success: false, error: error.message };
-        }
-    }
-    // Fallback: executa localmente (compatibilidade)
-    try {
-        const agent = await ensureAgentInitialized();
-        const tenantConfig = agent.getDefaultTenantConfig();
-        const resposta = await agent.runAgentLoop({
-            objetivo: objetivoFinal,
-            config: { maxIterations: maxIter, timeoutMs },
-            tenantConfig,
-            sessionId: sessionId || AGENT_SESSION_ID,
-        });
-        return { success: true, resposta };
-    }
-    catch (error) {
-        console.error('[Agent Local] Erro:', error);
-        return { success: false, error: error.message };
-    }
-});
-// IPC: Cancel Agent Loop — proxy para backend (com fallback local)
-electron_1.ipcMain.handle('agent-respond', async (_event, { runId, response, sessionId }) => {
-    if (!runId)
-        return { success: false, error: 'runId obrigatorio' };
-    if ((0, backend_client_1.isBackendAlive)()) {
-        try {
-            await (0, backend_client_1.rpcCall)('agent-respond', {
-                runId,
-                response,
-                sessionId: sessionId || AGENT_SESSION_ID,
-                source: 'renderer'
-            }, { timeoutMs: 30000 });
-            return { success: true };
-        }
-        catch (error) {
-            return { success: false, error: error?.message || String(error) };
-        }
-    }
-    try {
-        const agent = await loadAgentModule();
-        const ok = agent.resolveUserResponse(runId, response);
-        return ok
-            ? { success: true }
-            : { success: false, error: `Nenhuma resposta pendente para o run ${runId}.` };
-    }
-    catch (error) {
-        return { success: false, error: error?.message || String(error) };
-    }
-});
-electron_1.ipcMain.handle('agent-cancel', async () => {
-    if ((0, backend_client_1.isBackendAlive)()) {
-        try {
-            await (0, backend_client_1.rpcCall)('agent-cancel');
-            return { success: true };
-        }
-        catch { /* fallback */ }
-    }
-    const agent = await loadAgentModule();
-    agent.cancelAgentLoop();
-    return { success: true };
-});
-// ============================================================================
-// IPC: Plan & Orchestrator (Phase 1 AIOS)
-// ============================================================================
-electron_1.ipcMain.handle('ai-plan-execute', async (_event, payload) => {
-    const license = await (0, license_1.checkLicense)();
-    if (license.status === 'not_authenticated') {
-        return { success: false, error: 'not_authenticated' };
-    }
-    if (license.status === 'trial_expired') {
-        return { success: false, error: 'trial_expired' };
-    }
-    const raw = payload ?? {};
-    const sessionId = raw?.sessionId || AGENT_SESSION_ID;
-    const isLegacyPlan = Array.isArray(raw?.steps);
-    const inferredGoal = String(raw?.goal
-        || raw?.intent?.description
-        || raw?.intent?.objective
-        || raw?.description
-        || '').trim();
-    // Legacy executePlan(sendChat.plan): executar no backend para evitar cair no browser/local do main.
-    if (isLegacyPlan && inferredGoal) {
-        const objetivoFinal = injectDisambiguationIfNeeded(inferredGoal);
-        const fallbackCfg = { maxIterations: 8, timeoutMs: 300000 };
-        if ((0, backend_client_1.isBackendAlive)()) {
-            try {
-                const resposta = await (0, backend_client_1.rpcCall)('agent-run', {
-                    objetivo: objetivoFinal,
-                    config: fallbackCfg,
-                    sessionId,
-                }, { timeoutMs: 360000 });
-                return { success: true, result: resposta, mode: 'backend-agent' };
-            }
-            catch (error) {
-                console.warn('[ai-plan-execute] Falha no backend para plano legado, usando fallback local:', error?.message || error);
-            }
-        }
-        try {
-            const agent = await ensureAgentInitialized();
-            const tenantConfig = agent.getDefaultTenantConfig();
-            const resposta = await agent.runAgentLoop({
-                objetivo: objetivoFinal,
-                config: fallbackCfg,
-                tenantConfig,
-                sessionId,
-            });
-            return { success: true, result: resposta, mode: 'local-agent' };
-        }
-        catch (error) {
-            return { success: false, error: error?.message || String(error) };
-        }
-    }
-    const goal = String(raw?.goal || '').trim();
-    if (!goal) {
-        return { success: false, error: 'goal ausente no payload' };
-    }
-    try {
-        await ensureAgentInitialized();
-        const { Orchestrator } = await Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
-        const orchestrator = new Orchestrator();
-        _activeOrchestratorRef = orchestrator;
-        _activeOrchestratorState = null;
-        // Rastreia estado + forward de eventos para o renderer
-        orchestrator.on('event', (evt) => {
-            // Atualiza snapshot local
-            if (evt.type === 'plan_created') {
-                _activeOrchestratorState = {
-                    planId: evt.plan.id,
-                    goal: evt.plan.goal,
-                    planStatus: 'executing',
-                    subtasks: evt.plan.subtasks.map((t) => ({
-                        id: t.id, description: t.description,
-                        agentType: t.agentType, status: t.status,
-                    })),
-                };
-            }
-            else if (evt.type === 'plan_state_snapshot') {
-                _activeOrchestratorState = evt.state;
-            }
-            else if (evt.type === 'subtask_started' && _activeOrchestratorState) {
-                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
-                if (st) {
-                    st.status = 'running';
-                    st.startedAt = Date.now();
-                }
-            }
-            else if (evt.type === 'subtask_completed' && _activeOrchestratorState) {
-                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
-                if (st)
-                    st.status = 'completed';
-            }
-            else if (evt.type === 'subtask_failed' && _activeOrchestratorState) {
-                const st = _activeOrchestratorState.subtasks.find((t) => t.id === evt.subtaskId);
-                if (st) {
-                    st.status = 'failed';
-                    st.error = evt.error;
-                }
-            }
-            else if (evt.type === 'plan_completed' || evt.type === 'plan_failed') {
-                if (_activeOrchestratorState) {
-                    _activeOrchestratorState.planStatus = evt.type === 'plan_completed' ? 'completed' : 'failed';
-                }
-                _activeOrchestratorRef = null;
-            }
-            mainWindow?.webContents.send('agent-event', { type: 'orchestrator', data: evt });
-        });
-        const result = await orchestrator.execute(goal, sessionId);
-        return { success: true, result };
-    }
-    catch (error) {
-        _activeOrchestratorRef = null;
-        console.error('[Orchestrator] Erro:', error.message);
-        return { success: false, error: error.message };
-    }
-});
-// ============================================================================
-// IPC: Orchestrator — estado em tempo real + cancel
-// ============================================================================
-electron_1.ipcMain.handle('orchestrator-get-state', () => _activeOrchestratorState);
-electron_1.ipcMain.handle('orchestrator-cancel', async () => {
-    if (!_activeOrchestratorRef)
-        return { success: false, error: 'Nenhuma execução ativa' };
-    await _activeOrchestratorRef.cancel();
-    _activeOrchestratorRef = null;
-    return { success: true };
-});
-electron_1.ipcMain.handle('orchestrator-pause', () => {
-    if (!_activeOrchestratorRef)
-        return { success: false, error: 'Nenhuma execução ativa' };
-    _activeOrchestratorRef.pause();
-    return { success: true };
-});
-electron_1.ipcMain.handle('orchestrator-resume', () => {
-    if (!_activeOrchestratorRef)
-        return { success: false, error: 'Nenhuma execução ativa' };
-    _activeOrchestratorRef.resume();
-    return { success: true };
-});
-electron_1.ipcMain.handle('orchestrator-is-paused', () => {
-    return { paused: _activeOrchestratorRef?.isPaused ?? false };
-});
-// ============================================================================
-// IPC: Checkpoints (P3a AIOS — retomada de planos interrompidos)
-// ============================================================================
-electron_1.ipcMain.handle('checkpoint-list-pending', async () => {
-    const { listPendingCheckpoints } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
-    return listPendingCheckpoints();
-});
-electron_1.ipcMain.handle('checkpoint-resume', async (_event, { planId }) => {
-    try {
-        const { loadCheckpoint, restorePlanFromCheckpoint } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
-        const checkpoint = loadCheckpoint(planId);
-        if (!checkpoint)
-            return { success: false, error: 'Checkpoint não encontrado' };
-        await ensureAgentInitialized();
-        const { Orchestrator } = await Promise.resolve().then(() => __importStar(require('./agent/orchestrator')));
-        const orchestrator = new Orchestrator();
-        orchestrator.on('event', (evt) => {
-            mainWindow?.webContents.send('agent-event', {
-                type: 'orchestrator',
-                data: evt,
-            });
-        });
-        const result = await orchestrator.execute(checkpoint.goal, AGENT_SESSION_ID);
-        return { success: true, result };
-    }
-    catch (error) {
-        console.error('[Checkpoint] Erro ao retomar:', error.message);
-        return { success: false, error: error.message };
-    }
-});
-electron_1.ipcMain.handle('checkpoint-remove', async (_event, { planId }) => {
-    const { removeCheckpoint } = await Promise.resolve().then(() => __importStar(require('./agent/checkpoint-store')));
-    removeCheckpoint(planId);
-    return { success: true };
-});
-// ============================================================================
-// IPC: Scheduler (Phase 2 AIOS — Autonomia)
-// ============================================================================
-electron_1.ipcMain.handle('scheduler-list-goals', async () => {
-    const { getGoalStore } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    return getGoalStore().getAllGoals();
-});
-electron_1.ipcMain.handle('scheduler-add-goal', async (_event, goalInput) => {
-    try {
-        const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const goal = await getGoalStore().addGoal(goalInput);
-        getScheduler().scheduleGoal(goal);
-        return { success: true, goal };
-    }
-    catch (err) {
-        return { success: false, error: err.message };
-    }
-});
-electron_1.ipcMain.handle('scheduler-update-goal', async (_event, { id, updates }) => {
-    try {
-        const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-        const goal = await getGoalStore().updateGoal(id, updates);
-        if (goal)
-            await getScheduler().rescheduleGoal(id);
-        return { success: true, goal };
-    }
-    catch (err) {
-        return { success: false, error: err.message };
-    }
-});
-electron_1.ipcMain.handle('scheduler-remove-goal', async (_event, id) => {
-    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    getScheduler().unscheduleGoal(id);
-    const removed = await getGoalStore().removeGoal(id);
-    return { success: removed };
-});
-electron_1.ipcMain.handle('scheduler-pause-goal', async (_event, id) => {
-    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    await getGoalStore().setStatus(id, 'paused');
-    getScheduler().unscheduleGoal(id);
-    return { success: true };
-});
-electron_1.ipcMain.handle('scheduler-resume-goal', async (_event, id) => {
-    const { getGoalStore, getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    const goal = await getGoalStore().updateGoal(id, { status: 'active' });
-    if (goal)
-        getScheduler().scheduleGoal(goal);
-    return { success: true };
-});
-electron_1.ipcMain.handle('scheduler-run-now', async (_event, id) => {
-    try {
-        const { getScheduler } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-        await getScheduler().runNow(id);
-        return { success: true };
-    }
-    catch (err) {
-        return { success: false, error: err.message };
-    }
-});
-electron_1.ipcMain.handle('scheduler-get-runs', async (_event, { goalId, limit }) => {
-    const { getGoalStore } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    return getGoalStore().getRunsForGoal(goalId, limit || 10);
-});
-electron_1.ipcMain.handle('scheduler-get-status', async () => {
-    const { getScheduler, getRunningCount } = await Promise.resolve().then(() => __importStar(require('./scheduler')));
-    const status = getScheduler().getStatus();
-    return { ...status, runningJobs: getRunningCount() };
-});
-electron_1.ipcMain.handle('scheduler-set-auto-launch', async (_event, enabled) => {
-    electron_1.app.setLoginItemSettings({
-        openAtLogin: enabled,
-        args: enabled ? ['--background'] : [],
-    });
-    return { success: true, enabled };
-});
-electron_1.ipcMain.handle('scheduler-get-auto-launch', async () => {
-    const settings = electron_1.app.getLoginItemSettings();
-    return { enabled: settings.openAtLogin };
-});
 // ============================================================================
 // IPC: Brain (SQLite FTS5 + Knowledge Graph)
 // ============================================================================
@@ -2680,6 +1926,119 @@ electron_1.ipcMain.handle('brain-dashboard', async (_event, opts) => {
         windowDays: opts?.windowDays ?? 7,
         topFlowsLimit: opts?.topFlowsLimit ?? 10,
     });
+});
+electron_1.ipcMain.handle('brain-promotion-preview', async (_event, payload) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { ok: false, error: 'brain_not_initialized' };
+    const { buildPromotionPreview } = await Promise.resolve().then(() => __importStar(require('./brain/dashboard')));
+    return buildPromotionPreview(brain, String(payload?.flowId || ''), payload?.target);
+});
+async function writePromotionDraftFromPreview(workspaceRoot, preview) {
+    if (!preview?.ok || !preview.markdown || !preview.flowId) {
+        return { ok: false, error: 'promotion_preview_unavailable' };
+    }
+    const targetDirName = preview.target === 'skill'
+        ? 'skills'
+        : preview.target === 'playbook'
+            ? 'playbooks'
+            : 'notas';
+    const targetDir = path.join(workspaceRoot, 'docs', 'promotions', targetDirName);
+    const toSlug = (value, fallback = 'promotion-draft') => {
+        const raw = String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        return raw || fallback;
+    };
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const baseName = `${dateStamp}-${toSlug(preview.label, 'promotion-draft')}`;
+    let filePath = path.join(targetDir, `${baseName}.md`);
+    let counter = 2;
+    while (fs.existsSync(filePath)) {
+        filePath = path.join(targetDir, `${baseName}-${counter}.md`);
+        counter += 1;
+    }
+    const quoteYaml = (value) => JSON.stringify(String(value || '').replace(/\r?\n/g, ' ').trim());
+    const frontmatter = [
+        '---',
+        `lex_generated: true`,
+        `promotion_target: ${quoteYaml(preview.target || 'nota')}`,
+        `source: ${quoteYaml('brain_dashboard')}`,
+        `flow_id: ${quoteYaml(preview.flowId)}`,
+        `tribunal: ${quoteYaml(preview.tribunal || '?')}`,
+        `pje_context: ${quoteYaml(preview.pjeContext || 'nao_identificado')}`,
+        `generated_at: ${quoteYaml(new Date().toISOString())}`,
+        '---',
+        '',
+        '> Rascunho gerado com curadoria manual a partir de um candidato de promocao do Brain.',
+        '> Este arquivo ainda nao altera skills ativas do Hermes nem publica conhecimento automaticamente.',
+        '',
+    ].join('\n');
+    try {
+        await fs.promises.mkdir(targetDir, { recursive: true });
+        await fs.promises.writeFile(filePath, `${frontmatter}${preview.markdown.trim()}\n`, 'utf8');
+        return {
+            ok: true,
+            path: filePath,
+            relativePath: path.relative(workspaceRoot, filePath).replace(/\\/g, '/'),
+            target: preview.target,
+        };
+    }
+    catch (error) {
+        return { ok: false, error: error?.message || 'promotion_draft_write_failed' };
+    }
+}
+electron_1.ipcMain.handle('brain-promotion-save-draft', async (_event, payload) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { ok: false, error: 'brain_not_initialized' };
+    const workspaceRoot = getWorkspaceRoots()[0];
+    if (!workspaceRoot) {
+        return { ok: false, error: 'workspace_not_available' };
+    }
+    const { buildPromotionPreview } = await Promise.resolve().then(() => __importStar(require('./brain/dashboard')));
+    const preview = buildPromotionPreview(brain, String(payload?.flowId || ''), payload?.target);
+    return writePromotionDraftFromPreview(workspaceRoot, preview);
+});
+electron_1.ipcMain.handle('brain-promotion-curate', async (_event, payload) => {
+    const brain = (0, brain_1.getBrainSafe)();
+    if (!brain)
+        return { ok: false, error: 'brain_not_initialized' };
+    const flowId = String(payload?.flowId || '').trim();
+    const action = payload?.action;
+    if (!flowId || !action) {
+        return { ok: false, error: 'promotion_action_required' };
+    }
+    const { buildPromotionPreview, setPromotionDecision } = await Promise.resolve().then(() => __importStar(require('./brain/dashboard')));
+    if (action === 'brain_only' || action === 'discarded') {
+        setPromotionDecision(brain, flowId, {
+            action,
+            at: new Date().toISOString(),
+        });
+        return { ok: true, action };
+    }
+    const workspaceRoot = getWorkspaceRoots()[0];
+    if (!workspaceRoot) {
+        return { ok: false, error: 'workspace_not_available' };
+    }
+    const preview = buildPromotionPreview(brain, flowId, action);
+    const saved = await writePromotionDraftFromPreview(workspaceRoot, preview);
+    if (!saved?.ok)
+        return saved;
+    setPromotionDecision(brain, flowId, {
+        action,
+        at: new Date().toISOString(),
+        path: String(saved.relativePath || saved.path || ''),
+    });
+    return {
+        ok: true,
+        action,
+        path: saved.path,
+        relativePath: saved.relativePath,
+    };
 });
 electron_1.ipcMain.handle('brain-trace', async (_event, traceId) => {
     const brain = (0, brain_1.getBrainSafe)();
@@ -2942,9 +2301,6 @@ electron_1.ipcMain.handle('doc-kb-select-and-import', async () => {
         mainWindow?.webContents.send('doc-kb-import-progress', msg);
     });
 });
-// ============================================================================
-// IPC: Batch Petitioning (Produção em Lote)
-// ============================================================================
 function emitAgoraEvent(event) {
     for (const win of electron_1.BrowserWindow.getAllWindows()) {
         win.webContents.send('agora-event', event);
@@ -3400,300 +2756,70 @@ electron_1.ipcMain.handle('agora-get-runs', async (_event, id) => {
     }
     return { runs: [], log: '' };
 });
-electron_1.ipcMain.handle('batch-list-lotes', async () => {
-    const { getLoteStore } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    return getLoteStore().getAllLotes();
-});
-electron_1.ipcMain.handle('batch-get-lote', async (_event, id) => {
-    const { getLoteStore } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    return getLoteStore().getLote(id);
-});
-electron_1.ipcMain.handle('batch-remove-lote', async (_event, id) => {
-    const { getLoteStore, unregisterPipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    unregisterPipeline(id);
-    return getLoteStore().removeLote(id);
-});
-electron_1.ipcMain.handle('batch-create-lote', async (_event, params) => {
+electron_1.ipcMain.handle('skills-catalog-list', async () => {
     try {
-        await ensureAgentInitialized(); // Skills precisam estar registradas
-        const { createBatchLote, registerPipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-        // Ler conteúdo dos documentos anexados e adicionar ao contexto
-        if (params.attachedDocs && params.attachedDocs.length > 0) {
-            const fs = await Promise.resolve().then(() => __importStar(require('fs')));
-            const path = await Promise.resolve().then(() => __importStar(require('path')));
-            const docContents = [];
-            for (const docPath of params.attachedDocs) {
-                try {
-                    const ext = path.extname(docPath).toLowerCase();
-                    let text = '';
-                    if (ext === '.txt' || ext === '.md') {
-                        text = fs.readFileSync(docPath, 'utf-8');
-                    }
-                    else if (ext === '.docx') {
-                        const mammoth = await Promise.resolve().then(() => __importStar(require('mammoth')));
-                        const result = await mammoth.extractRawText({ path: docPath });
-                        text = result.value;
-                    }
-                    else if (ext === '.pdf') {
-                        const pdfParseModule = await Promise.resolve().then(() => __importStar(require('pdf-parse')));
-                        const buf = fs.readFileSync(docPath);
-                        const pdfParseFn = pdfParseModule?.default ?? pdfParseModule;
-                        if (typeof pdfParseFn === 'function') {
-                            const data = await pdfParseFn(buf);
-                            text = data.text;
-                        }
-                    }
-                    if (text && text.length > 50) {
-                        const name = path.basename(docPath);
-                        docContents.push(`--- [${name}] ---\n${text.substring(0, 8000)}`);
-                        console.log(`[Batch] Documento anexado: ${name} (${text.length} chars)`);
-                    }
-                }
-                catch (e) {
-                    console.warn(`[Batch] Erro ao ler doc anexado ${docPath}: ${e.message}`);
-                }
-            }
-            if (docContents.length > 0) {
-                const docContext = '\n\n## DOCUMENTOS DE REFERÊNCIA (anexados pelo advogado)\n\n' + docContents.join('\n\n');
-                params.tese = (params.tese || '') + docContext;
-            }
-        }
-        const { lote, pipeline } = await createBatchLote(params);
-        // Forward pipeline events to renderer
-        pipeline.on('event', (event) => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('batch-event', event);
-            }
-        });
-        registerPipeline(lote.id, pipeline);
-        // Start pipeline (async — não espera)
-        pipeline.run().catch((err) => {
-            console.error('[Batch] Pipeline error:', err.message);
-        });
-        return { success: true, loteId: lote.id, strategy: lote.strategy };
-    }
-    catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-electron_1.ipcMain.handle('batch-approve-strategy', async (_event, loteId) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.approveStrategy('app');
-    return { success: true };
-});
-electron_1.ipcMain.handle('batch-approve-wave', async (_event, { loteId, waveIndex, redraftIds }) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.approveWave(waveIndex, 'app', redraftIds);
-    return { success: true };
-});
-electron_1.ipcMain.handle('batch-approve-protocol', async (_event, loteId) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.approveProtocol('app');
-    return { success: true };
-});
-electron_1.ipcMain.handle('batch-pause', async (_event, loteId) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.pause();
-    return { success: true };
-});
-electron_1.ipcMain.handle('batch-resume', async (_event, loteId) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.resume();
-    return { success: true };
-});
-electron_1.ipcMain.handle('batch-cancel', async (_event, loteId) => {
-    const { getActivePipeline } = await Promise.resolve().then(() => __importStar(require('./batch')));
-    const pipeline = getActivePipeline(loteId);
-    if (!pipeline)
-        return { success: false, error: 'Pipeline não encontrado' };
-    await pipeline.cancel();
-    return { success: true };
-});
-// ─── Batch: Leitura/Escrita de petição (editor) ──────────────────
-electron_1.ipcMain.handle('batch-read-peticao', async (_event, filePath) => {
-    try {
-        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
-        if (!fs.existsSync(filePath))
-            return { success: false, error: 'Arquivo não encontrado' };
-        const content = fs.readFileSync(filePath, 'utf-8');
-        return { success: true, content };
-    }
-    catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-electron_1.ipcMain.handle('batch-save-peticao', async (_event, { filePath, content }) => {
-    try {
-        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
-        fs.writeFileSync(filePath, content, 'utf-8');
-        return { success: true };
-    }
-    catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-electron_1.ipcMain.handle('batch-open-folder', async (_event, folderPath) => {
-    const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
-    shell.openPath(folderPath);
-    return { success: true };
-});
-// ─── Batch: Export DOCX ──────────────────────────────────────────
-electron_1.ipcMain.handle('batch-export-docx', async (_event, filePath) => {
-    try {
-        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
-        if (!fs.existsSync(filePath))
-            return { success: false, error: 'Arquivo não encontrado' };
-        const htmlContent = fs.readFileSync(filePath, 'utf-8');
-        const outputPath = filePath.replace(/\.html?$/i, '.doc');
-        // HTML-as-DOC: Word/LibreOffice open this natively
-        const docContent = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
-xmlns:w="urn:schemas-microsoft-com:office:word"
-xmlns="http://www.w3.org/TR/REC-html40">
-${htmlContent.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '')}
-</html>`;
-        fs.writeFileSync(outputPath, docContent, 'utf-8');
-        const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
-        shell.showItemInFolder(outputPath);
-        return { success: true, path: outputPath };
-    }
-    catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-// ─── Batch: Export PDF (via Chromium printToPDF) ─────────────────
-electron_1.ipcMain.handle('batch-export-pdf', async (_event, filePath) => {
-    try {
-        const fs = await Promise.resolve().then(() => __importStar(require('fs')));
-        const pathModule = await Promise.resolve().then(() => __importStar(require('path')));
-        if (!fs.existsSync(filePath))
-            return { success: false, error: 'Arquivo não encontrado' };
-        const htmlContent = fs.readFileSync(filePath, 'utf-8');
-        const outputPath = filePath.replace(/\.html?$/i, '.pdf');
-        // Use a hidden BrowserWindow to render HTML and print to PDF
-        const { BrowserWindow: BW } = await Promise.resolve().then(() => __importStar(require('electron')));
-        const pdfWin = new BW({ show: false, width: 794, height: 1123 });
-        // Load HTML content
-        const tempPath = pathModule.join(pathModule.dirname(filePath), '_temp_pdf.html');
-        fs.writeFileSync(tempPath, htmlContent, 'utf-8');
-        await pdfWin.loadFile(tempPath);
-        const pdfBuffer = await pdfWin.webContents.printToPDF({
-            pageSize: 'A4',
-            margins: { marginType: 'default' },
-            printBackground: true,
-        });
-        fs.writeFileSync(outputPath, pdfBuffer);
-        pdfWin.close();
-        // Cleanup temp
-        try {
-            fs.unlinkSync(tempPath);
-        }
-        catch { }
-        const { shell } = await Promise.resolve().then(() => __importStar(require('electron')));
-        shell.showItemInFolder(outputPath);
-        return { success: true, path: outputPath };
-    }
-    catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-// ============================================================================
-// IPC: Plugins (Phase 3 AIOS — Integrações Externas)
-// ============================================================================
-electron_1.ipcMain.handle('plugins-list', async () => {
-    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-    return getPluginManager().listPlugins();
-});
-electron_1.ipcMain.handle('plugins-get-status', async (_event, pluginId) => {
-    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-    return getPluginManager().getPluginStatus(pluginId);
-});
-electron_1.ipcMain.handle('plugins-get-auth-config', async (_event, pluginId) => {
-    const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-    return getPluginManager().getPluginAuthConfig(pluginId);
-});
-electron_1.ipcMain.handle('plugins-start-oauth', async (_event, { pluginId, apiKey }) => {
-    try {
-        const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-        const pm = getPluginManager();
-        const plugin = pm.getPlugin(pluginId);
-        if (!plugin)
-            return { success: false, error: 'Plugin não encontrado' };
-        const auth = plugin.manifest.auth;
-        // Desktop plugins sem auth — ativar direto
-        if (!auth) {
-            try {
-                await pm.connectPlugin(pluginId, { accessToken: 'local' });
-                return { success: true };
-            }
-            catch (e) {
-                return { success: false, error: `Erro ao ativar plugin local: ${e.message}` };
-            }
-        }
-        // API Key auth — apiKey contém a chave
-        if (auth.type === 'api_key') {
-            if (!apiKey)
-                return { success: false, error: 'API key obrigatória' };
-            await pm.connectPlugin(pluginId, { accessToken: apiKey });
-            return { success: true };
-        }
-        // OAuth2 — usa credenciais embarcadas do providerGroup
-        if (!auth.oauth2)
-            return { success: false, error: 'Plugin não suporta OAuth' };
-        const { getEmbeddedCredentials } = await Promise.resolve().then(() => __importStar(require('./plugins/credentials')));
-        const group = plugin.manifest.providerGroup;
-        const embedded = group ? getEmbeddedCredentials(group) : null;
-        const clientId = embedded?.clientId || auth.oauth2.clientId || '';
-        const clientSecret = embedded?.clientSecret;
-        if (!clientId) {
-            return { success: false, error: `Credenciais não configuradas para o provedor "${group || pluginId}". Contate o desenvolvedor.` };
-        }
-        const { runOAuthFlow } = await Promise.resolve().then(() => __importStar(require('./plugins/oauth-flow')));
-        const oauthOpts = {
-            authorizationUrl: auth.oauth2.authorizationUrl,
-            tokenUrl: auth.oauth2.tokenUrl,
-            clientId,
-            scopes: auth.oauth2.scopes,
+        return {
+            success: true,
+            catalog: (0, hermes_skills_catalog_1.listHermesSkillsCatalog)(electron_1.app.getAppPath()),
         };
-        if (clientSecret)
-            oauthOpts.clientSecret = clientSecret;
-        if (auth.oauth2.pkce != null)
-            oauthOpts.pkce = auth.oauth2.pkce;
-        if (auth.oauth2.additionalParams)
-            oauthOpts.additionalParams = auth.oauth2.additionalParams;
-        const result = await runOAuthFlow(oauthOpts);
-        if (!result.success || !result.tokens) {
-            return { success: false, error: result.error || 'OAuth falhou' };
-        }
-        await pm.connectPlugin(pluginId, result.tokens, clientId, clientSecret);
-        return { success: true };
     }
-    catch (err) {
-        return { success: false, error: err.message };
+    catch (error) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao carregar catalogo de habilidades.',
+        };
     }
 });
-electron_1.ipcMain.handle('plugins-disconnect', async (_event, pluginId) => {
+electron_1.ipcMain.handle('skills-runtime-snapshot', async () => {
     try {
-        const { getPluginManager } = await Promise.resolve().then(() => __importStar(require('./plugins')));
-        await getPluginManager().disconnectPlugin(pluginId);
-        return { success: true };
+        return {
+            success: true,
+            snapshot: await (0, lex_engine_1.getLexEngineSkillsRuntimeSnapshot)(),
+        };
     }
-    catch (err) {
-        return { success: false, error: err.message };
+    catch (error) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao consultar runtime de habilidades.',
+        };
+    }
+});
+electron_1.ipcMain.handle('skills-connectors-snapshot', async () => {
+    try {
+        return {
+            success: true,
+            snapshot: await (0, lex_engine_1.getLexEngineConnectorsSnapshot)(),
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao consultar connectors do Hermes.',
+        };
+    }
+});
+electron_1.ipcMain.handle('skills-read-file', async (_event, skillPath) => {
+    try {
+        const requestedPath = path.resolve(String(skillPath || ''));
+        const catalog = (0, hermes_skills_catalog_1.listHermesSkillsCatalog)(electron_1.app.getAppPath());
+        const entry = catalog.entries.find((item) => path.resolve(item.path) === requestedPath);
+        if (!entry) {
+            return {
+                success: false,
+                error: 'Skill nao encontrada no catalogo atual.',
+            };
+        }
+        return {
+            success: true,
+            content: fs.readFileSync(entry.path, 'utf-8'),
+            path: entry.path,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error?.message || 'Falha ao ler arquivo da skill.',
+        };
     }
 });
 // ============================================================================
@@ -3709,9 +2835,11 @@ electron_1.ipcMain.handle('auth-sign-out', async () => {
     await (0, license_1.authSignOut)();
     return { ok: true };
 });
-electron_1.ipcMain.handle('auth-google', async () => {
+electron_1.ipcMain.handle('auth-google', async (_event, opts) => {
     try {
         const http = await Promise.resolve().then(() => __importStar(require('http')));
+        const mode = opts?.mode === 'embedded' ? 'embedded' : 'system';
+        let authWindow = null;
         // Cria servidor local para capturar o callback
         const { port, tokenPromise, server } = await new Promise((resolve, reject) => {
             let resolveToken;
@@ -3724,10 +2852,15 @@ electron_1.ipcMain.handle('auth-google', async () => {
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                     res.end(`<html><body><script>
                         const hash = window.location.hash.substring(1);
+                        const callbackBase = 'http://127.0.0.1:${port}';
                         if (hash) {
-                            fetch('/auth/tokens?' + hash).then(() => {
-                                document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
-                            });
+                            fetch(callbackBase + '/auth/tokens?' + hash)
+                                .then(() => {
+                                    document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px">Login realizado! Pode fechar esta aba.</h2>';
+                                })
+                                .catch((err) => {
+                                    document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Falha ao finalizar login localmente.</h2><pre style="white-space:pre-wrap;max-width:720px;margin:20px auto;color:#444">' + String(err && err.message || err || 'fetch failed') + '</pre>';
+                                });
                         } else {
                             document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:40px;color:red">Erro no login. Tente novamente.</h2>';
                         }
@@ -3757,7 +2890,7 @@ electron_1.ipcMain.handle('auth-google', async () => {
             });
             server.on('error', reject);
         });
-        const redirectTo = `http://localhost:${port}/auth/callback`;
+        const redirectTo = `http://127.0.0.1:${port}/auth/callback`;
         // Gera URL OAuth via Supabase com redirect para nosso server local
         const { getSupabase } = await Promise.resolve().then(() => __importStar(require('./auth/supabase-client')));
         const sb = getSupabase();
@@ -3766,6 +2899,7 @@ electron_1.ipcMain.handle('auth-google', async () => {
             options: {
                 redirectTo,
                 skipBrowserRedirect: true,
+                ...(mode === 'embedded' ? { queryParams: { prompt: 'select_account' } } : {}),
             },
         });
         if (error || !data?.url) {
@@ -3773,11 +2907,45 @@ electron_1.ipcMain.handle('auth-google', async () => {
             return { ok: false, error: error?.message || 'Falha ao gerar URL de login' };
         }
         // Abre no navegador do sistema (Chrome, Edge, etc.) onde o usuário já está logado
-        electron_1.shell.openExternal(data.url);
+        if (mode === 'embedded') {
+            authWindow = new electron_1.BrowserWindow({
+                width: 540,
+                height: 760,
+                minWidth: 480,
+                minHeight: 640,
+                show: false,
+                autoHideMenuBar: true,
+                title: 'Entrar na Lex',
+                parent: mainWindow || undefined,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    partition: 'persist:lex-auth',
+                },
+            });
+            authWindow.once('ready-to-show', () => authWindow?.show());
+            authWindow.on('closed', () => {
+                authWindow = null;
+            });
+            await authWindow.loadURL(data.url);
+        }
+        else {
+            await electron_1.shell.openExternal(data.url);
+        }
         // Timeout de 5 minutos
-        const timeout = setTimeout(() => { server.close(); }, 5 * 60 * 1000);
+        const timeout = setTimeout(() => {
+            try {
+                authWindow?.close();
+            }
+            catch { }
+            server.close();
+        }, 5 * 60 * 1000);
         const tokenString = await tokenPromise;
         clearTimeout(timeout);
+        try {
+            authWindow?.close();
+        }
+        catch { }
         server.close();
         if (!tokenString) {
             return { ok: false, error: 'Login cancelado ou falhou' };
@@ -3793,10 +2961,22 @@ electron_1.ipcMain.handle('auth-google', async () => {
         if (sessionError) {
             return { ok: false, error: sessionError.message };
         }
-        // Garante perfil no banco
-        const { data: { user } } = await sb.auth.getUser();
-        if (user) {
-            await sb.from('profiles').upsert({ id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' }, { onConflict: 'id', ignoreDuplicates: true });
+        // Garante perfil no banco, mas nao invalida um login ja concluido
+        // por uma chamada secundaria de rede no bootstrap do perfil.
+        try {
+            const { data: { user }, error: userError } = await sb.auth.getUser();
+            if (userError) {
+                console.warn('[Auth] Google OAuth: sessao criada, mas getUser falhou:', userError.message);
+            }
+            else if (user) {
+                const { error: profileError } = await sb.from('profiles').upsert({ id: user.id, email: user.email, trial_started_at: new Date().toISOString(), plan: 'trial' }, { onConflict: 'id', ignoreDuplicates: true });
+                if (profileError) {
+                    console.warn('[Auth] Google OAuth: sessao criada, mas upsert de profile falhou:', profileError.message);
+                }
+            }
+        }
+        catch (profileBootstrapError) {
+            console.warn('[Auth] Google OAuth: sessao criada, mas bootstrap de profile falhou:', profileBootstrapError?.message || profileBootstrapError);
         }
         return { ok: true };
     }

@@ -8283,7 +8283,7 @@ class HermesCLI:
         selected = state.get("selected", 0)
         show_full = state.get("show_full", False)
 
-        title = "Atencao: comando sensivel"
+        title = "Aprovacao necessaria"
         cmd_display = command if show_full or len(command) <= 70 else command[:70] + '...'
         choice_labels = {
             "once": "Aceitar uma vez",
@@ -8357,7 +8357,7 @@ class HermesCLI:
         max_cmd_rows = max(1, available - chrome_rows - len(choice_wrapped))
         if len(cmd_wrapped) > max_cmd_rows:
             keep = max(1, max_cmd_rows - 1) if max_cmd_rows > 1 else 1
-            cmd_wrapped = cmd_wrapped[:keep] + ["… (command truncated — use /logs or /debug for full text)"]
+            cmd_wrapped = cmd_wrapped[:keep] + ["… (acao truncada - use /logs ou /debug para ver o texto completo)"]
 
         # Allocate any remaining rows to description. The extra -1 in full mode
         # accounts for the blank separator between choices and description.
@@ -8372,7 +8372,7 @@ class HermesCLI:
             desc_wrapped = []
         elif len(desc_wrapped) > available_for_desc:
             keep = max(1, available_for_desc - 1)
-            desc_wrapped = desc_wrapped[:keep] + ["… (description truncated)"]
+            desc_wrapped = desc_wrapped[:keep] + ["… (descricao truncada)"]
 
         # Render: title → command → choices → description (description last so
         # any remaining overflow clips from the bottom of the least-critical
@@ -10250,7 +10250,7 @@ class HermesCLI:
             if cli_ref._approval_state:
                 remaining = max(0, int(cli_ref._approval_deadline - time.monotonic()))
                 return [
-                    ('class:hint', '  ↑/↓ to select, Enter to confirm'),
+                    ('class:hint', '  ↑/↓ para selecionar, Enter para confirmar'),
                     ('class:clarify-countdown', f'  ({remaining}s)'),
                 ]
 

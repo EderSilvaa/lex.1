@@ -23,6 +23,7 @@ Usage:
 import asyncio
 import base64
 import concurrent.futures
+import contextvars
 import copy
 import hashlib
 import json
@@ -8886,7 +8887,10 @@ class AIAgent:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
                 for i, (tc, name, args) in enumerate(parsed_calls):
-                    f = executor.submit(_run_tool, i, tc, name, args)
+                    # Keep approval/session routing visible in tool workers.
+                    # Each worker needs an independent Context instance.
+                    tool_context = contextvars.copy_context()
+                    f = executor.submit(tool_context.run, _run_tool, i, tc, name, args)
                     futures.append(f)
 
                 # Wait for all to complete with periodic heartbeats so the
@@ -10215,17 +10219,16 @@ class AIAgent:
                 self._vprint(f"{self.log_prefix}   🔧 Available tools: {len(self.tools) if self.tools else 0}")
             else:
                 # Animated thinking spinner in quiet mode
-                face = random.choice(KawaiiSpinner.get_thinking_faces())
-                verb = random.choice(KawaiiSpinner.get_thinking_verbs())
+                thinking_message = KawaiiSpinner.get_thinking_message()
                 if self.thinking_callback:
                     # CLI TUI mode: use prompt_toolkit widget instead of raw spinner
                     # (works in both streaming and non-streaming modes)
-                    self.thinking_callback(f"{face} {verb}...")
+                    self.thinking_callback(thinking_message)
                 elif not self._has_stream_consumers() and self._should_start_quiet_spinner():
                     # Raw KawaiiSpinner only when no streaming consumers and the
                     # spinner output has a safe sink.
                     spinner_type = random.choice(['brain', 'sparkle', 'pulse', 'moon', 'star'])
-                    thinking_spinner = KawaiiSpinner(f"{face} {verb}...", spinner_type=spinner_type, print_fn=self._print_fn)
+                    thinking_spinner = KawaiiSpinner(thinking_message, spinner_type=spinner_type, print_fn=self._print_fn)
                     thinking_spinner.start()
             
             # Log request details if verbose

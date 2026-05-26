@@ -7,11 +7,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 const bridgeUrl = (process.env.LEX_DESKTOP_BRIDGE_URL || 'http://127.0.0.1:32179').replace(/\/+$/, '');
+const bridgeDefaultTimeoutMs = boundedNumber(process.env.LEX_DESKTOP_MCP_TIMEOUT_MS, 30000, 5000, 300000);
+const bridgeLongTimeoutMs = boundedNumber(process.env.LEX_DESKTOP_MCP_LONG_TIMEOUT_MS, 120000, 10000, 300000);
 const payloadShadowEnabled = !['0', 'false', 'off', 'no', 'nao'].includes(
   String(process.env.LEX_MCP_PAYLOAD_SHADOW || '1').trim().toLowerCase()
 );
 const payloadShadowWarnChars = boundedNumber(process.env.LEX_MCP_PAYLOAD_WARN_CHARS, 12000, 1000, 1000000);
 const payloadShadowLogAllToStderr = boolParam(process.env.LEX_MCP_PAYLOAD_LOG_STDERR, false);
+const intentToolsEnabled = boolParam(process.env.LEX_MCP_ENABLE_INTENT_TOOLS, false);
+const legacyConfirmEnabled = boolParam(process.env.LEX_MCP_ENABLE_LEGACY_CONFIRM, false);
+const internalHitlCapabilityArg = '_lexHitlCapability';
 const payloadShadowLogPath = process.env.LEX_MCP_PAYLOAD_LOG
   || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'Lex', 'logs', 'mcp-payload-shadow.jsonl');
 let payloadShadowFileDisabled = false;
@@ -60,6 +65,26 @@ const observationStateSchema = z.object({
   }).passthrough().optional(),
 }).passthrough();
 
+const longBridgePaths = new Set([
+  '/pje/abrir-consulta',
+  '/pje/ler-autos',
+  '/pje/baixar-documento-atual',
+  '/pje/analisar-documento-baixado',
+]);
+
+const bridgePathTimeoutMs = new Map([
+  ['/pje/status', 20000],
+  ['/pje/preencher-numero', 15000],
+  ['/pje/clicar-consultar', 20000],
+  ['/pje/ler-resultados', 15000],
+  ['/pje/inspecionar-contexto', 20000],
+  ['/pje/explorar-intencao', 15000],
+  ['/pje/executar-candidato-intencao', 25000],
+  ['/pje/executar-intencao-incremental', 25000],
+  ['/pje/abrir-resultado', 45000],
+  ['/confirm', 180000],
+]);
+
 function asInputRecord(value) {
   return value && typeof value === 'object' ? value : {};
 }
@@ -77,6 +102,44 @@ function boundedNumber(value, fallback, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function extractHitlAuthorization(input) {
+  const record = asInputRecord(input);
+  const capability = typeof record[internalHitlCapabilityArg] === 'string'
+    ? record[internalHitlCapabilityArg].trim()
+    : '';
+  const { [internalHitlCapabilityArg]: _ignored, ...payload } = record;
+  return {
+    capability,
+    payload,
+    headers: capability ? { 'x-lex-hitl-capability': capability } : {},
+  };
+}
+
+function getBridgeTimeoutMs(pathname) {
+  const pathTimeout = bridgePathTimeoutMs.get(pathname);
+  if (pathTimeout) return pathTimeout;
+  return longBridgePaths.has(pathname) ? bridgeLongTimeoutMs : bridgeDefaultTimeoutMs;
+}
+
+async function fetchBridge(pathname, options = {}) {
+  const timeoutMs = getBridgeTimeoutMs(pathname);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${bridgeUrl}${pathname}`, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === 'AbortError') {
+      throw new Error(`Lex Desktop bridge timeout after ${Math.round(timeoutMs / 1000)}s on ${pathname}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function wantsFullPayload(input) {
@@ -152,6 +215,45 @@ function compactCandidate(candidate) {
     name: truncateText(candidate.name, 100),
     placeholder: truncateText(candidate.placeholder, 100),
     selectorHints: compactTextList(candidate.selectorHints, 2, 140),
+  };
+}
+
+function compactWorldtreeNode(node) {
+  if (!node || typeof node !== 'object') return null;
+  return {
+    ref: node.ref,
+    frameId: node.frameId,
+    framePath: compactTextList(node.framePath, 4, 80),
+    kind: node.kind,
+    tag: node.tag,
+    type: node.type,
+    label: truncateText(node.label, 120),
+    id: truncateText(node.id, 100),
+    formId: truncateText(node.formId, 100),
+    sectionPath: compactTextList(node.sectionPath, 4, 100),
+    candidateKinds: compactTextList(node.candidateKinds, 6, 80),
+    interactionHints: compactTextList(node.interactionHints, 6, 80),
+    jsfHints: compactTextList(node.jsfHints, 6, 80),
+    ajaxHints: compactTextList(node.ajaxHints, 6, 80),
+    selectorHints: compactTextList(node.selectorHints, 3, 140),
+    disabled: !!node.disabled,
+    inViewport: !!node.inViewport,
+  };
+}
+
+function compactWorldtreeFrame(frame) {
+  if (!frame || typeof frame !== 'object') return null;
+  return {
+    frameId: frame.frameId,
+    frameIndex: frame.frameIndex,
+    parentFrameIndex: frame.parentFrameIndex,
+    depth: frame.depth,
+    title: truncateText(frame.title, 120),
+    url: truncateText(frame.url, 180),
+    sectionHints: compactTextList(frame.sectionHints, 6, 100),
+    jsfHints: compactTextList(frame.jsfHints, 6, 80),
+    ajaxHints: compactTextList(frame.ajaxHints, 6, 80),
+    interactiveElementCount: frame.interactiveElementCount,
   };
 }
 
@@ -692,7 +794,7 @@ function buildMcpPayloadMetrics(toolName, result, durationMs) {
     ts: new Date().toISOString(),
     mode: 'shadow',
     tool: toolName,
-    ok: true,
+    ok: primaryPayloadRecord.ok !== false,
     durationMs,
     textChars,
     resultEnvelopeChars: safeJsonChars(result),
@@ -835,6 +937,8 @@ function compactPjeInspection(result, input) {
     incompleteInspection ? 'not_all_pages_inspected' : '',
   ]);
   const activeSummary = compactPageSummary(activePage);
+  const worldtree = result?.worldtree || activePage?.worldtree || null;
+  const worldtreeSummary = worldtree?.summary || null;
   return withOptionalRaw(input, {
     ok: true,
     mode: result?.mode || 'read_only_inspection',
@@ -852,11 +956,30 @@ function compactPjeInspection(result, input) {
         certificateOrSigner: asArray(candidates.certificateOrSigner).length,
         loginActions: asArray(candidates.loginActions).length,
       },
+      worldtree: worldtreeSummary ? {
+        frameCount: worldtreeSummary.frameCount,
+        actionableNodeCount: worldtreeSummary.actionableNodeCount,
+        expansionCandidateCount: worldtreeSummary.expansionCandidateCount,
+        downloadCandidateCount: worldtreeSummary.downloadCandidateCount,
+        frameDepthMax: worldtreeSummary.frameDepthMax,
+      } : null,
       browserAutomationExecuted: false,
     },
     resumo: `Aba ativa ${activeSummary?.tribunal || (activeSummary?.isPje ? 'PJe' : 'nao PJe')}: ${activeSummary?.title || activeSummary?.url || 'sem titulo'}. Contexto: ${truncateText(result?.contextSummary || activeSummary?.contextSummary || 'desconhecido', 120)}. Campos de numero: ${processNumberFields.length}; acoes de consulta: ${searchActions.length}.`,
     pages: pages.slice(0, 4).map(compactPageSummary).filter(Boolean),
     environment: compactEnvironment(result?.environment || activePage?.environment || activePage),
+    worldtree: worldtree ? {
+      summary: worldtreeSummary ? {
+        frameCount: worldtreeSummary.frameCount,
+        actionableNodeCount: worldtreeSummary.actionableNodeCount,
+        expansionCandidateCount: worldtreeSummary.expansionCandidateCount,
+        downloadCandidateCount: worldtreeSummary.downloadCandidateCount,
+        frameDepthMax: worldtreeSummary.frameDepthMax,
+      } : null,
+      frameTree: asArray(worldtree.frameTree).slice(0, 6).map(compactWorldtreeFrame).filter(Boolean),
+      expansionCandidates: asArray(worldtree.expansionCandidates).slice(0, 8).map(compactWorldtreeNode).filter(Boolean),
+      downloadCandidates: asArray(worldtree.downloadCandidates).slice(0, 8).map(compactWorldtreeNode).filter(Boolean),
+    } : null,
     candidates: {
       processNumberFields,
       searchActions,
@@ -869,6 +992,96 @@ function compactPjeInspection(result, input) {
       ['usar_tool_especifica_para_proximo_passo', 'pedir_includeRaw_apenas_para_diagnostico'],
       discoveryRecommended,
       discoveryActionForMode('read_only_inspection')
+    ),
+  }, result);
+}
+
+function compactPjeStatus(result, input) {
+  if (result?.ok === false) return compactFailure(result, input, 'read_only_status');
+  const status = result?.status || {};
+  const environment = compactEnvironment(status?.environment);
+  const authState = environment?.authState || null;
+  const surfaceKind = environment?.surfaceKind || null;
+  const needsAuthentication = authState === 'nao_logado' || surfaceKind === 'login';
+  const needsNavigation = !!status?.isPje && surfaceKind !== 'consulta';
+  const resumo = needsAuthentication
+    ? 'A Lex detectou PJe sem autenticacao valida para consulta. Faca login e volte para a tela estruturada de consulta.'
+    : (needsNavigation
+      ? 'A Lex detectou PJe aberto, mas fora da tela estruturada de consulta. Use pje_abrir_consulta antes de preencher ou consultar.'
+      : `Status do PJe: ${truncateText(status?.contextSummary || 'sem resumo', 180)}`);
+  return withOptionalRaw(input, {
+    ok: true,
+    mode: result?.mode || 'read_only_status',
+    confidence: environment ? 'normal' : 'medium',
+    discoveryRecommended: false,
+    state: {
+      connected: !!status?.connected,
+      isPje: !!status?.isPje,
+      url: truncateText(status?.url, 180) || null,
+      tribunalAtivo: truncateText(status?.tribunalAtivo, 40) || null,
+      tribunalPreferido: truncateText(status?.tribunalPreferido, 40) || null,
+      environment,
+      needsAuthentication,
+      needsNavigation,
+      browserAutomationExecuted: false,
+    },
+    resumo,
+    nextActions: compactNextActions(
+      result?.nextActions,
+      needsAuthentication
+        ? ['autenticar_no_pje', 'executar_pje_abrir_consulta']
+        : (needsNavigation ? ['executar_pje_abrir_consulta', 'reinspecionar_contexto'] : ['seguir_com_tool_especifica'])
+    ),
+  }, result);
+}
+
+function compactPjeConsultaPlan(result, input, modeFallback = 'read_only_plan') {
+  if (result?.ok === false) return compactFailure(result, input, modeFallback);
+  const status = result?.pje?.status || result?.status || {};
+  const environment = compactEnvironment(status?.environment);
+  const pje = result?.pje || {};
+  const needsAuthentication = !!pje?.needsAuthentication || environment?.authState === 'nao_logado' || environment?.surfaceKind === 'login';
+  const needsNavigation = !!pje?.needsNavigation;
+  const resumo = needsAuthentication
+    ? `Plano pronto para ${result?.numero || 'o processo'}, mas a sessao do PJe ainda precisa de autenticacao antes da consulta.`
+    : (needsNavigation
+      ? `Plano pronto para ${result?.numero || 'o processo'}, mas a Lex ainda precisa abrir a tela estruturada de consulta do ${result?.tribunal?.selected || 'tribunal alvo'}.`
+      : `Plano pronto para consultar ${result?.numero || 'o processo'} no ${result?.tribunal?.selected || 'tribunal alvo'}.`);
+  return withOptionalRaw(input, {
+    ok: true,
+    mode: result?.mode || modeFallback,
+    confidence: 'normal',
+    discoveryRecommended: false,
+    state: {
+      numero: result?.numero || null,
+      tribunal: result?.tribunal ? {
+        selected: result.tribunal.selected || null,
+        active: result.tribunal.active || null,
+        inferredFromCnj: result.tribunal.inferredFromCnj || null,
+      } : null,
+      routes: result?.routes ? {
+        consultaUrl: truncateText(result.routes.consultaUrl, 180) || null,
+        loginUrl: truncateText(result.routes.loginUrl, 180) || null,
+      } : null,
+      environment,
+      connected: !!pje?.connected,
+      isPje: !!pje?.isPje,
+      activeMatchesTarget: !!pje?.activeMatchesTarget,
+      needsBrowser: !!pje?.needsBrowser,
+      needsNavigation,
+      needsAuthentication,
+      browserAutomationExecuted: !!pje?.browserAutomationExecuted,
+    },
+    resumo,
+    warnings: uniqueStrings([
+      needsAuthentication ? 'authentication_required_before_search' : '',
+      needsNavigation ? 'consulta_screen_not_ready' : '',
+    ]),
+    nextActions: compactNextActions(
+      result?.nextActions,
+      needsAuthentication
+        ? ['autenticar_no_pje_antes_de_consultar', 'executar_pje_abrir_consulta']
+        : (needsNavigation ? ['executar_pje_abrir_consulta', 'executar_pje_preencher_numero'] : ['executar_pje_preencher_numero', 'executar_pje_clicar_consultar'])
     ),
   }, result);
 }
@@ -901,7 +1114,7 @@ function compactPjeFillNumber(result, input) {
   let resumo = 'Numero do processo avaliado para preenchimento.';
   if (error) resumo = truncateText(result?.message || `Falha em pje_preencher_numero: ${error}`, 240);
   else if (result?.dryRun) resumo = `Dry run: ${foundCount}/${fields.length || 6} campo(s) do numero localizados; nenhum preenchimento executado.`;
-  else resumo = `Preenchimento executado: ${filledCount}/${fields.length || 6} campo(s) confirmados.`;
+  else resumo = `Preenchimento seguro executado: ${filledCount}/${fields.length || 6} campo(s) confirmados.`;
   return withOptionalRaw(input, {
     ok: result?.ok !== false,
     mode: result?.mode || 'fill_process_number',
@@ -933,7 +1146,7 @@ function compactPjeFillNumber(result, input) {
     nextActions: compactNextActionsWithDiscovery(
       result?.nextActions,
       result?.dryRun
-        ? ['confirmar_preenchimento', 'executar_pje_preencher_numero_com_dryRun_false']
+        ? ['executar_pje_preencher_numero_com_dryRun_false', 'conferir_campos_antes_de_clicar_consultar']
         : ['conferir_campos_antes_de_clicar_consultar'],
       discoveryRecommended,
       discoveryActionForMode('read_only_inspection')
@@ -968,7 +1181,7 @@ function compactPjeClickSearch(result, input) {
     ? `Dry run: botao selecionado (${selectedCandidate.label || selectedCandidate.ref}); nenhum clique executado.`
     : 'Dry run: nenhum botao seguro de consulta selecionado.';
   else resumo = result?.click?.clicked
-    ? 'Clique de consulta executado uma vez apos confirmacao humana.'
+    ? 'Clique seguro de consulta executado uma vez.'
     : 'Clique de consulta nao foi executado com sucesso.';
   return withOptionalRaw(input, {
     ok: result?.ok !== false,
@@ -996,7 +1209,7 @@ function compactPjeClickSearch(result, input) {
     nextActions: compactNextActionsWithDiscovery(
       result?.nextActions,
       result?.dryRun
-        ? ['confirmar_clique_consultar', 'executar_pje_clicar_consultar_com_dryRun_false']
+        ? ['executar_pje_clicar_consultar_com_dryRun_false', 'ler_resultados_da_consulta']
         : ['ler_resultados_da_consulta', 'registrar_resultado_no_brain'],
       discoveryRecommended,
       discoveryActionForMode('read_only_inspection')
@@ -1013,6 +1226,7 @@ function compactPjeSearchResults(result, input) {
   const tableMissing = !result?.primaryTable || originalWarnings.includes('result_table_not_identified');
   const rowCountMismatch = originalWarnings.includes('visible_rows_count_differs_from_reported_count');
   const discoveryRecommended = !wantsFullPayload(input) && (tableMissing || returnedRows.length === 0 || rowCountMismatch);
+  const movementVisible = returnedRows.some((row) => /ultima|movimenta|decorrido prazo/i.test(JSON.stringify(row)));
   const confidence = tableMissing || returnedRows.length === 0
     ? 'low'
     : (rowCountMismatch || omittedRows > 0 ? 'medium' : 'normal');
@@ -1053,14 +1267,20 @@ function compactPjeSearchResults(result, input) {
     resumo: returnedRows.length > 0
       ? `${returnedRows.length} resultado(s) visivel(is) resumido(s); total lido: ${result?.resultCount ?? rows.length}; reportado pelo PJe: ${result?.reportedResultCount ?? 'nao informado'}.`
       : 'Nenhum resultado visivel foi extraido com seguranca.',
+    pedidoPodeSerAtendidoSemAutos: movementVisible,
+    orientacaoDeFluxo: movementVisible
+      ? 'Se o pedido for sobre a ultima movimentacao visivel, responda agora e apenas ofereca abrir os autos se o usuario solicitar.'
+      : undefined,
     results: returnedRows,
     warnings,
-    nextActions: compactNextActionsWithDiscovery(
-      result?.nextActions,
-      ['registrar_resultado_no_brain', 'nao_abrir_processo_sem_confirmacao'],
-      discoveryRecommended,
-      discoveryActionForMode('read_only_search_results')
-    ),
+    nextActions: movementVisible
+      ? ['responder_com_dados_visiveis', 'oferecer_abertura_dos_autos_apenas_se_usuario_pedir']
+      : compactNextActionsWithDiscovery(
+        result?.nextActions,
+        ['registrar_resultado_no_brain', 'nao_abrir_processo_sem_confirmacao'],
+        discoveryRecommended,
+        discoveryActionForMode('read_only_search_results')
+      ),
   }, result);
 }
 
@@ -1189,6 +1409,183 @@ function compactPjeAutos(result, input) {
   }, result);
 }
 
+function compactPjeIntentExploration(result, input) {
+  if (result?.ok === false) return compactFailure(result, input, 'intent_exploration_preview');
+  const guidance = result?.guidance || {};
+  const policy = guidance?.policy || {};
+  const explorationPlan = guidance?.explorationPlan || {};
+  const worldtreeTargets = asArray(explorationPlan?.worldtreeTargets).slice(0, 6).map((item) => truncateText(item, 220));
+  const domCandidates = asArray(explorationPlan?.domCandidates).slice(0, 8).map((item) => ({
+    source: item?.source || null,
+    role: truncateText(item?.role, 80),
+    suggestedAction: item?.suggestedAction || null,
+    ref: truncateText(item?.ref, 80),
+    label: truncateText(item?.label, 140),
+    sectionPath: compactTextList(item?.sectionPath, 4, 80),
+    framePath: compactTextList(item?.framePath, 4, 80),
+    selectorHints: compactTextList(item?.selectorHints, 4, 100),
+    interactionHints: compactTextList(item?.interactionHints, 4, 80),
+    candidateKinds: compactTextList(item?.candidateKinds, 6, 80),
+    reason: truncateText(item?.reason, 220),
+  }));
+  const interactionSequence = asArray(explorationPlan?.interactionSequence).slice(0, 6).map((item) => truncateText(item, 220));
+  const toolPlan = asArray(explorationPlan?.toolPlan).slice(0, 6).map((item) => truncateText(item, 220));
+  const actionableTargets = asArray(explorationPlan?.actionableTargets).slice(0, 6).map((item) => truncateText(item, 220));
+  const affordances = compactTextList(guidance?.affordances, 12, 80);
+  const nextActions = compactTextList(guidance?.nextActions, 10, 80);
+  const confidence = worldtreeTargets.length > 0 || actionableTargets.length > 0
+    || domCandidates.length > 0
+    ? 'normal'
+    : (affordances.length > 0 ? 'medium' : 'low');
+  const discoveryRecommended = worldtreeTargets.length === 0 && actionableTargets.length === 0 && domCandidates.length === 0;
+  const resumo = worldtreeTargets.length > 0
+    ? `Intencao ${policy?.intent || 'geral'} mapeada com ${worldtreeTargets.length} candidato(s) DOM prioritario(s) para exploracao segura.`
+    : `Intencao ${policy?.intent || 'geral'} mapeada sem candidato DOM forte; a Lex deve explorar com cautela e admitir limite se nao encontrar rota confiavel.`;
+
+  return withOptionalRaw(input, {
+    ok: true,
+    mode: result?.mode || 'intent_exploration_preview',
+    confidence,
+    discoveryRecommended,
+    readOnly: true,
+    state: {
+      task: truncateText(result?.task, 220),
+      intent: policy?.intent || null,
+      replayContext: result?.replayContext || null,
+      contextSummary: truncateText(guidance?.contextSummary, 220),
+      shouldNavigateFirst: !!policy?.shouldNavigateFirst,
+      affordanceCount: affordances.length,
+      worldtreeCandidateCount: worldtreeTargets.length,
+      domCandidateCount: domCandidates.length,
+      actionableTargetCount: actionableTargets.length,
+      browserAutomationExecuted: false,
+    },
+    resumo,
+    guidance: {
+      contextSummary: truncateText(guidance?.contextSummary, 220),
+      executionBrief: truncateText(result?.executionBrief, 1800),
+      affordances,
+      nextActions,
+      policyLines: compactTextList(policy?.policyLines, 6, 220),
+      warnings: compactTextList(policy?.warnings, 6, 220),
+      domCandidates,
+      worldtreeTargets,
+      actionableTargets,
+      interactionSequence,
+      toolPlan,
+      avoidSteps: compactTextList(explorationPlan?.avoidSteps, 6, 220),
+    },
+    nextActions: compactNextActionsWithDiscovery(
+      nextActions,
+      ['explorar_candidatos_dom_em_passos_pequenos', 'reinspecionar_apos_cada_expansao', 'declarar_limite_se_nao_houver_rota_confiavel'],
+      discoveryRecommended,
+      discoveryActionForMode('intent_exploration_preview')
+    ),
+  }, result);
+}
+
+function compactPjeExecuteIntentCandidate(result, input) {
+  if (result?.ok === false) return compactFailure(result, input, 'execute_intent_candidate');
+  const candidate = result?.candidate || result?.preview?.candidate || {};
+  const afterInspection = result?.inspectionAfter || result?.result?.inspectionAfter || null;
+  const afterSummary = truncateText(afterInspection?.contextSummary, 220);
+  return withOptionalRaw(input, {
+    ok: result?.ok !== false,
+    mode: result?.mode || 'execute_intent_candidate',
+    confidence: result?.click?.clicked ? 'normal' : 'medium',
+    state: {
+      dryRun: !!result?.dryRun,
+      accepted: result?.accepted ?? null,
+      candidateRef: truncateText(candidate?.ref, 80),
+      candidateLabel: truncateText(candidate?.label, 160),
+      suggestedAction: candidate?.suggestedAction || null,
+      framePath: compactTextList(candidate?.framePath, 4, 80),
+      sectionPath: compactTextList(candidate?.sectionPath, 4, 80),
+      selectorHints: compactTextList(candidate?.selectorHints, 5, 100),
+      browserAutomationExecuted: !!result?.browserAutomationExecuted,
+      clicked: !!result?.click?.clicked,
+      selectorUsed: truncateText(result?.click?.selectorUsed, 160),
+      afterContextSummary: afterSummary || null,
+    },
+    resumo: result?.dryRun
+      ? `Dry run: candidato ${truncateText(candidate?.ref, 80)} pronto para execucao controlada.`
+      : (result?.click?.clicked
+        ? `Candidato ${truncateText(candidate?.ref, 80)} executado com sucesso. Novo contexto: ${afterSummary || 'reinspecao concluida'}.`
+        : `A execucao do candidato ${truncateText(candidate?.ref, 80)} nao concluiu clique seguro.`),
+    candidate: {
+      ref: truncateText(candidate?.ref, 80),
+      label: truncateText(candidate?.label, 160),
+      role: truncateText(candidate?.role, 80),
+      suggestedAction: candidate?.suggestedAction || null,
+      reason: truncateText(candidate?.reason, 220),
+    },
+    nextActions: compactNextActions(
+      result?.nextActions,
+      result?.click?.clicked
+        ? ['reavaliar_contexto', 'escolher_proximo_candidato_se_necessario']
+        : ['tentar_outro_candidato', 'reinspecionar_contexto']
+    ),
+  }, result);
+}
+
+function compactPjeExecuteIntentIncremental(result, input) {
+  if (result?.ok === false) return compactFailure(result, input, 'incremental_intent_execution');
+  const steps = asArray(result?.steps).slice(0, 6).map((step) => ({
+    stepNumber: step?.stepNumber ?? null,
+    phase: step?.phase || null,
+    ok: step?.ok !== false,
+    accepted: step?.accepted ?? null,
+    candidate: step?.candidate ? {
+      ref: truncateText(step.candidate.ref, 80),
+      label: truncateText(step.candidate.label, 160),
+      role: truncateText(step.candidate.role, 80),
+      suggestedAction: step.candidate.suggestedAction || null,
+      reason: truncateText(step.candidate.reason, 180),
+    } : null,
+    execution: step?.execution ? {
+      clicked: !!step.execution?.click?.clicked,
+      selectorUsed: truncateText(step.execution?.click?.selectorUsed, 160),
+      afterContextSummary: truncateText(step.execution?.inspectionAfter?.contextSummary, 220),
+    } : null,
+    message: truncateText(step?.message, 220),
+  }));
+  const lastExploration = result?.lastExploration || {};
+  const lastCandidates = asArray(lastExploration?.guidance?.explorationPlan?.domCandidates).slice(0, 4).map((candidate) => ({
+    ref: truncateText(candidate?.ref, 80),
+    role: truncateText(candidate?.role, 80),
+    suggestedAction: candidate?.suggestedAction || null,
+    label: truncateText(candidate?.label, 140),
+    reason: truncateText(candidate?.reason, 180),
+  }));
+
+  return withOptionalRaw(input, {
+    ok: true,
+    mode: result?.mode || 'incremental_intent_execution',
+    confidence: steps.some((step) => step?.execution?.clicked) ? 'normal' : 'medium',
+    state: {
+      dryRun: !!result?.dryRun,
+      task: truncateText(result?.task, 220),
+      maxSteps: result?.maxSteps ?? null,
+      executedSteps: result?.executedSteps ?? steps.length,
+      stopReason: result?.stopReason || null,
+      browserAutomationExecuted: steps.some((step) => step?.execution?.clicked),
+    },
+    resumo: result?.dryRun
+      ? `Dry run incremental pronto para ${result?.maxSteps || 0} passo(s).`
+      : `Execucao incremental da intencao terminou com motivo: ${result?.stopReason || 'desconhecido'}. Passos registrados: ${steps.length}.`,
+    steps,
+    lastExploration: {
+      intent: lastExploration?.guidance?.policy?.intent || null,
+      contextSummary: truncateText(lastExploration?.guidance?.contextSummary, 220),
+      domCandidates: lastCandidates,
+    },
+    nextActions: compactNextActions(
+      result?.nextActions,
+      ['reavaliar_contexto_atual', 'continuar_exploracao_se_fizer_sentido', 'parar_honestamente_se_nao_houver_progresso_claro']
+    ),
+  }, result);
+}
+
 function compactPjeDownloadCurrentDocument(result, input) {
   if (result?.ok === false) return compactFailure(result, input, 'download_current_document');
   const inspection = result?.inspection || result?.preview?.inspection || {};
@@ -1301,7 +1698,7 @@ function compactPjeAnalyzeDownloadedDocument(result, input) {
 }
 
 async function bridgeGet(pathname) {
-  const response = await fetch(`${bridgeUrl}${pathname}`, {
+  const response = await fetchBridge(pathname, {
     method: 'GET',
     headers: { accept: 'application/json' },
   });
@@ -1315,17 +1712,21 @@ async function bridgeGet(pathname) {
   }
 
   if (!response.ok) {
+    if (json && typeof json === 'object') {
+      return json;
+    }
     throw new Error(`Lex Desktop bridge ${response.status}: ${JSON.stringify(json)}`);
   }
   return json;
 }
 
-async function bridgePost(pathname, payload) {
-  const response = await fetch(`${bridgeUrl}${pathname}`, {
+async function bridgePost(pathname, payload, additionalHeaders = {}) {
+  const response = await fetchBridge(pathname, {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
+      ...additionalHeaders,
     },
     body: JSON.stringify(payload || {}),
   });
@@ -1339,6 +1740,9 @@ async function bridgePost(pathname, payload) {
   }
 
   if (!response.ok) {
+    if (json && typeof json === 'object') {
+      return json;
+    }
     throw new Error(`Lex Desktop bridge ${response.status}: ${JSON.stringify(json)}`);
   }
   return json;
@@ -1358,38 +1762,17 @@ async function healthTool() {
 
 async function pjeStatusTool() {
   const status = await bridgeGet('/pje/status');
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(status, null, 2),
-      },
-    ],
-  };
+  return textToolResult(compactPjeStatus(status, {}));
 }
 
 async function pjeConsultarProcessoTool(input) {
   const result = await bridgePost('/pje/consultar-processo', input);
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      },
-    ],
-  };
+  return textToolResult(compactPjeConsultaPlan(result, input, 'read_only_plan'));
 }
 
 async function pjeAbrirConsultaTool(input) {
   const result = await bridgePost('/pje/abrir-consulta', input);
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      },
-    ],
-  };
+  return textToolResult(compactPjeConsultaPlan(result, input, 'open_consulta'));
 }
 
 async function pjeInspecionarContextoTool(input) {
@@ -1397,6 +1780,21 @@ async function pjeInspecionarContextoTool(input) {
   const result = await bridgePost('/pje/inspecionar-contexto', request);
   const knownFlows = await getKnownFlowsForPage(pageForKnownFlowLookup(result));
   return textToolResult(attachBrainInfo(compactPjeInspection(result, input), { knownFlows }));
+}
+
+async function pjeExplorarIntencaoTool(input) {
+  const result = await bridgePost('/pje/explorar-intencao', input);
+  return textToolResult(compactPjeIntentExploration(result, input));
+}
+
+async function pjeExecutarCandidatoIntencaoTool(input) {
+  const result = await bridgePost('/pje/executar-candidato-intencao', input);
+  return textToolResult(compactPjeExecuteIntentCandidate(result, input));
+}
+
+async function pjeExecutarIntencaoIncrementalTool(input) {
+  const result = await bridgePost('/pje/executar-intencao-incremental', input);
+  return textToolResult(compactPjeExecuteIntentIncremental(result, input));
 }
 
 async function pjePreencherNumeroTool(input) {
@@ -1429,10 +1827,11 @@ async function pjeLerAutosTool(input) {
 }
 
 async function pjeBaixarDocumentoAtualTool(input) {
+  const authorization = extractHitlAuthorization(input);
   const startedAt = Date.now();
-  const result = await bridgePost('/pje/baixar-documento-atual', input);
-  const observation = await recordPjeObservation('pje_baixar_documento_atual', input, result, Date.now() - startedAt);
-  return textToolResult(attachBrainInfo(compactPjeDownloadCurrentDocument(result, input), { observation }));
+  const result = await bridgePost('/pje/baixar-documento-atual', authorization.payload, authorization.headers);
+  const observation = await recordPjeObservation('pje_baixar_documento_atual', authorization.payload, result, Date.now() - startedAt);
+  return textToolResult(attachBrainInfo(compactPjeDownloadCurrentDocument(result, authorization.payload), { observation }));
 }
 
 async function pjeAnalisarDocumentoBaixadoTool(input) {
@@ -1443,10 +1842,11 @@ async function pjeAnalisarDocumentoBaixadoTool(input) {
 }
 
 async function pjeAbrirResultadoTool(input) {
+  const authorization = extractHitlAuthorization(input);
   const startedAt = Date.now();
-  const result = await bridgePost('/pje/abrir-resultado', input);
-  const observation = await recordPjeObservation('pje_abrir_resultado', input, result, Date.now() - startedAt);
-  return textToolResult(attachBrainInfo(compactPjeOpenResult(result, input), { observation }));
+  const result = await bridgePost('/pje/abrir-resultado', authorization.payload, authorization.headers);
+  const observation = await recordPjeObservation('pje_abrir_resultado', authorization.payload, result, Date.now() - startedAt);
+  return textToolResult(attachBrainInfo(compactPjeOpenResult(result, authorization.payload), { observation }));
 }
 
 async function confirmTool(input) {
@@ -1534,7 +1934,7 @@ if (process.argv.includes('--self-test')) {
     },
   }, healthTool);
 
-  registerLexTool(server, 'lex_confirm', {
+  if (legacyConfirmEnabled) registerLexTool(server, 'lex_confirm', {
     title: 'Lex Desktop Confirm',
     description: 'Abre uma confirmacao no Lex Desktop e retorna se o usuario aceitou.',
     inputSchema: {
@@ -1578,10 +1978,10 @@ if (process.argv.includes('--self-test')) {
 
   registerLexTool(server, 'pje_abrir_consulta', {
     title: 'Lex PJe Abrir Consulta',
-    description: 'Abre ou navega o Chrome controlado da Lex para a tela de consulta do PJe apos confirmacao visual no Electron. Nao preenche campos e nao pratica atos processuais.',
+    description: 'Abre ou navega diretamente o Chrome controlado da Lex para a tela estruturada de consulta do PJe. Nao exige numero CNJ, nao preenche campos e nao pratica atos processuais. Use quando o usuario pedir para abrir o PJe/tribunal e tambem para voltar do painel ou login antes de preencher um processo. Em tarefas PJe, permaneca neste fluxo do Desktop em vez de usar navegacao generica.',
     inputSchema: {
-      numero: z.string().min(1).describe('Numero do processo em formato CNJ usado para confirmar o contexto.'),
-      tribunal: z.string().optional().describe('Tribunal opcional. Ex: TJPA, TRT8, TRF1. Se ausente, a Lex tenta inferir pelo CNJ.'),
+      numero: z.string().optional().describe('Numero do processo em formato CNJ, opcional, usado apenas para confirmar/inferir o tribunal quando fornecido.'),
+      tribunal: z.string().optional().describe('Tribunal opcional. Ex: TJPA, TRT8, TRF1. Se ausente e nao houver numero, a Lex usa TJPA como padrao do Desktop.'),
     },
     annotations: {
       readOnlyHint: false,
@@ -1608,13 +2008,66 @@ if (process.argv.includes('--self-test')) {
     },
   }, pjeInspecionarContextoTool);
 
+  // Ferramentas exploratorias ficam fora do caminho do MVP; habilite apenas para desenvolvimento.
+  if (intentToolsEnabled) {
+  registerLexTool(server, 'pje_explorar_intencao', {
+    title: 'Lex PJe Explorar Intencao',
+    description: 'Traduz um pedido livre do usuario para uma intencao operacional do PJe, cruza isso com a worldtree/DOM atual e retorna um plano read-only de exploracao incremental. Nao clica, nao navega e nao pratica atos. Nao use para consulta simples por numero CNJ: nesse caso use pje_abrir_consulta -> pje_preencher_numero(dryRun=false) -> pje_clicar_consultar(dryRun=false) -> pje_ler_resultados. Use esta tool apenas para objetivos adjacentes ou novos, como exportar processo, baixar autos completos ou revelar menus relevantes.',
+    inputSchema: {
+      task: z.string().min(1).describe('Pedido em linguagem natural. Ex: "baixar o processo inteiro", "exportar os autos completos", "achar onde baixa o PDF integral".'),
+      includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
+      includeDebug: z.boolean().optional().describe('Alias diagnostico para incluir o JSON completo retornado pelo bridge.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  }, pjeExplorarIntencaoTool);
+
+  registerLexTool(server, 'pje_executar_candidato_intencao', {
+    title: 'Lex PJe Executar Candidato de Intencao',
+    description: 'Executa um unico candidato levantado pela exploracao por intencao, com dryRun por padrao e confirmacao visual no Electron quando dryRun=false. Apos agir, reinspeciona o contexto atual. Nao continua automaticamente para outros passos. Nao use para consulta simples por numero CNJ; use as tools fixas de consulta do PJe.',
+    inputSchema: {
+      candidateRef: z.string().min(1).describe('Ref do candidato retornado por pje_explorar_intencao.'),
+      task: z.string().optional().describe('Pedido original em linguagem natural, usado apenas para contexto/auditoria.'),
+      suggestedAction: z.enum(['fill', 'click', 'expand', 'download', 'inspect']).optional().describe('Acao sugerida do candidato. Hoje a execucao efetiva cobre principalmente click/expand/download via clique unico.'),
+      selectorHints: z.array(z.string()).optional().describe('Fallback opcional de selectorHints, caso queira reenviar junto com o candidato.'),
+      dryRun: z.boolean().optional().describe('Padrao true. Quando true, apenas valida e prepara a execucao do candidato. Quando false, pede confirmacao e executa um unico passo.'),
+      waitAfterMs: z.number().int().min(500).max(10000).optional().describe('Espera apos a execucao do candidato para o PJe atualizar a tela. Padrao: 2500 ms.'),
+      includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
+      includeDebug: z.boolean().optional().describe('Alias diagnostico para incluir o JSON completo retornado pelo bridge.'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      openWorldHint: false,
+    },
+  }, pjeExecutarCandidatoIntencaoTool);
+
+  registerLexTool(server, 'pje_executar_intencao_incremental', {
+    title: 'Lex PJe Executar Intencao Incremental',
+    description: 'Executa um loop curto e seguro de exploracao por intencao no PJe: levanta candidatos, confirma o melhor candidato do passo, executa um unico passo, reinspeciona e decide se vale mais um passo. Nao use para consulta simples por numero CNJ ou para clicar em Pesquisar; use pje_abrir_consulta -> pje_preencher_numero(dryRun=false) -> pje_clicar_consultar(dryRun=false) -> pje_ler_resultados. Use esta tool apenas para objetivos adjacentes como exportar processo, revelar menu ou buscar autos completos sem criar fluxo fixo.',
+    inputSchema: {
+      task: z.string().min(1).describe('Pedido em linguagem natural. Ex: "baixar o processo inteiro", "achar onde exporta os autos completos".'),
+      maxSteps: z.number().int().min(1).max(3).optional().describe('Maximo de passos incrementais a tentar. Padrao: 2.'),
+      dryRun: z.boolean().optional().describe('Padrao true. Quando true, nao executa nada e apenas prepara o primeiro estado de exploracao. Quando false, pede confirmacao em cada passo antes de agir.'),
+      waitAfterMs: z.number().int().min(500).max(10000).optional().describe('Espera apos cada passo executado para o PJe atualizar a tela. Padrao: 2500 ms.'),
+      includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
+      includeDebug: z.boolean().optional().describe('Alias diagnostico para incluir o JSON completo retornado pelo bridge.'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      openWorldHint: false,
+    },
+  }, pjeExecutarIntencaoIncrementalTool);
+  }
+
   registerLexTool(server, 'pje_preencher_numero', {
     title: 'Lex PJe Preencher Numero',
-    description: 'Valida e normaliza um numero CNJ, confere possivel divergencia de tribunal e preenche os campos segmentados do numero do processo no PJe. Por padrao retorna resumo compacto e roda em dryRun=true. Com dryRun=false, pede confirmacao visual no Electron e nao clica em Consultar/Pesquisar. Use includeRaw/includeDebug apenas para diagnostico.',
+    description: 'Valida e normaliza um numero CNJ, confere possivel divergencia de tribunal e preenche diretamente os campos segmentados do numero do processo no PJe. Para pedido direto do usuario para pesquisar um processo, use dryRun=false no fluxo conhecido. Por padrao retorna resumo compacto e roda em dryRun=true. Com dryRun=false, executa o preenchimento seguro e nao clica em Consultar/Pesquisar. Se retornar erro de tela/login/navegacao, siga nextActions e volte com pje_abrir_consulta antes de preencher novamente; nao tente descobrir outra rota. Use includeRaw/includeDebug apenas para diagnostico.',
     inputSchema: {
       numero: z.string().min(1).describe('Numero do processo CNJ, com ou sem mascara. Ex: 0886971-84.2025.8.14.0301 ou 08869718420258140301.'),
       tribunal: z.string().optional().describe('Tribunal esperado, ex: TJPA. Se divergir do CNJ, a Lex bloqueia salvo allowTribunalMismatch=true.'),
-      dryRun: z.boolean().optional().describe('Padrao true. Quando true, valida e mostra o plano sem alterar campos. Quando false, pede confirmacao e preenche.'),
+      dryRun: z.boolean().optional().describe('Padrao true. Quando true, valida e mostra o plano sem alterar campos. Quando false, executa diretamente o preenchimento seguro.'),
       allowTribunalMismatch: z.boolean().optional().describe('Permite preencher mesmo quando o tribunal inferido pelo CNJ diverge do tribunal informado. Use apenas com confirmacao humana.'),
       includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
       includeDebug: z.boolean().optional().describe('Alias diagnostico para incluir o JSON completo retornado pelo bridge.'),
@@ -1627,9 +2080,9 @@ if (process.argv.includes('--self-test')) {
 
   registerLexTool(server, 'pje_clicar_consultar', {
     title: 'Lex PJe Clicar Consultar',
-    description: 'Encontra um botao seguro de Pesquisar/Consultar na tela atual do PJe e clica uma unica vez. Retorna resumo compacto por padrao. Antes de explorar tela desconhecida, prefira fluxos/seletores conhecidos do Brain quando disponiveis. Por padrao roda em dryRun=true. Com dryRun=false, pede confirmacao visual no Electron. Bloqueia consulta vazia salvo allowEmptySearch=true. Nao abre resultado, nao baixa documentos e nao protocola. Use includeRaw/includeDebug apenas para diagnostico.',
+    description: 'Encontra um botao seguro de Pesquisar/Consultar na tela atual do PJe e clica uma unica vez. Para pedido direto do usuario apos pje_preencher_numero bem-sucedido, use dryRun=false. Retorna resumo compacto por padrao. Antes de explorar tela desconhecida, prefira fluxos/seletores conhecidos do Brain quando disponiveis. Por padrao roda em dryRun=true. Com dryRun=false, executa diretamente a consulta segura, sem abrir resultado, baixar documentos ou protocolar. Bloqueia consulta vazia salvo allowEmptySearch=true. Se retornar empty_search_blocked, volte para pje_preencher_numero(dryRun=false) ou pje_abrir_consulta; nao tente descobrir outra rota. Use includeRaw/includeDebug apenas para diagnostico.',
     inputSchema: {
-      dryRun: z.boolean().optional().describe('Padrao true. Quando true, identifica candidatos e criterios sem clicar. Quando false, pede confirmacao e clica uma vez.'),
+      dryRun: z.boolean().optional().describe('Padrao true. Quando true, identifica candidatos e criterios sem clicar. Quando false, executa diretamente o clique seguro de consulta.'),
       waitAfterMs: z.number().int().min(500).max(10000).optional().describe('Espera apos o clique para o PJe atualizar a tela. Padrao: 2500 ms.'),
       allowEmptySearch: z.boolean().optional().describe('Padrao false. Quando false, bloqueia clique se nao houver criterio de busca preenchido.'),
       candidateRef: z.string().optional().describe('Ref opcional retornada pelo dry run para forcar um botao especifico, ex: search:0:12.'),
@@ -1644,7 +2097,7 @@ if (process.argv.includes('--self-test')) {
 
   registerLexTool(server, 'pje_ler_resultados', {
     title: 'Lex PJe Ler Resultados',
-    description: 'Le de forma read-only os resultados visiveis da consulta atual do PJe. Por padrao retorna resumo compacto de linhas, estado, avisos e proximas acoes. Politica economica: nao chame includeRaw/includeDebug em loop; use apenas quando discoveryRecommended=true, confidence=low, tabela ambigua ou diagnostico solicitado. Nao clica, nao abre processo, nao baixa documentos e nao navega.',
+    description: 'Le de forma read-only os resultados visiveis da consulta atual do PJe. Por padrao retorna resumo compacto de linhas, estado, avisos e proximas acoes. Se o usuario pedir ultima movimentacao e ela estiver visivel nos resultados, responda com esses dados sem abrir autos. Politica economica: nao chame includeRaw/includeDebug em loop; use apenas quando discoveryRecommended=true, confidence=low, tabela ambigua ou diagnostico solicitado. Nao clica, nao abre processo, nao baixa documentos e nao navega.',
     inputSchema: {
       waitMs: z.number().int().min(0).max(10000).optional().describe('Espera passiva antes da leitura, util para o PJe terminar AJAX/JSF. Padrao: 1000 ms.'),
       maxRows: z.number().int().min(1).max(100).optional().describe('Maximo de linhas de resultado a retornar. Padrao: 20.'),
@@ -1676,9 +2129,10 @@ if (process.argv.includes('--self-test')) {
 
   registerLexTool(server, 'pje_baixar_documento_atual', {
     title: 'Lex PJe Baixar Documento Atual',
-    description: 'Baixa somente o documento atualmente aberto no visualizador dos autos do PJe, com travas HITL. Por padrao dryRun=true apenas identifica documento e botao. Com dryRun=false, pede confirmacao visual no Electron. Nao baixa autos completos, nao peticiona e nao executa outros atos.',
+    description: 'Baixa somente o documento atualmente aberto no visualizador dos autos do PJe, com travas HITL. Por padrao dryRun=true apenas identifica documento e botao. Com dryRun=false, a propria chamada exibe a aprovacao na Console Lex; nao chame lex_confirm separadamente. Nao baixa autos completos, nao peticiona e nao executa outros atos.',
     inputSchema: {
-      dryRun: z.boolean().optional().describe('Padrao true. Quando true, identifica documento e botao sem baixar. Quando false, pede confirmacao e baixa apenas o documento atual.'),
+      dryRun: z.boolean().optional().describe('Padrao true. Quando true, identifica documento e botao sem baixar. Quando false, abre HITL na Console Lex e baixa apenas se o usuario aceitar.'),
+      [internalHitlCapabilityArg]: z.string().optional().describe('Campo interno de autorizacao; nao deve ser enviado pelo modelo.'),
       waitAfterMs: z.number().int().min(1000).max(30000).optional().describe('Tempo maximo para aguardar o evento de download. Padrao: 10000 ms.'),
       downloadDir: z.string().optional().describe('Pasta destino opcional. Padrao: Downloads/Lex PJe.'),
       includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
@@ -1709,12 +2163,13 @@ if (process.argv.includes('--self-test')) {
 
   registerLexTool(server, 'pje_abrir_resultado', {
     title: 'Lex PJe Abrir Resultado',
-    description: 'Seleciona um resultado visivel da consulta do PJe e prepara a abertura dos autos com travas. Por padrao retorna resumo compacto. Politica economica: use flow conhecido/resultadoIndex antes de discovery bruto; includeRaw/includeDebug so quando a tool indicar baixa confianca ou ambiguidade. dryRun=true nao clica. dryRun=false e aceitarAviso=false pede confirmacao e para no aviso/modal. aceitarAviso=true exige confirmacao forte. Nao baixa documentos e nao peticiona.',
+    description: 'Seleciona um resultado visivel da consulta do PJe e prepara a abertura dos autos com travas. Nao use se pje_ler_resultados ja respondeu ao pedido do usuario, como ultima movimentacao visivel: responda e apenas ofereca autos. Use apenas quando o usuario pedir abrir autos, documento, capa, movimentos internos ou quando os resultados nao bastarem. Por padrao retorna resumo compacto. dryRun=true nao clica. dryRun=false e aceitarAviso=false abre apenas o link/aviso/modal e para sem aceitar aviso. Quando o usuario pedir entrada nos autos, chame esta tool com aceitarAviso=true: a propria chamada exibe HITL na Console Lex; nao chame lex_confirm separadamente. Nao baixa documentos e nao peticiona.',
     inputSchema: {
       numero: z.string().optional().describe('Numero CNJ esperado para selecionar a linha correta. Se ausente, usa resultadoIndex.'),
       resultadoIndex: z.number().int().min(1).max(100).optional().describe('Indice humano do resultado visivel, comecando em 1. Padrao: 1.'),
       dryRun: z.boolean().optional().describe('Padrao true. Quando true, escolhe a linha/link e mostra o plano sem clicar.'),
-      aceitarAviso: z.boolean().optional().describe('Padrao false. Quando false, abre apenas o aviso/modal. Quando true, tenta aceitar/continuar e abrir os autos apos confirmacao visual.'),
+      aceitarAviso: z.boolean().optional().describe('Padrao false. Quando false, abre apenas o aviso/modal. Quando true, exibe HITL na Console Lex e so aceita/continua para os autos apos aprovacao.'),
+      [internalHitlCapabilityArg]: z.string().optional().describe('Campo interno de autorizacao; nao deve ser enviado pelo modelo.'),
       waitAfterMs: z.number().int().min(500).max(15000).optional().describe('Espera apos clique para modal/aba carregar. Padrao: 3000 ms.'),
       includeRaw: z.boolean().optional().describe('Quando true, inclui o JSON completo retornado pelo bridge. Use somente para diagnostico.'),
       includeDebug: z.boolean().optional().describe('Alias diagnostico para incluir o JSON completo retornado pelo bridge.'),

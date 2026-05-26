@@ -86,6 +86,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+_LEX_DESKTOP_SERVER = "lex-desktop"
+_LEX_HITL_ARG = "_lexHitlCapability"
+
 
 # ---------------------------------------------------------------------------
 # Stdio subprocess stderr redirection
@@ -1825,7 +1828,8 @@ def _run_on_mcp_loop(coro, timeout: float = 30):
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return future.result(timeout=0)
+                future.cancel()
+                raise TimeoutError(f"MCP call timed out after {timeout:.0f}s")
             wait_timeout = min(wait_timeout, remaining)
 
         try:
@@ -1919,6 +1923,71 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
     """
 
     def _handler(args: dict, **kwargs) -> str:
+        call_args = dict(args or {})
+        # The model never gets to supply an authorization capability.
+        call_args.pop(_LEX_HITL_ARG, None)
+        requires_native_hitl = False
+        action_key = ""
+        description = ""
+        detail = ""
+        if server_name == _LEX_DESKTOP_SERVER:
+            if (
+                tool_name == "pje_abrir_resultado"
+                and call_args.get("dryRun") is False
+                and call_args.get("aceitarAviso") is True
+            ):
+                numero = str(call_args.get("numero") or "processo_selecionado").strip()
+                normalized = re.sub(r"[^0-9A-Za-z_-]", "", numero) or "processo_selecionado"
+                requires_native_hitl = True
+                action_key = f"pje:abrir_autos:{normalized}"
+                description = "Entrar nos autos do PJe"
+                detail = (
+                    f"Aceitar o aviso do PJe e abrir os autos do processo {numero}.\n"
+                    "Este acesso pode ficar registrado como visualizacao pelo usuario logado."
+                )
+            elif tool_name == "pje_baixar_documento_atual" and call_args.get("dryRun") is False:
+                numero = str(call_args.get("numero") or "contexto_atual").strip()
+                normalized = re.sub(r"[^0-9A-Za-z_-]", "", numero) or "contexto_atual"
+                requires_native_hitl = True
+                action_key = f"pje:baixar_documento_atual:{normalized}"
+                description = "Baixar documento atual do PJe"
+                detail = (
+                    f"Baixar o documento atualmente aberto no PJe ({numero}).\n"
+                    "A Lex nao vai peticionar nem baixar autos completos nesta acao."
+                )
+
+        if requires_native_hitl:
+            from tools.approval import request_human_approval
+
+            approval = request_human_approval(
+                action_key,
+                description,
+                detail,
+                allow_permanent=False,
+            )
+            if not approval.get("approved"):
+                response = {
+                    "error": approval.get("message") or "Aprovacao negada.",
+                    "do_not_retry": True,
+                }
+                if approval.get("status") in ("approval_required", "approval_unavailable"):
+                    response["human_approval_unavailable"] = True
+                    response["error"] = (
+                        "A aprovacao nao chegou a ser exibida na Console Lex. "
+                        "Nao informe ao usuario que ele negou a acao."
+                    )
+                else:
+                    response["human_approval_denied"] = True
+                return json.dumps(response, ensure_ascii=False)
+            capability = os.getenv("LEX_DESKTOP_HITL_CAPABILITY", "").strip()
+            if not capability:
+                return json.dumps({
+                    "error": "A aprovacao ocorreu, mas a capacidade segura do Desktop nao esta disponivel.",
+                    "human_approval_required": True,
+                    "do_not_retry": True,
+                }, ensure_ascii=False)
+            call_args[_LEX_HITL_ARG] = capability
+
         # Circuit breaker: if this server has failed too many times
         # consecutively, short-circuit with a clear message so the model
         # stops retrying and uses alternative approaches (#10447).
@@ -1954,7 +2023,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             }, ensure_ascii=False)
 
         async def _call():
-            result = await server.session.call_tool(tool_name, arguments=args)
+            result = await server.session.call_tool(tool_name, arguments=call_args)
             # MCP CallToolResult has .content (list of content blocks) and .isError
             if result.isError:
                 error_text = ""
@@ -2417,10 +2486,16 @@ def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
     safe_tool_name = sanitize_mcp_name_component(mcp_tool.name)
     safe_server_name = sanitize_mcp_name_component(server_name)
     prefixed_name = f"mcp_{safe_server_name}_{safe_tool_name}"
+    parameters = _normalize_mcp_input_schema(getattr(mcp_tool, "inputSchema", None))
+    if server_name == _LEX_DESKTOP_SERVER:
+        parameters.get("properties", {}).pop(_LEX_HITL_ARG, None)
+        required = parameters.get("required")
+        if isinstance(required, list) and _LEX_HITL_ARG in required:
+            parameters["required"] = [key for key in required if key != _LEX_HITL_ARG]
     return {
         "name": prefixed_name,
         "description": mcp_tool.description or f"MCP tool {mcp_tool.name} from {server_name}",
-        "parameters": _normalize_mcp_input_schema(getattr(mcp_tool, "inputSchema", None)),
+        "parameters": parameters,
     }
 
 

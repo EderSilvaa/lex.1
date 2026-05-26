@@ -8,31 +8,32 @@ import type { ApprovalReq, ClarifyReq, ConfirmReq } from '../types.js'
 import { TextInput } from './textInput.js'
 
 const OPTS = ['once', 'session', 'always', 'deny'] as const
-const LABELS = { always: 'Always allow', deny: 'Deny', once: 'Allow once', session: 'Allow this session' } as const
+const LABELS = { always: 'Aceitar sempre', deny: 'Negar', once: 'Aceitar uma vez', session: 'Aceitar nesta sessao' } as const
 const CMD_PREVIEW_LINES = 10
 
 export function ApprovalPrompt({ onChoice, req, t }: ApprovalPromptProps) {
   const [sel, setSel] = useState(0)
+  const opts = req.allowPermanent === false ? OPTS.filter(o => o !== 'always') : OPTS
 
   useInput((ch, key) => {
     if (key.upArrow && sel > 0) {
       setSel(s => s - 1)
     }
 
-    if (key.downArrow && sel < OPTS.length - 1) {
+    if (key.downArrow && sel < opts.length - 1) {
       setSel(s => s + 1)
     }
 
     const n = parseInt(ch, 10)
 
-    if (n >= 1 && n <= OPTS.length) {
-      onChoice(OPTS[n - 1]!)
+    if (n >= 1 && n <= opts.length) {
+      onChoice(opts[n - 1]!)
 
       return
     }
 
     if (key.return) {
-      onChoice(OPTS[sel]!)
+      onChoice(opts[sel]!)
     }
   })
 
@@ -43,7 +44,7 @@ export function ApprovalPrompt({ onChoice, req, t }: ApprovalPromptProps) {
   return (
     <Box borderColor={t.color.warn} borderStyle="double" flexDirection="column" paddingX={1}>
       <Text bold color={t.color.warn}>
-        ⚠ approval required · {req.description}
+        Aprovacao necessaria: {req.description}
       </Text>
 
       <Box flexDirection="column" paddingLeft={1}>
@@ -55,14 +56,14 @@ export function ApprovalPrompt({ onChoice, req, t }: ApprovalPromptProps) {
 
         {overflow > 0 ? (
           <Text color={t.color.dim}>
-            … +{overflow} more line{overflow === 1 ? '' : 's'} (full text above)
+            ... +{overflow} linha{overflow === 1 ? '' : 's'} adicional(is)
           </Text>
         ) : null}
       </Box>
 
       <Text />
 
-      {OPTS.map((o, i) => (
+      {opts.map((o, i) => (
         <Text key={o}>
           <Text bold={sel === i} color={sel === i ? t.color.warn : t.color.dim} inverse={sel === i}>
             {sel === i ? '▸ ' : '  '}
@@ -71,7 +72,7 @@ export function ApprovalPrompt({ onChoice, req, t }: ApprovalPromptProps) {
         </Text>
       ))}
 
-      <Text color={t.color.dim}>↑/↓ select · Enter confirm · 1-4 quick pick · Ctrl+C deny</Text>
+      <Text color={t.color.dim}>Setas selecionar | Enter confirmar | 1-{opts.length} atalho | Ctrl+C negar</Text>
     </Box>
   )
 }

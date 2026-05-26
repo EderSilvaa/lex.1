@@ -445,6 +445,98 @@ class TestToolHandler:
         finally:
             _servers.pop("test_srv", None)
 
+    def test_pje_sensitive_call_is_blocked_when_tui_denies(self):
+        from tools.mcp_tool import _make_tool_handler, _servers
+
+        mock_session = MagicMock()
+        server = _make_mock_server("lex-desktop", session=mock_session)
+        _servers["lex-desktop"] = server
+        try:
+            handler = _make_tool_handler("lex-desktop", "pje_abrir_resultado", 120)
+            with patch(
+                "tools.approval.request_human_approval",
+                return_value={"approved": False, "message": "negada"},
+            ):
+                result = json.loads(handler({
+                    "numero": "0886971-84.2025.8.14.0301",
+                    "dryRun": False,
+                    "aceitarAviso": True,
+                }))
+            assert result["human_approval_denied"] is True
+            assert result["do_not_retry"] is True
+            mock_session.call_tool.assert_not_called()
+        finally:
+            _servers.pop("lex-desktop", None)
+
+    def test_pje_sensitive_call_reports_missing_overlay_without_blaming_user(self):
+        from tools.mcp_tool import _make_tool_handler, _servers
+
+        mock_session = MagicMock()
+        server = _make_mock_server("lex-desktop", session=mock_session)
+        _servers["lex-desktop"] = server
+        try:
+            handler = _make_tool_handler("lex-desktop", "pje_abrir_resultado", 120)
+            with patch(
+                "tools.approval.request_human_approval",
+                return_value={"approved": False, "status": "approval_unavailable"},
+            ):
+                result = json.loads(handler({
+                    "numero": "0886971-84.2025.8.14.0301",
+                    "dryRun": False,
+                    "aceitarAviso": True,
+                }))
+            assert result["human_approval_unavailable"] is True
+            assert "human_approval_denied" not in result
+            assert "nao chegou a ser exibida" in result["error"]
+            mock_session.call_tool.assert_not_called()
+        finally:
+            _servers.pop("lex-desktop", None)
+
+    def test_pje_sensitive_call_forwards_internal_capability_only_after_approval(self):
+        from tools.mcp_tool import _make_tool_handler, _servers
+
+        mock_session = MagicMock()
+        mock_session.call_tool = AsyncMock(
+            return_value=_make_call_result("opened", is_error=False)
+        )
+        server = _make_mock_server("lex-desktop", session=mock_session)
+        _servers["lex-desktop"] = server
+        try:
+            handler = _make_tool_handler("lex-desktop", "pje_abrir_resultado", 120)
+            with patch(
+                "tools.approval.request_human_approval",
+                return_value={"approved": True},
+            ), patch.dict("os.environ", {"LEX_DESKTOP_HITL_CAPABILITY": "secret-cap"}, clear=False):
+                with self._patch_mcp_loop():
+                    result = json.loads(handler({
+                        "numero": "0886971-84.2025.8.14.0301",
+                        "dryRun": False,
+                        "aceitarAviso": True,
+                    }))
+            assert result["result"] == "opened"
+            forwarded = mock_session.call_tool.call_args.kwargs["arguments"]
+            assert forwarded["_lexHitlCapability"] == "secret-cap"
+        finally:
+            _servers.pop("lex-desktop", None)
+
+    def test_model_cannot_forge_internal_capability_on_safe_call(self):
+        from tools.mcp_tool import _make_tool_handler, _servers
+
+        mock_session = MagicMock()
+        mock_session.call_tool = AsyncMock(
+            return_value=_make_call_result("preview", is_error=False)
+        )
+        server = _make_mock_server("lex-desktop", session=mock_session)
+        _servers["lex-desktop"] = server
+        try:
+            handler = _make_tool_handler("lex-desktop", "pje_abrir_resultado", 120)
+            with self._patch_mcp_loop():
+                handler({"dryRun": True, "_lexHitlCapability": "forged"})
+            forwarded = mock_session.call_tool.call_args.kwargs["arguments"]
+            assert "_lexHitlCapability" not in forwarded
+        finally:
+            _servers.pop("lex-desktop", None)
+
 
 class TestRunOnMCPLoopInterrupts:
     def test_interrupt_cancels_waiting_mcp_call(self):

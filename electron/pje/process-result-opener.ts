@@ -759,8 +759,8 @@ export async function openPjeSearchResult(paramsRaw: OpenSearchResultParams = {}
         aceitarAviso && !existingWarning ? 'accept_warning_requested_but_no_warning_visible_yet' : null,
       ].filter(Boolean),
       nextActions: aceitarAviso
-        ? ['confirmar_entrada_autos_no_electron', 'executar_pje_abrir_resultado_com_dryRun_false_e_aceitarAviso_true']
-        : ['confirmar_abertura_do_aviso_no_electron', 'executar_pje_abrir_resultado_com_dryRun_false_e_aceitarAviso_false'],
+        ? ['aprovar_entrada_autos_na_console_lex', 'executar_pje_abrir_resultado_com_dryRun_false_e_aceitarAviso_true']
+        : ['executar_pje_abrir_resultado_com_dryRun_false_e_aceitarAviso_false', 'parar_no_aviso_sem_aceitar'],
     };
   }
 
@@ -897,7 +897,7 @@ export async function openPjeSearchResult(paramsRaw: OpenSearchResultParams = {}
         ? 'Aviso nativo de entrada detectado e recusado pela Lex. Os autos nao foram abertos.'
       : 'Link do processo acionado, mas nenhum aviso/modal foi detectado.',
     nextActions: warning || nativeWarning
-      ? ['revisar_aviso_no_chrome', 'executar_pje_abrir_resultado_com_aceitarAviso_true_se_o_usuario_autorizar']
+      ? ['revisar_aviso_no_chrome', 'executar_pje_abrir_resultado_com_aceitarAviso_true_para_abrir_hitl_na_console_lex']
       : ['inspecionar_contexto_antes_de_qualquer_novo_clique'],
   };
 }

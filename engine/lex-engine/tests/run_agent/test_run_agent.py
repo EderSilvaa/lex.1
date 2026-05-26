@@ -1803,6 +1803,30 @@ class TestConcurrentToolExecution:
         assert "beta" in messages[1]["content"]
         assert "gamma" in messages[2]["content"]
 
+    def test_concurrent_workers_preserve_session_contextvars(self, agent):
+        """Tool workers must retain TUI session context used by native approvals."""
+        import contextvars
+
+        marker = contextvars.ContextVar("approval_session_test", default="")
+        token = marker.set("console-lex-session")
+        tc1 = _mock_tool_call(name="web_search", arguments='{"q":"one"}', call_id="c1")
+        tc2 = _mock_tool_call(name="web_search", arguments='{"q":"two"}', call_id="c2")
+        mock_msg = _mock_assistant_msg(content="", tool_calls=[tc1, tc2])
+        messages = []
+        observed = []
+
+        def fake_handle(name, args, task_id, **kwargs):
+            observed.append(marker.get())
+            return "{}"
+
+        try:
+            with patch("run_agent.handle_function_call", side_effect=fake_handle):
+                agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
+        finally:
+            marker.reset(token)
+
+        assert observed == ["console-lex-session", "console-lex-session"]
+
     def test_concurrent_preserves_order_despite_timing(self, agent):
         """Even if tools finish in different order, messages should be in original order."""
         import time as _time

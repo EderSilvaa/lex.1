@@ -449,7 +449,12 @@ describe('createGatewayEventHandler', () => {
     onEvent({ payload: { line: 'Traceback: noisy but non-fatal' }, type: 'gateway.stderr' } as any)
     onEvent({ payload: { preview: 'bad framing' }, type: 'gateway.protocol_error' } as any)
     onEvent({
-      payload: { command: 'rm -rf /tmp/nope', description: 'dangerous command' },
+      payload: {
+        allow_permanent: false,
+        approval_id: 'pje:abrir_autos:123',
+        command: 'abrir autos',
+        description: 'Entrar nos autos do PJe'
+      },
       type: 'approval.request'
     } as any)
     onEvent({ payload: {}, type: 'gateway.ready' } as any)
@@ -457,7 +462,11 @@ describe('createGatewayEventHandler', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(getOverlayState().approval).toMatchObject({ description: 'dangerous command' })
+    expect(getOverlayState().approval).toMatchObject({
+      allowPermanent: false,
+      approvalId: 'pje:abrir_autos:123',
+      description: 'Entrar nos autos do PJe'
+    })
     expect(getTurnState().activity).toMatchObject([
       { text: 'Traceback: noisy but non-fatal', tone: 'info' },
       { text: 'protocol noise detected · /logs to inspect', tone: 'info' },

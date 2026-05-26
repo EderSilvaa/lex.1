@@ -1,6 +1,7 @@
 """Tests for the dangerous command approval module."""
 
 import ast
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch as mock_patch
@@ -14,6 +15,7 @@ from tools.approval import (
     is_approved,
     load_permanent,
     prompt_dangerous_approval,
+    request_human_approval,
     submit_pending,
 )
 
@@ -171,6 +173,107 @@ class TestSessionKeyContext:
 
         assert "set_current_session_key" in called_names
         assert "reset_current_session_key" in called_names
+
+
+class TestSensitiveActionApproval:
+    def test_gateway_pje_approval_is_emitted_without_permanent_option(self):
+        session_key = "pje-action-session"
+        action_key = "pje:abrir_autos:08869718420258140301"
+        captured = {}
+        token = approval_module.set_current_session_key(session_key)
+        approval_module.clear_session(session_key)
+
+        def notify(payload):
+            captured.update(payload)
+            approval_module.resolve_gateway_approval(session_key, "session")
+
+        approval_module.register_gateway_notify(session_key, notify)
+        try:
+            with mock_patch.dict("os.environ", {
+                "HERMES_GATEWAY_SESSION": "",
+                "HERMES_EXEC_ASK": "",
+            }, clear=False):
+                result = request_human_approval(
+                    action_key,
+                    "Entrar nos autos do PJe",
+                    "Aceitar aviso e abrir autos.",
+                    allow_permanent=False,
+                )
+        finally:
+            approval_module.unregister_gateway_notify(session_key)
+            approval_module.reset_current_session_key(token)
+            approval_module.clear_session(session_key)
+
+        assert result["approved"] is True
+        assert captured["allow_permanent"] is False
+        assert captured["approval_id"] == action_key
+
+    def test_gateway_pje_approval_denial_blocks_action(self):
+        session_key = "pje-denied-session"
+        token = approval_module.set_current_session_key(session_key)
+        approval_module.clear_session(session_key)
+
+        def notify(_payload):
+            approval_module.resolve_gateway_approval(session_key, "deny")
+
+        approval_module.register_gateway_notify(session_key, notify)
+        try:
+            with mock_patch.dict("os.environ", {
+                "HERMES_GATEWAY_SESSION": "",
+                "HERMES_EXEC_ASK": "",
+            }, clear=False):
+                result = request_human_approval(
+                    "pje:baixar_documento_atual:contexto_atual",
+                    "Baixar documento atual do PJe",
+                    "Baixar documento.",
+                    allow_permanent=False,
+                )
+        finally:
+            approval_module.unregister_gateway_notify(session_key)
+            approval_module.reset_current_session_key(token)
+            approval_module.clear_session(session_key)
+
+        assert result["approved"] is False
+        assert result["status"] == "denied"
+        assert "Nao repita automaticamente" in result["message"]
+
+    def test_cli_pje_approval_uses_registered_console_overlay(self):
+        session_key = "pje-cli-session"
+        captured = {}
+        token = approval_module.set_current_session_key(session_key)
+        approval_module.clear_session(session_key)
+
+        def approve_in_console(command, description, *, allow_permanent=True):
+            captured.update({
+                "command": command,
+                "description": description,
+                "allow_permanent": allow_permanent,
+            })
+            return "once"
+
+        try:
+            with mock_patch.dict("os.environ", {
+                "HERMES_GATEWAY_SESSION": "",
+                "HERMES_EXEC_ASK": "",
+                "HERMES_INTERACTIVE": "1",
+            }, clear=False), mock_patch.dict(sys.modules, {
+                "tools.terminal_tool": SimpleNamespace(
+                    _get_approval_callback=lambda: approve_in_console,
+                ),
+            }):
+                    result = request_human_approval(
+                        "pje:abrir_autos:08869718420258140301",
+                        "Entrar nos autos do PJe",
+                        "Aceitar aviso e abrir autos.",
+                        allow_permanent=False,
+                    )
+        finally:
+            approval_module.reset_current_session_key(token)
+            approval_module.clear_session(session_key)
+
+        assert result["approved"] is True
+        assert captured["description"] == "Entrar nos autos do PJe"
+        assert captured["allow_permanent"] is False
 
 
 

@@ -15,7 +15,7 @@ import { PROVIDER_PRESETS, setActiveConfig, getActiveConfig, type ProviderId } f
 import { initSupabase } from './auth/supabase-client';
 import { authSignIn, authSignUp, authSignOut, checkLicense, refreshLicense, getProfile } from './auth/license';
 import { getAnalytics } from './analytics';
-import { getLexDesktopBridgeState, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
+import { getLexDesktopBridgeState, getLexDesktopHitlCapability, startLexDesktopBridge, stopLexDesktopBridge } from './lex-desktop-bridge';
 import { askLexEngine, getLexEngineAgoraBoardPath, getLexEngineConnectorsSnapshot, getLexEngineConsoleSpawn, getLexEngineKanbanHomePath, getLexEngineProviderSnapshot, getLexEngineSkillsRuntimeSnapshot, getLexEngineStatus, syncLexEngineProviderConfig } from './lex-engine';
 import { listHermesSkillsCatalog } from './hermes-skills-catalog';
 import { autoUpdater } from 'electron-updater';
@@ -280,7 +280,7 @@ async function syncProvider(providerId: ProviderId, apiKey: string, agentModel?:
     try {
         await syncLexEngineProviderConfig(config);
     } catch (error: any) {
-        console.warn('[Provider] Falha ao sincronizar com Hermes:', error?.message || error);
+        console.warn('[Provider] Falha ao sincronizar com Hermes; credenciais omitidas do log.');
     }
 }
 
@@ -355,14 +355,14 @@ function loadApiKey(providerId: ProviderId): string {
     if (!store) { console.log(`[loadApiKey] Store não inicializado`); return ''; }
     const apiKeys = (store.get('apiKeys', {}) as Record<string, string>);
     const raw = String(apiKeys[providerId] || '').trim();
-    console.log(`[loadApiKey] provider=${providerId}, raw=${raw ? raw.slice(0, 20) + '...' : 'EMPTY'}, encrypted=${isEncrypted(raw)}`);
+    console.log(`[loadApiKey] provider=${providerId}, configured=${Boolean(raw)}, encrypted=${isEncrypted(raw)}`);
     if (!raw) return '';
     if (!isEncrypted(raw)) {
         saveApiKey(providerId, raw);
         return raw;
     }
     const decrypted = safeDecrypt(raw);
-    console.log(`[loadApiKey] decrypted=${decrypted ? decrypted.slice(0, 8) + '...' : 'EMPTY (decrypt failed)'}`);
+    console.log(`[loadApiKey] decrypted=${Boolean(decrypted)}`);
     return decrypted;
 }
 
@@ -583,7 +583,7 @@ ipcMain.handle('store-set-provider', async (_event, cfg: { providerId: ProviderI
     const desired = normalizeProviderSelection(cfg.providerId, cfg.agentModel, cfg.visionModel);
     store.set('aiProvider', desired);
     const apiKey = loadApiKey(desired.providerId);
-    console.log(`[Provider] setProvider: ${desired.providerId}, key=${apiKey ? apiKey.slice(0,8) + '...' : 'EMPTY'}, agent=${desired.agentModel}, vision=${desired.visionModel}`);
+    console.log(`[Provider] setProvider: ${desired.providerId}, configured=${Boolean(apiKey)}, agent=${desired.agentModel}, vision=${desired.visionModel}`);
     await syncProvider(desired.providerId, apiKey, desired.agentModel, desired.visionModel);
     const canonical = await resolveCanonicalProviderSelectionFromHermes(desired);
     store.set('aiProvider', {
@@ -1307,6 +1307,7 @@ app.whenReady().then(async () => {
                 const desktopEnv = {
                     ...(desktopUserName ? { LEX_DESKTOP_USER_NAME: desktopUserName } : {}),
                     ...(desktopUserRole ? { LEX_DESKTOP_USER_ROLE: desktopUserRole } : {}),
+                    LEX_DESKTOP_HITL_CAPABILITY: getLexDesktopHitlCapability(),
                     ...getProviderRuntimeEnv(activeProvider.providerId, activeProviderKey),
                 };
                 const spawn = getLexEngineConsoleSpawn(opts.sessionId, desktopEnv);
